@@ -1,3 +1,12 @@
 [submodule "third/LabSound"]
 	path = third/LabSound
 	url = https://github.com/LabSound/LabSound.git
+[submodule "third/imgui"]
+	path = third/imgui
+	url = https://github.com/ocornut/imgui.git
+[submodule "third/imgui-node-editor"]
+	path = third/imgui-node-editor
+	url = https://github.com/thedmd/imgui-node-editor.git
+[submodule "third/sokol"]
+	path = third/sokol
+	url = https://github.com/floooh/sokol.git

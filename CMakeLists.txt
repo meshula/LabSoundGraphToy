@@ -1,0 +1,175 @@
+
+cmake_minimum_required(VERSION 3.11)
+project(LabSoundGraphToy VERSION 0.1.0 LANGUAGES C CXX)
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+
+add_subdirectory(third/LabSound)
+
+if(WIN32)
+    set (PLATFORM_DEFS
+        WIN32_LEAN_AND_MEAN
+        _CRT_SECURE_NO_WARNINGS
+    )
+endif()
+
+set(PLAYGROUND_SRC
+    src/graph_ed.cpp
+    src/main.cpp
+)
+
+set(ST_GFX_DEFS
+    IMGUI_IMPL_API=
+    SOKOL_GLCORE33
+)
+
+#-------------------------------------------------------------------------------
+# imgui
+#-------------------------------------------------------------------------------
+
+set(IMGUI_SRC
+    third/imgui/imgui.cpp
+    third/imgui/imgui.h
+    third/imgui/imgui_demo.cpp
+    third/imgui/imgui_draw.cpp
+    third/imgui/imgui_internal.h
+    third/imgui/imgui_widgets.cpp
+    third/imgui-node-editor/Support/ImGui.natvis
+)
+
+add_library(imgui STATIC ${IMGUI_SRC})
+target_include_directories(imgui SYSTEM
+    PUBLIC third/imgui)
+target_compile_definitions(imgui PRIVATE
+    ${ST_GFX_DEFS}
+    IMGUI_DEFINE_MATH_OPERATORS
+    ${PLATFORM_DEFS}
+)
+
+#-------------------------------------------------------------------------------
+# NodeEditor
+#-------------------------------------------------------------------------------
+
+set(IMGUI_NODE_EDITOR_SRC
+    third/imgui-node-editor/NodeEditor/Include/imgui_node_editor.h
+    third/imgui-node-editor/NodeEditor/Source/crude_json.cpp
+    third/imgui-node-editor/NodeEditor/Source/crude_json.h
+    third/imgui-node-editor/NodeEditor/Source/imgui_bezier_math.h
+    third/imgui-node-editor/NodeEditor/Source/imgui_bezier_math.inl
+    third/imgui-node-editor/NodeEditor/Source/imgui_canvas.cpp
+    third/imgui-node-editor/NodeEditor/Source/imgui_canvas.h
+    third/imgui-node-editor/NodeEditor/Source/imgui_extra_math.h
+    third/imgui-node-editor/NodeEditor/Source/imgui_extra_math.inl
+    third/imgui-node-editor/NodeEditor/Source/imgui_node_editor_api.cpp
+    third/imgui-node-editor/NodeEditor/Source/imgui_node_editor_internal.h
+    third/imgui-node-editor/NodeEditor/Source/imgui_node_editor_internal.inl
+    third/imgui-node-editor/NodeEditor/Source/imgui_node_editor.cpp
+    third/imgui-node-editor/NodeEditor/Support/imgui_node_editor.natvis
+)
+add_library(imgui_node_editor STATIC ${IMGUI_NODE_EDITOR_SRC})
+target_include_directories(imgui_node_editor SYSTEM
+    PUBLIC third/imgui-node-editor/NodeEditor/Include
+    PRIVATE third/imgui-node-editor/NodeEditor/Source
+    PRIVATE third/imgui
+)
+
+#-------------------------------------------------------------------------------
+# sokol
+#-------------------------------------------------------------------------------
+
+set(SOKOL_SRC 
+    src/sokol.cpp)
+
+set(SOKOL_HEADERS 
+    third/sokol/sokol_app.h
+    third/sokol/sokol_args.h
+    third/sokol/sokol_audio.h
+    third/sokol/sokol_fetch.h
+    third/sokol/sokol_gfx.h
+    third/sokol/sokol_time.h
+    third/sokol/util/sokol_fontstash.h
+    third/sokol/util/sokol_gfx_imgui.h
+    third/sokol/util/sokol_gl.h
+    third/sokol/util/sokol_imgui.h
+)
+add_library(sokol STATIC ${SOKOL_SRC} ${SOKOL_HEADERS})
+target_include_directories(sokol SYSTEM 
+    PUBLIC third/sokol third/sokol/util src)
+target_link_libraries(sokol imgui)
+add_dependencies(sokol imgui)
+target_compile_definitions(sokol PRIVATE
+    ${ST_GFX_DEFS}
+    IMGUI_DEFINE_MATH_OPERATORS
+    ${PLATFORM_DEFS}
+)
+
+install(
+    TARGETS sokol
+    EXPORT pxrTargets
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+    RUNTIME DESTINATION bin
+    PUBLIC_HEADER DESTINATION include/sokol
+)
+
+#-------------------------------------------------------------------------------
+# LabSoundGraphToy
+#-------------------------------------------------------------------------------
+
+set(PLAYGROUND_SHADERS
+#    simple_cube instancing billboard_instances
+)
+
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated_src)
+foreach(SHADER ${PLAYGROUND_SHADERS})
+    add_custom_command(
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated_src/${SHADER}_glsl.h
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/third/sokol-tools-bin/bin/win32/sokol-shdc.exe --input ${CMAKE_CURRENT_SOURCE_DIR}/src/${SHADER}.glsl --output ${CMAKE_CURRENT_BINARY_DIR}/generated_src/${SHADER}_glsl.h --slang glsl330:hlsl5:metal_macos
+        COMMENT "Running sokol-shdc for ${SHADER}.glsl"
+    )
+    list(APPEND PLAYGROUND_SHADERS_SRC ${CMAKE_CURRENT_BINARY_DIR}/generated_src/${SHADER}_glsl.h)
+endforeach()
+add_custom_target(ProcessPlaygroundShaderFiles ALL DEPENDS ${PLAYGROUND_SHADERS_SRC})
+
+add_executable(LabSoundGraphToy
+    ${PLAYGROUND_SRC}
+    ${ST_GFX_SRC}
+    ${PLAYGROUND_SHADERS_SRC}
+)
+add_dependencies(LabSoundGraphToy ProcessPlaygroundShaderFiles)
+
+target_compile_definitions(LabSoundGraphToy PRIVATE
+    ${ST_GFX_DEFS}
+    IMGUI_DEFINE_MATH_OPERATORS
+    ${PLATFORM_DEFS}
+    SOKOL_WIN32_FORCE_MAIN
+)
+
+target_include_directories(LabSoundGraphToy SYSTEM
+    PRIVATE third/imgui)
+
+target_include_directories(LabSoundGraphToy
+    PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated_src
+    PRIVATE third/imgui/examples)
+
+target_include_directories(imgui SYSTEM
+    PRIVATE third/imgui)
+
+set_property(TARGET LabSoundGraphToy PROPERTY CXX_STANDARD 17)
+set_property(TARGET LabSoundGraphToy PROPERTY CXX_STANDARD_REQUIRED ON)
+
+if (WIN32)
+    set(PLATFORM_LIBS ws2_32 Iphlpapi.lib opengl32.lib)
+endif()
+
+target_link_libraries(LabSoundGraphToy
+    ${PLATFORM_LIBS}
+    imgui
+    imgui_node_editor
+    Lab::Sound
+    sokol)
+
+#-------------------------------------------------------------------------------
+# Installer
+#-------------------------------------------------------------------------------
+
+install(TARGETS LabSoundGraphToy DESTINATION bin)
