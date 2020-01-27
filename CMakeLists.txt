@@ -5,6 +5,9 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 add_subdirectory(third/LabSound)
 
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 if(WIN32)
     set (PLATFORM_DEFS
         WIN32_LEAN_AND_MEAN
@@ -17,10 +20,17 @@ set(PLAYGROUND_SRC
     src/main.cpp
 )
 
+if(APPLE)
+set(ST_GFX_DEFS
+    IMGUI_IMPL_API=
+    SOKOL_METAL
+)
+else()
 set(ST_GFX_DEFS
     IMGUI_IMPL_API=
     SOKOL_GLCORE33
 )
+endif()
 
 #-------------------------------------------------------------------------------
 # imgui
@@ -102,6 +112,10 @@ target_compile_definitions(sokol PRIVATE
     ${PLATFORM_DEFS}
 )
 
+if(APPLE)
+    set_source_files_properties(src/sokol.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++ -fobjc-arc")
+endif()
+
 install(
     TARGETS sokol
     EXPORT pxrTargets
@@ -159,6 +173,24 @@ set_property(TARGET LabSoundGraphToy PROPERTY CXX_STANDARD_REQUIRED ON)
 
 if (WIN32)
     set(PLATFORM_LIBS ws2_32 Iphlpapi.lib opengl32.lib)
+elseif (APPLE)
+#    if(CMAKE_OSX_SYSROOT MATCHES ".*iphoneos.*")
+#        set(DARWIN_LIBS
+#            "-framework AudioToolbox"
+#            "-framework Accelerate"
+#            "-framework CoreAudio")
+#    else()
+        set(PLATFORM_LIBS
+            "-framework AudioToolbox"
+            "-framework AudioUnit"
+            "-framework Accelerate"
+            "-framework Cocoa"
+            "-framework CoreAudio"
+            "-framework Metal"
+            "-framework MetalKit"
+            "-framework QuartzCore"
+            )
+#    endif()
 endif()
 
 target_link_libraries(LabSoundGraphToy
@@ -167,7 +199,7 @@ target_link_libraries(LabSoundGraphToy
     imgui_node_editor
     Lab::Sound
     sokol)
-
+        
 #-------------------------------------------------------------------------------
 # Installer
 #-------------------------------------------------------------------------------
