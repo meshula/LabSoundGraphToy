@@ -466,8 +466,9 @@ struct AudioGuiNode
         for (size_t i = 0; i < in_count; ++i)
             pinIn.push_back({ "in", ed::PinId(unique_node_id++) });
 
-        for (auto& p : entry.param_names)
-            paramIn.push_back({ p, ed::PinId(unique_node_id++) });
+        in_count = entry.params.size();
+        for (size_t i = 0; i < in_count; ++i)
+            paramIn.push_back({ entry.param_names[i], ed::PinId(unique_node_id++) });
 
         size_t out_count = entry.audio_node->numberOfOutputs();
         for (size_t i = 0; i < out_count; ++i)
@@ -492,6 +493,7 @@ struct AudioGuiNodeReverseLookup
     enum class PinKind { PIN_IN, PARAM_IN, PIN_OUT };
     PinKind pin_kind;
     std::weak_ptr<AudioGuiNode> associated_node;
+    std::weak_ptr<lab::AudioParam> associated_param;
 };
 std::map<ed::PinId, AudioGuiNodeReverseLookup, compare_pins> g_pin_reverse_lookup;
 
@@ -499,8 +501,13 @@ void map_pins(std::shared_ptr<AudioGuiNode> node)
 {
     for (auto& i : node->pinIn)
         g_pin_reverse_lookup[i.id] = AudioGuiNodeReverseLookup{ AudioGuiNodeReverseLookup::PinKind::PIN_IN, node };
-    for (auto& i : node->paramIn)
-        g_pin_reverse_lookup[i.id] = AudioGuiNodeReverseLookup{ AudioGuiNodeReverseLookup::PinKind::PARAM_IN, node };
+    int c = node->paramIn.size();
+    for (int i = 0; i < c; ++i)
+    {
+        g_pin_reverse_lookup[node->paramIn[i].id] = AudioGuiNodeReverseLookup{ 
+            AudioGuiNodeReverseLookup::PinKind::PARAM_IN, node,
+            node->entry.params[i]};
+    }
     for (auto& i : node->pinOut)
         g_pin_reverse_lookup[i.id] = AudioGuiNodeReverseLookup{ AudioGuiNodeReverseLookup::PinKind::PIN_OUT, node };
 }
@@ -580,6 +587,12 @@ struct Work
             auto in_it = g_nodes.find(inputNode);
             auto out_it = g_nodes.find(outputNode);
             g_audio_context->connect(in_it->second->entry.audio_node, out_it->second->entry.audio_node, 0, 0);
+        }
+        else if (type == WorkType::ConnectAudioOutToParamIn)
+        {
+            auto in_it = g_nodes.find(inputNode);
+            auto out_it = g_nodes.find(outputNode);
+            g_audio_context->connectParam(param, out_it->second->entry.audio_node, 0);
         }
         else if (type == WorkType::DisconnectAudioInFromOut)
         {
@@ -838,7 +851,7 @@ void AudioGraphEditor_RunUI()
     if (ed::BeginCreate())
     {
         ed::PinId inputPinId, outputPinId;
-        if (ed::QueryNewLink(&inputPinId, &outputPinId))
+        if (ed::QueryNewLink(&outputPinId, &inputPinId))
         {
             // QueryNewLink returns true if editor want to create new link between pins.
             //
@@ -869,27 +882,35 @@ void AudioGraphEditor_RunUI()
                         auto in_it = g_pin_reverse_lookup.find(inputPinId);
                         auto out_it = g_pin_reverse_lookup.find(outputPinId);
 
-                        bool audioToAudio = in_it != g_pin_reverse_lookup.end() && out_it != g_pin_reverse_lookup.end();
-                        if (audioToAudio)
+                        bool valid = in_it != g_pin_reverse_lookup.end() && out_it != g_pin_reverse_lookup.end();
+                        if (valid)
                         {
-                            /// @TODO is the graph_ed in/out sense reversed?
-                            std::shared_ptr<AudioGuiNode> in_node = out_it->second.associated_node.lock();
-                            std::shared_ptr<AudioGuiNode> out_node = in_it->second.associated_node.lock();
-                            if (in_node->entry.audio_node && out_node->entry.audio_node)
+                            if (in_it->second.pin_kind == AudioGuiNodeReverseLookup::PinKind::PIN_IN)
                             {
-                                Work work{ WorkType::ConnectAudioOutToAudioIn };
-                                work.inputNode = in_node->id;
-                                work.outputNode = out_node->id;
-                                g_pending_work.emplace_back(work);
+                                std::shared_ptr<AudioGuiNode> in_node = in_it->second.associated_node.lock();
+                                std::shared_ptr<AudioGuiNode> out_node = out_it->second.associated_node.lock();
+                                if (in_node->entry.audio_node && out_node->entry.audio_node)
+                                {
+                                    Work work{ WorkType::ConnectAudioOutToAudioIn };
+                                    work.inputNode = in_node->id;
+                                    work.outputNode = out_node->id;
+                                    g_pending_work.emplace_back(work);
+                                }
+                            }
+                            else if (in_it->second.pin_kind == AudioGuiNodeReverseLookup::PinKind::PARAM_IN)
+                            {
+                                std::shared_ptr<AudioGuiNode> in_node = in_it->second.associated_node.lock();
+                                std::shared_ptr<AudioGuiNode> out_node = out_it->second.associated_node.lock();
+                                if (in_node->entry.audio_node && out_node->entry.audio_node)
+                                {
+                                    Work work{ WorkType::ConnectAudioOutToParamIn };
+                                    work.inputNode = in_node->id;
+                                    work.outputNode = out_node->id;
+                                    work.param = in_it->second.associated_param.lock();
+                                    g_pending_work.emplace_back(work);
+                                }
                             }
                         }
-/*                        else if (audioToParam)
-                        {
-                            Work work{ WorkType::ConnectAudioOutToParamIn };
-                            work.node = node;
-                            work.sourceNode = source;
-                            g_pending_work.emplace_back(work);
-                        }*/
                     }
                 //}
                 //else
