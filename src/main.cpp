@@ -16,9 +16,6 @@
 
 static uint64_t last_time = 0;
 
-void AudioGraphEditor_Initialize();
-void AudioGraphEditor_Finalize();
-void AudioGraphEditor_RunUI();
 
 static sg_pass_action pass_action;
 sg_imgui_t sg_imgui;
@@ -27,6 +24,10 @@ sg_imgui_t sg_imgui;
 std::string g_app_path;
 static bool quit = false;
 ImFont* g_roboto = nullptr;
+
+namespace lab { namespace noodle {
+    bool run_noodles();
+} }
 
 void init(void) {
     // setup sokol-gfx, sokol-time and sokol-imgui
@@ -56,8 +57,6 @@ void init(void) {
     pass_action.colors[0].val[1] = 0.5f;
     pass_action.colors[0].val[2] = 0.7f;
     pass_action.colors[0].val[3] = 1.0f;
-
-    AudioGraphEditor_Initialize();
 }
 
 void frame()
@@ -90,7 +89,10 @@ void frame()
         ImGui::EndMainMenuBar();
     }
 
-    AudioGraphEditor_RunUI();
+    lab::noodle::run_noodles();
+
+
+//    AudioGraphEditor_RunUI();
     ImGui::End();
 
     sg_imgui_draw(&sg_imgui);
@@ -102,7 +104,6 @@ void frame()
 }
 
 void cleanup(void) {
-    AudioGraphEditor_Finalize();
     sg_imgui_discard(&sg_imgui);
     simgui_shutdown();
     sg_shutdown();

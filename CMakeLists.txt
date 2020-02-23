@@ -5,7 +5,7 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 add_subdirectory(third/LabSound)
 
-if(WIN32)
+if (WIN32)
     set (PLATFORM_DEFS
         WIN32_LEAN_AND_MEAN
         _CRT_SECURE_NO_WARNINGS
@@ -13,8 +13,8 @@ if(WIN32)
 endif()
 
 set(PLAYGROUND_SRC
-    src/graph_ed.cpp
     src/main.cpp
+    src/lab_noodle.cpp
 )
 
 set(ST_GFX_DEFS
@@ -26,6 +26,10 @@ set(ST_GFX_DEFS
 # imgui
 #-------------------------------------------------------------------------------
 
+if (WIN32)
+    set(IMGUI_EXTRA third/ImGui.natvis)
+endif()
+
 set(IMGUI_SRC
     third/imgui/imgui.cpp
     third/imgui/imgui.h
@@ -33,7 +37,7 @@ set(IMGUI_SRC
     third/imgui/imgui_draw.cpp
     third/imgui/imgui_internal.h
     third/imgui/imgui_widgets.cpp
-    third/imgui-node-editor/Support/ImGui.natvis
+    ${IMGUI_EXTRA}
 )
 
 add_library(imgui STATIC ${IMGUI_SRC})
@@ -43,33 +47,6 @@ target_compile_definitions(imgui PRIVATE
     ${ST_GFX_DEFS}
     IMGUI_DEFINE_MATH_OPERATORS
     ${PLATFORM_DEFS}
-)
-
-#-------------------------------------------------------------------------------
-# NodeEditor
-#-------------------------------------------------------------------------------
-
-set(IMGUI_NODE_EDITOR_SRC
-    third/imgui-node-editor/NodeEditor/Include/imgui_node_editor.h
-    third/imgui-node-editor/NodeEditor/Source/crude_json.cpp
-    third/imgui-node-editor/NodeEditor/Source/crude_json.h
-    third/imgui-node-editor/NodeEditor/Source/imgui_bezier_math.h
-    third/imgui-node-editor/NodeEditor/Source/imgui_bezier_math.inl
-    third/imgui-node-editor/NodeEditor/Source/imgui_canvas.cpp
-    third/imgui-node-editor/NodeEditor/Source/imgui_canvas.h
-    third/imgui-node-editor/NodeEditor/Source/imgui_extra_math.h
-    third/imgui-node-editor/NodeEditor/Source/imgui_extra_math.inl
-    third/imgui-node-editor/NodeEditor/Source/imgui_node_editor_api.cpp
-    third/imgui-node-editor/NodeEditor/Source/imgui_node_editor_internal.h
-    third/imgui-node-editor/NodeEditor/Source/imgui_node_editor_internal.inl
-    third/imgui-node-editor/NodeEditor/Source/imgui_node_editor.cpp
-    third/imgui-node-editor/NodeEditor/Support/imgui_node_editor.natvis
-)
-add_library(imgui_node_editor STATIC ${IMGUI_NODE_EDITOR_SRC})
-target_include_directories(imgui_node_editor SYSTEM
-    PUBLIC third/imgui-node-editor/NodeEditor/Include
-    PRIVATE third/imgui-node-editor/NodeEditor/Source
-    PRIVATE third/imgui
 )
 
 #-------------------------------------------------------------------------------
@@ -145,14 +122,12 @@ target_compile_definitions(LabSoundGraphToy PRIVATE
 )
 
 target_include_directories(LabSoundGraphToy SYSTEM
-    PRIVATE third/imgui)
+    PRIVATE third/imgui
+    PRIVATE third/entt/single_include)
 
 target_include_directories(LabSoundGraphToy
     PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated_src
     PRIVATE third/imgui/examples)
-
-target_include_directories(imgui SYSTEM
-    PRIVATE third/imgui)
 
 set_property(TARGET LabSoundGraphToy PROPERTY CXX_STANDARD 17)
 set_property(TARGET LabSoundGraphToy PROPERTY CXX_STANDARD_REQUIRED ON)
@@ -164,7 +139,6 @@ endif()
 target_link_libraries(LabSoundGraphToy
     ${PLATFORM_LIBS}
     imgui
-    imgui_node_editor
     Lab::Sound
     sokol)
 

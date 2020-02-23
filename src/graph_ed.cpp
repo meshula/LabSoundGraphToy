@@ -14,7 +14,47 @@
 #include <string>
 #include <vector>
 
-void GrooveStart(lab::AudioContext* context);
+// Returns input, output
+inline std::pair<lab::AudioStreamConfig, lab::AudioStreamConfig> GetDefaultAudioDeviceConfiguration(const bool with_input = false)
+{
+    using namespace lab;
+    AudioStreamConfig inputConfig;
+    AudioStreamConfig outputConfig;
+
+    const std::vector<AudioDeviceInfo> audioDevices = lab::MakeAudioDeviceList();
+    const uint32_t default_output_device = lab::GetDefaultOutputAudioDeviceIndex();
+    const uint32_t default_input_device = lab::GetDefaultInputAudioDeviceIndex();
+
+    AudioDeviceInfo defaultOutputInfo, defaultInputInfo;
+    for (auto& info : audioDevices)
+    {
+        if (info.index == default_output_device) defaultOutputInfo = info;
+        else if (info.index == default_input_device) defaultInputInfo = info;
+    }
+
+    if (defaultOutputInfo.index != -1)
+    {
+        outputConfig.device_index = defaultOutputInfo.index;
+        outputConfig.desired_channels = std::min(uint32_t(2), defaultOutputInfo.num_output_channels);
+        outputConfig.desired_samplerate = defaultOutputInfo.nominal_samplerate;
+    }
+
+    if (with_input)
+    {
+        if (defaultInputInfo.index != -1)
+        {
+            inputConfig.device_index = defaultInputInfo.index;
+            inputConfig.desired_channels = std::min(uint32_t(1), defaultInputInfo.num_input_channels);
+            inputConfig.desired_samplerate = defaultInputInfo.nominal_samplerate;
+        }
+        else
+        {
+            throw std::invalid_argument("the default audio input device was requested but none were found");
+        }
+    }
+
+    return { inputConfig, outputConfig };
+}
 
 
 std::shared_ptr<lab::AudioNode> NodeFactory(const std::string& n)
@@ -27,7 +67,7 @@ std::shared_ptr<lab::AudioNode> NodeFactory(const std::string& n)
     if (n == "ChannelMerger") return std::make_shared<lab::ChannelMergerNode>();
     if (n == "ChannelSplitter") return std::make_shared<lab::ChannelSplitterNode>();
     if (n == "Clip") return std::make_shared<lab::ClipNode>();
-    if (n == "Convolver") return std::make_shared<lab::Sound::ConvolverNode>();
+    if (n == "Convolver") return std::make_shared<lab::ConvolverNode>();
     //if (n == "DefaultAudioDestination") return std::make_shared<lab::DefaultAudioDestinationNode>();
     if (n == "Delay") return std::make_shared<lab::DelayNode>();
     //if (n == "Diode") return std::make_shared<lab::DiodeNode>(); // @TODO subclass DiodeNode from WaveShaperNode
@@ -37,7 +77,7 @@ std::shared_ptr<lab::AudioNode> NodeFactory(const std::string& n)
     if (n == "Noise") return std::make_shared<lab::NoiseNode>();
     //if (n == "OfflineAudioDestination") return std::make_shared<lab::OfflineAudioDestinationNode>();
     if (n == "Oscillator") return std::make_shared<lab::OscillatorNode>();
-    if (n == "Panner") return std::make_shared<lab::PannerNode>();
+    //if (n == "Panner") return std::make_shared<lab::PannerNode>();
 #ifdef PD
     if (n == "PureData") return std::make_shared<lab::PureDataNode>();
 #endif
@@ -45,7 +85,7 @@ std::shared_ptr<lab::AudioNode> NodeFactory(const std::string& n)
     //if (n == "PingPongDelay") return std::make_shared<lab::PingPongDelayNode>(); @TODO subclass PingPongDelayNode from AudioNode
     if (n == "PowerMonitor") return std::make_shared<lab::PowerMonitorNode>();
     if (n == "PWM") return std::make_shared<lab::PWMNode>();
-    if (n == "Recorder") return std::make_shared<lab::RecorderNode>();
+    //if (n == "Recorder") return std::make_shared<lab::RecorderNode>();
     if (n == "SampledAudio") return std::make_shared<lab::SampledAudioNode>();
     if (n == "Sfxr") return std::make_shared<lab::SfxrNode>();
     if (n == "Spatialization") return std::make_shared<lab::SpatializationNode>();
@@ -403,20 +443,20 @@ struct AudioNodeAccessor
         audio_node = node;
         if (audio_node)
         {
-            setting_names = audio_node->settings();
-            param_names = audio_node->params();
+            setting_names = audio_node->settingNames();
+            param_names = audio_node->paramNames();
 
             setting_vals.reserve(param_names.size());
             for (auto& setting : setting_names)
             {
-                settings.push_back(audio_node->getSetting(setting.c_str()));
+                settings.push_back(audio_node->setting(setting.c_str()));
                 setting_vals.push_back({ "##param" + std::to_string(unique_param_id++), 0.f });
             }
 
             param_vals.reserve(param_names.size());
             for (auto& param : param_names)
             {
-                params.push_back(audio_node->getParam(param.c_str()));
+                params.push_back(audio_node->param(param.c_str()));
                 // preallocate an imgui identifier, and a buffer for imgui to write values into
                 param_vals.push_back({ "##param" + std::to_string(unique_param_id++), 0.f });
             }
@@ -551,8 +591,9 @@ struct Work
         if (type == WorkType::CreateRealtimeContext)
         {
             /// @TODO Make*AudioContext should return a shared pointer
-            g_audio_context = lab::Sound::MakeRealtimeAudioContext(lab::Channels::Stereo);
-            auto node = std::make_shared<AudioGuiNode>(name, g_audio_context->destination());
+            const auto defaultAudioDeviceConfigurations = GetDefaultAudioDeviceConfiguration();
+            g_audio_context = lab::MakeRealtimeAudioContext(defaultAudioDeviceConfigurations.second, defaultAudioDeviceConfigurations.first);
+            auto node = std::make_shared<AudioGuiNode>(name, g_audio_context->device());
             g_nodes[node->id] = node;
             map_pins(node);
         }
@@ -640,7 +681,7 @@ void AudioGraphEditor_RunUI()
         if (ImGui::BeginMenu("Create Node"))
         {
             std::string pressed = "";
-            char const* const* nodes = lab::Sound::AudioNodeNames();
+            char const* const* nodes = lab::AudioNodeNames();
             for (; *nodes != nullptr; ++nodes)
             {
                 std::string n(*nodes);
@@ -691,7 +732,8 @@ void AudioGraphEditor_RunUI()
                 std::string n = "!###Bang" + std::to_string(static_cast<int>((ptrdiff_t)i->id.AsPointer()));
                 if (ImGui::Button(n.c_str()))
                 {
-                    i->entry.audio_node->bang();
+                    lab::ContextRenderLock r(g_audio_context.get(), "pin read");
+                    i->entry.audio_node->bang(r);
                 }
             }
             ImGui::TextUnformatted("-----------------------------");
