@@ -120,6 +120,7 @@ endforeach()
 add_custom_target(ProcessPlaygroundShaderFiles ALL DEPENDS ${PLAYGROUND_SHADERS_SRC})
 
 add_executable(LabSoundGraphToy
+    src/nfd.h
     ${PLAYGROUND_SRC}
     ${ST_GFX_SRC}
     ${PLAYGROUND_SHADERS_SRC}
@@ -139,6 +140,7 @@ target_include_directories(LabSoundGraphToy SYSTEM
 
 target_include_directories(LabSoundGraphToy
     PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated_src
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
     PRIVATE third/imgui/examples)
 
 set_property(TARGET LabSoundGraphToy PROPERTY CXX_STANDARD 17)

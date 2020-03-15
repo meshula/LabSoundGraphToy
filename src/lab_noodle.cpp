@@ -6,10 +6,436 @@
 #include <LabSound/LabSound.h>
 #include <LabSound/core/AudioNode.h>
 
+#include "nfd.h"
+
 namespace lab {
 namespace noodle {
 
+    using std::map;
+    using std::pair;
+    using std::shared_ptr;
+    using std::string;
+    using std::unique_ptr;
+    using std::vector;
+    using namespace ImGui;
+
+    std::unique_ptr<lab::AudioContext> g_audio_context;
+    entt::entity g_no_entity;
     entt::registry g_registry;
+
+    pair<lab::AudioStreamConfig, lab::AudioStreamConfig> GetDefaultAudioDeviceConfiguration(const bool with_input = false);
+    shared_ptr<lab::AudioNode> NodeFactory(const std::string& n);
+
+    //--------------------
+    // Types
+
+    // Audio Nodes and Noodles
+
+    struct AudioGuiNode;
+
+    struct AudioPin
+    {
+        enum class Kind { Setting, Param, BusIn, BusOut };
+
+        string name, shortName;
+
+        Kind kind;
+        entt::entity pin_id;
+        entt::entity node;
+        shared_ptr<lab::AudioSetting> setting;
+        shared_ptr<lab::AudioParam> param;
+
+        std::string value;
+
+        ImVec2 pos_cs; // canvas space position
+    };
+
+    struct Connection
+    {
+        entt::entity id;
+        entt::entity pin_from;
+        entt::entity node_from;
+        entt::entity pin_to;
+        entt::entity node_to;
+    };
+
+    struct AudioGraph
+    {
+        // AudioGuiNode, Connection, and AudioPin should be entity-associated
+        map<entt::entity, shared_ptr<AudioGuiNode>> nodes;
+        map<entt::entity, Connection> connections;
+        map<entt::entity, AudioPin> pins;
+    };
+
+    AudioGraph g_graph;
+
+    struct AudioGuiNode
+    {
+        entt::entity gui_node_id;
+
+        std::string name;
+        ImVec2 pos;
+        ImVec2 lr;   // recalculated at the beginning of each interaction cycle
+
+        shared_ptr<lab::AudioNode> node;
+        vector<entt::entity> pins;
+
+        AudioGuiNode(char const* const n) : name(n) { Create(n); }
+        AudioGuiNode(const std::string& n) : name(n) { Create(n.c_str()); }
+        AudioGuiNode(char const* const n, shared_ptr<lab::AudioNode> node) { Create(node, n); }
+        AudioGuiNode(const std::string& n, shared_ptr<lab::AudioNode> node) { Create(node, n.c_str()); }
+        ~AudioGuiNode() = default;
+
+        void Create(const std::string& name) { Create(name.c_str()); }
+        void Create(char const* const name_)
+        {
+            // create the node, and fetch its parameters and settings
+            auto node = NodeFactory(name_);
+            if (node)
+                Create(node, name_);
+        }
+
+        void Create(shared_ptr<lab::AudioNode> audio_node, char const* const name_)
+        {
+            name = name_;
+            gui_node_id = g_registry.create();
+
+            node = audio_node;
+            if (!node)
+                return;
+
+            ContextRenderLock r(g_audio_context.get(), "LabSoundGraphToy_init");
+
+            if (!strncmp(name_, "Analyser", 8))
+            {
+                g_audio_context->addAutomaticPullNode(audio_node);
+            }
+
+            vector<string> names = audio_node->settingNames();
+            vector<string> shortNames = audio_node->settingShortNames();
+            auto settings = audio_node->settings();
+            int c = (int)settings.size();
+            for (int i = 0; i < c; ++i)
+            {
+                entt::entity pin_id = g_registry.create();
+                pins.emplace_back(pin_id);
+                g_graph.pins[pin_id] = AudioPin{
+                    names[i], shortNames[i], AudioPin::Kind::Setting,
+                    pin_id, gui_node_id,
+                    settings[i]
+                };
+
+                char buff[64] = { '\0' };
+
+                lab::AudioSetting::Type type = settings[i]->type();
+                if (type == lab::AudioSetting::Type::Float)
+                {
+                    sprintf(buff, "%f", settings[i]->valueFloat());
+                }
+                else if (type == lab::AudioSetting::Type::Integer)
+                {
+                    sprintf(buff, "%d", settings[i]->valueUint32());
+                }
+                else if (type == lab::AudioSetting::Type::Bool)
+                {
+                    sprintf(buff, "%s", settings[i]->valueBool() ? "1" : "0");
+                }
+                else if (type == lab::AudioSetting::Type::Enumeration)
+                {
+                    char const* const* names = settings[i]->enums();
+                    sprintf(buff, "%s", names[settings[i]->valueUint32()]);
+                }
+
+                g_graph.pins[pin_id].value.assign(buff);
+            }
+            names = audio_node->paramNames();
+            shortNames = audio_node->paramShortNames();
+            auto params = audio_node->params();
+            c = (int)params.size();
+            for (int i = 0; i < c; ++i)
+            {
+                entt::entity pin_id = g_registry.create();
+                pins.emplace_back(pin_id);
+                g_graph.pins[pin_id] = AudioPin{
+                    names[i], shortNames[i], AudioPin::Kind::Param,
+                    pin_id, gui_node_id,
+                    shared_ptr<AudioSetting>(),
+                    params[i]
+                };
+
+                char buff[64];
+                sprintf(buff, "%f", params[i]->value(r));
+                g_graph.pins[pin_id].value.assign(buff);
+            }
+            c = (int)audio_node->numberOfInputs();
+            for (int i = 0; i < c; ++i)
+            {
+                entt::entity pin_id = g_registry.create();
+                pins.emplace_back(pin_id);
+                g_graph.pins[pin_id] = AudioPin{
+                    "", "", AudioPin::Kind::BusIn,
+                    pin_id, gui_node_id,
+                    shared_ptr<AudioSetting>(),
+                };
+            }
+            c = (int)audio_node->numberOfOutputs();
+            for (int i = 0; i < c; ++i)
+            {
+                entt::entity pin_id = g_registry.create();
+                pins.emplace_back(pin_id);
+                g_graph.pins[pin_id] = AudioPin{
+                    "", "", AudioPin::Kind::BusOut,
+                    pin_id, gui_node_id,
+                    shared_ptr<AudioSetting>(),
+                };
+            }
+        }
+    };
+
+
+
+    enum class WorkType
+    {
+        Nop, CreateRealtimeContext, CreateNode, DeleteNode, SetParam,
+        SetFloatSetting, SetIntSetting, SetBoolSetting, SetBusSetting,
+        ConnectAudioOutToAudioIn, ConnectAudioOutToParamIn,
+        DisconnectInFromOut,
+        Start, Bang,
+    };
+
+    struct Work
+    {
+        WorkType type = WorkType::Nop;
+        std::string name;
+        entt::entity input_node = g_no_entity;
+        entt::entity output_node = g_no_entity;
+        entt::entity param_pin = g_no_entity;
+        entt::entity setting_pin = g_no_entity;
+        entt::entity connection_id = g_no_entity;
+        float float_value = 0.f;
+        int int_value = 0;
+        bool bool_value = false;
+        ImVec2 canvas_pos = { 0, 0 };
+
+        void eval()
+        {
+            if (type == WorkType::CreateRealtimeContext)
+            {
+                const auto defaultAudioDeviceConfigurations = GetDefaultAudioDeviceConfiguration();
+                g_audio_context = lab::MakeRealtimeAudioContext(defaultAudioDeviceConfigurations.second, defaultAudioDeviceConfigurations.first);
+                auto node = std::make_shared<AudioGuiNode>(name, g_audio_context->device());
+                node->pos = canvas_pos;
+                g_graph.nodes[node->gui_node_id] = node;
+                printf("CreateRealtimeContext %d\n", node->gui_node_id);
+            }
+            else if (type == WorkType::CreateNode)
+            {
+                auto node = std::make_shared<AudioGuiNode>(name);
+                node->pos = canvas_pos;
+                g_graph.nodes[node->gui_node_id] = node;
+                printf("CreateNode %s %d\n", name.c_str(), node->gui_node_id);
+            }
+            else if (type == WorkType::SetParam)
+            {
+                if (param_pin != g_no_entity)
+                {
+                    auto pin = g_graph.pins.find(param_pin);
+                    if (pin != g_graph.pins.end())
+                        pin->second.param->setValue(float_value);
+                    printf("SetParam(%f) %d\n", float_value, param_pin);
+                }
+            }
+            else if (type == WorkType::SetFloatSetting)
+            {
+                if (setting_pin != g_no_entity)
+                {
+                    auto setting = g_graph.pins.find(setting_pin);
+                    if (setting != g_graph.pins.end())
+                        setting->second.setting->setFloat(float_value);
+                    printf("SetFloatSetting(%f) %d\n", float_value, setting_pin);
+                }
+            }
+            else if (type == WorkType::SetIntSetting)
+            {
+                if (setting_pin != g_no_entity)
+                {
+                    auto setting = g_graph.pins.find(setting_pin);
+                    if (setting != g_graph.pins.end())
+                        setting->second.setting->setUint32(int_value);
+                    printf("SetIntSetting(%d) %d\n", int_value, setting_pin);
+                }
+            }
+            else if (type == WorkType::SetBoolSetting)
+            {
+                if (setting_pin != g_no_entity)
+                {
+                    auto setting = g_graph.pins.find(setting_pin);
+                    if (setting != g_graph.pins.end())
+                        setting->second.setting->setBool(bool_value);
+                    printf("SetBoolSetting(%s) %d\n", bool_value ? "true" : "false", setting_pin);
+                }
+            }
+            else if (type == WorkType::SetBusSetting)
+            {
+                if (setting_pin != g_no_entity && name.length() > 0)
+                {
+                    auto setting = g_graph.pins.find(setting_pin);
+                    if (setting != g_graph.pins.end())
+                    {
+                        auto soundClip = lab::MakeBusFromFile(name.c_str(), false);
+                        setting->second.setting->setBus(soundClip.get());
+                        printf("SetBusSetting %d\n", setting_pin);
+                    }
+                }
+            }
+            else if (type == WorkType::ConnectAudioOutToAudioIn)
+            {
+                auto in_it = g_graph.nodes.find(input_node);
+                auto out_it = g_graph.nodes.find(output_node);
+                if (in_it != g_graph.nodes.end() && out_it != g_graph.nodes.end())
+                {
+                    g_audio_context->connect(in_it->second->node, out_it->second->node, 0, 0);
+                    printf("ConnectAudioOutToAudioIn %d %d\n", input_node, output_node);
+                }
+            }
+            else if (type == WorkType::ConnectAudioOutToParamIn)
+            {
+                auto in_it = g_graph.pins.find(param_pin);
+                auto out_it = g_graph.nodes.find(output_node);
+                if (in_it != g_graph.pins.end() && out_it != g_graph.nodes.end())
+                {
+                    g_audio_context->connectParam(in_it->second.param, out_it->second->node, 0);
+                    printf("ConnectAudioOutToParamIn %d %d\n", param_pin, output_node);
+                }
+            }
+            else if (type == WorkType::DisconnectInFromOut)
+            {
+                auto conn_it = g_graph.connections.find(connection_id);
+                if (conn_it != g_graph.connections.end())
+                {
+                    entt::entity input_node = conn_it->second.node_to;
+                    entt::entity output_node = conn_it->second.node_from;
+                    entt::entity input_pin = conn_it->second.pin_to;
+                    entt::entity output_pin = conn_it->second.pin_from;
+                    auto in_it = g_graph.nodes.find(input_node);
+                    auto out_it = g_graph.nodes.find(output_node);
+                    auto in_pin = g_graph.pins.find(input_pin);
+                    auto out_pin = g_graph.pins.find(output_pin);
+                    if (in_it != g_graph.nodes.end() && out_it != g_graph.nodes.end() &&
+                        in_pin != g_graph.pins.end() && out_pin != g_graph.pins.end())
+                    {
+                        if ((in_pin->second.kind == AudioPin::Kind::BusIn) && (out_pin->second.kind == AudioPin::Kind::BusOut))
+                        {
+                            g_audio_context->disconnect(in_it->second->node, out_it->second->node, 0, 0);
+                            printf("DisconnectInFromOut (bus from bus) %d %d\n", input_node, output_node);
+                        }
+                        else if ((in_pin->second.kind == AudioPin::Kind::Param) && (out_pin->second.kind == AudioPin::Kind::BusOut))
+                        {
+                            g_audio_context->disconnectParam(in_pin->second.param, out_it->second->node, 0);
+                            printf("DisconnectInFromOut (param from bus) %d %d\n", input_node, output_node);
+                        }
+                    }
+
+                    g_graph.connections.erase(connection_id);
+                    g_registry.destroy(connection_id);
+                }
+            }
+            else if (type == WorkType::DeleteNode)
+            {
+                // force full disconnection
+                auto in_it = g_graph.nodes.find(input_node);
+                if (in_it != g_graph.nodes.end())
+                {
+                    g_audio_context->disconnect(in_it->second->node);
+
+                    for (map<entt::entity, AudioPin>::iterator i = g_graph.pins.begin(); i != g_graph.pins.end(); ++i)
+                    {
+                        if (i->second.node == input_node)
+                        {
+                            g_registry.destroy(i->second.pin_id);
+                            i = g_graph.pins.erase(i);
+                            if (i == g_graph.pins.end())
+                                break;
+                        }
+                    }
+
+                    printf("DeleteNode %d\n", input_node);
+                    g_graph.nodes.erase(in_it);
+                }
+                auto out_it = g_graph.nodes.find(output_node);
+                if (out_it != g_graph.nodes.end())
+                {
+                    g_audio_context->disconnect(out_it->second->node);
+
+                    for (map<entt::entity, AudioPin>::iterator i = g_graph.pins.begin(); i != g_graph.pins.end(); ++i)
+                    {
+                        if (i->second.node == output_node)
+                        {
+                            g_registry.destroy(i->second.pin_id);
+                            i = g_graph.pins.erase(i);
+                            if (i == g_graph.pins.end())
+                                break;
+                        }
+                    }
+
+                    printf("DeleteNode %d\n", output_node);
+                    g_graph.nodes.erase(out_it);
+                }
+                for (map<entt::entity, Connection>::iterator i = g_graph.connections.begin(); i != g_graph.connections.end(); ++i)
+                {
+                    if ((i->second.node_from == input_node) || (i->second.node_to == input_node) ||
+                        (i->second.node_from == output_node) || (i->second.node_to == output_node))
+                    {
+                        g_registry.destroy(i->second.id);
+                        i = g_graph.connections.erase(i);
+                        if (i == g_graph.connections.end())
+                            break;
+                    }
+                }
+                if (input_node != g_no_entity)
+                    g_registry.destroy(input_node);
+                if (output_node != g_no_entity)
+                    g_registry.destroy(output_node);
+            }
+            else if (type == WorkType::Start)
+            {
+                auto in_it = g_graph.nodes.find(input_node);
+                lab::AudioScheduledSourceNode* n = dynamic_cast<lab::AudioScheduledSourceNode*>(in_it->second->node.get());
+
+                if (n)
+                {
+                    if (n->isPlayingOrScheduled())
+                        n->stop(0);
+                    else
+                        n->start(0);
+                }
+
+                printf("Start %d\n", input_node);
+            }
+            else if (type == WorkType::Bang)
+            {
+                ContextRenderLock r(g_audio_context.get(), "pin read");
+                auto in_it = g_graph.nodes.find(input_node);
+                in_it->second->node->_scheduler.start(0);
+                printf("Bang %d\n", input_node);
+            }
+        }
+    };
+
+
+
+
+    //--------------------
+    // Enumerations
+
+
+    // ImGui channels for layering the graphics
+
+    enum Channels {
+        ChannelContent = 0, ChannelGrid = 1,
+        ChannelNodes = 2,
+        ChannelCount = 3
+    };
 
     entt::entity g_ent_main_window;
     ImGuiID g_id_main_window;
@@ -17,28 +443,24 @@ namespace noodle {
 
     ImVec2 g_canvas_pixel_offset_ws = { 0, 0 };
     float g_canvas_scale = 1;
-
-
-    enum Channels { ChannelContent = 0, ChannelGrid = 1, 
-                    ChannelNodes = 2, 
-                    ChannelCount = 3 };
-
     ImU32 g_bg_color;
 
     bool g_in_canvas = false;
     bool g_dragging = false;
     bool g_dragging_wire = false;
     bool g_dragging_node = false;
+    bool g_interacting_with_canvas = false;
+    bool g_click_initiated = false;
+    bool g_click_ended = false;
 
+    ImVec2 g_node_initial_pos_cs = { 0, 0 };
     ImVec2 g_initial_click_pos_ws = { 0, 0 };
     ImVec2 g_canvas_clickpos_cs = { 0, 0 };
-    ImVec2 g_prevDrag = { 0, 0 };
     ImVec2 g_canvas_clicked_pixel_offset_ws = { 0, 0 };
+    ImVec2 g_prevDrag = { 0, 0 };
     ImVec2 g_mouse_ws = { 0, 0 };
     ImVec2 g_mouse_cs = { 0, 0 };
 
-
-    static entt::entity g_no_entity;
     static entt::entity g_edit_connection;
     static entt::entity g_originating_pin_id;
     static entt::entity g_edit_pin;
@@ -47,291 +469,35 @@ namespace noodle {
     static int g_edit_pin_int = 0;
     static bool g_edit_pin_bool = false;
 
-    ImVec2 g_node_initial_pos_cs = { 0, 0 };
-
-    std::unique_ptr<lab::AudioContext> g_audio_context;
-
-    struct AudioGuiNode;
-
-    using namespace ImGui;
-
-    using std::map;
-    using std::shared_ptr;
-    using std::string;
-    using std::unique_ptr;
-    using std::vector;
-
-
-#define NOC_FILE_DIALOG_WIN32
-#define NOC_FILE_DIALOG_IMPLEMENTATION
-//https://github.com/guillaumechereau/noc/blob/master/noc_file_dialog.h
-/* noc_file_dialog library
- *
- * Copyright (c) 2015 Guillaume Chereau <guillaume@noctua-software.com>
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to
- * deal in the Software without restriction, including without limitation the
- * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
- * sell copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
- * IN THE SOFTWARE.
- */
-
- /* A portable library to create open and save dialogs on linux, osx and
-  * windows.
-  *
-  * The library define a single function : noc_file_dialog_open.
-  * With three different implementations.
-  *
-  * Usage:
-  *
-  * The library does not automatically select the implementation, you need to
-  * define one of those macros before including this file:
-  *
-  *  NOC_FILE_DIALOG_GTK
-  *  NOC_FILE_DIALOG_WIN32
-  *  NOC_FILE_DIALOG_OSX
-  */
-
-    enum {
-        NOC_FILE_DIALOG_OPEN = 1 << 0,   // Create an open file dialog.
-        NOC_FILE_DIALOG_SAVE = 1 << 1,   // Create a save file dialog.
-        NOC_FILE_DIALOG_DIR = 1 << 2,   // Open a directory.
-        NOC_FILE_DIALOG_OVERWRITE_CONFIRMATION = 1 << 3,
-    };
-
-    // There is a single function defined.
-
-    /* flags            : union of the NOC_FILE_DIALOG_XXX masks.
-     * filters          : a list of strings separated by '\0' of the form:
-     *                      "name1 reg1 name2 reg2 ..."
-     *                    The last value is followed by two '\0'.  For example,
-     *                    to filter png and jpeg files, you can use:
-     *                      "png\0*.png\0jpeg\0*.jpeg\0"
-     *                    You can also separate patterns with ';':
-     *                      "jpeg\0*.jpg;*.jpeg\0"
-     *                    Set to NULL for no filter.
-     * default_path     : the default file to use or NULL.
-     * default_name     : the default file name to use or NULL.
-     *
-     * The function return a C string.  There is no need to free it, as it is
-     * managed by the library.  The string is valid until the next call to
-     * no_dialog_open.  If the user canceled, the return value is NULL.
-     */
-    const char* noc_file_dialog_open(int flags,
-        const char* filters,
-        const char* default_path,
-        const char* default_name);
-
-#ifdef NOC_FILE_DIALOG_IMPLEMENTATION
-
-#include <stdlib.h>
-#include <string.h>
-
-    static char* g_noc_file_dialog_ret = NULL;
-
-#ifdef NOC_FILE_DIALOG_GTK
-
-#include <gtk/gtk.h>
-
-    const char* noc_file_dialog_open(int flags,
-        const char* filters,
-        const char* default_path,
-        const char* default_name)
+    struct HoverState
     {
-        GtkWidget* dialog;
-        GtkFileFilter* filter;
-        GtkFileChooser* chooser;
-        GtkFileChooserAction action;
-        gint res;
-        char buf[128], * patterns;
-
-        action = flags & NOC_FILE_DIALOG_SAVE ? GTK_FILE_CHOOSER_ACTION_SAVE :
-            GTK_FILE_CHOOSER_ACTION_OPEN;
-        if (flags & NOC_FILE_DIALOG_DIR)
-            action = GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER;
-
-        gtk_init_check(NULL, NULL);
-        dialog = gtk_file_chooser_dialog_new(
-            flags & NOC_FILE_DIALOG_SAVE ? "Save File" : "Open File",
-            NULL,
-            action,
-            "_Cancel", GTK_RESPONSE_CANCEL,
-            flags & NOC_FILE_DIALOG_SAVE ? "_Save" : "_Open", GTK_RESPONSE_ACCEPT,
-            NULL);
-        chooser = GTK_FILE_CHOOSER(dialog);
-        if (flags & NOC_FILE_DIALOG_OVERWRITE_CONFIRMATION)
-            gtk_file_chooser_set_do_overwrite_confirmation(chooser, TRUE);
-
-        if (default_path)
-            gtk_file_chooser_set_filename(chooser, default_path);
-        if (default_name)
-            gtk_file_chooser_set_current_name(chooser, default_name);
-
-        while (filters && *filters) {
-            filter = gtk_file_filter_new();
-            gtk_file_filter_set_name(filter, filters);
-            filters += strlen(filters) + 1;
-
-            // Split the filter pattern with ';'.
-            strcpy(buf, filters);
-            buf[strlen(buf)] = '\0';
-            for (patterns = buf; *patterns; patterns++)
-                if (*patterns == ';') *patterns = '\0';
-            patterns = buf;
-            while (*patterns) {
-                gtk_file_filter_add_pattern(filter, patterns);
-                patterns += strlen(patterns) + 1;
-            }
-
-            gtk_file_chooser_add_filter(chooser, filter);
-            filters += strlen(filters) + 1;
+        void reset(entt::entity en)
+        {
+            g_hover.node_id = en;
+            g_originating_pin_id = en;
+            g_hover.pin_id = en;
+            g_hover.pin_label_id = en;
+            pin_pos_cs = { 0, 0 };
+            node_menu = false;
+            bang = false;
+            play = false;
+            node.reset();
         }
 
-        res = gtk_dialog_run(GTK_DIALOG(dialog));
+        std::shared_ptr<AudioGuiNode> node;
+        ImVec2 pin_pos_cs = { 0,0 };
+        entt::entity node_id;
+        entt::entity pin_id;
+        entt::entity pin_label_id;
+        entt::entity connection_id;
+        bool node_menu = false;
+        bool bang = false;
+        bool play = false;
+    } g_hover;
 
-        free(g_noc_file_dialog_ret);
-        g_noc_file_dialog_ret = NULL;
+    const float terminal_w = 20;
 
-        if (res == GTK_RESPONSE_ACCEPT)
-            g_noc_file_dialog_ret = gtk_file_chooser_get_filename(chooser);
-        gtk_widget_destroy(dialog);
-        while (gtk_events_pending()) gtk_main_iteration();
-        return g_noc_file_dialog_ret;
-    }
-
-#endif
-
-#ifdef NOC_FILE_DIALOG_WIN32
-
-#include <windows.h>
-#include <commdlg.h>
-
-    const char* noc_file_dialog_open(int flags,
-        const char* filters,
-        const char* default_path,
-        const char* default_name)
-    {
-        OPENFILENAME ofn;       // common dialog box structure
-        char szFile[260];       // buffer for file name
-        int ret;
-
-        // init default file name
-        if (default_name)
-            strncpy(szFile, default_name, sizeof(szFile) - 1);
-        else
-            szFile[0] = '\0';
-
-        ZeroMemory(&ofn, sizeof(ofn));
-        ofn.lStructSize = sizeof(ofn);
-        ofn.lpstrFile = szFile;
-        ofn.nMaxFile = sizeof(szFile);
-        ofn.lpstrFilter = filters;
-        ofn.nFilterIndex = 1;
-        ofn.lpstrFileTitle = NULL;
-        ofn.nMaxFileTitle = 0;
-        ofn.lpstrInitialDir = (LPSTR)default_path;
-        ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
-
-        if (flags & NOC_FILE_DIALOG_OPEN)
-            ret = GetOpenFileName(&ofn);
-        else
-            ret = GetSaveFileName(&ofn);
-
-        free(g_noc_file_dialog_ret);
-        g_noc_file_dialog_ret = ret ? _strdup(szFile) : NULL;
-        return g_noc_file_dialog_ret;
-    }
-
-#endif
-
-#ifdef NOC_FILE_DIALOG_OSX
-
-#include <AppKit/AppKit.h>
-
-    const char* noc_file_dialog_open(int flags,
-        const char* filters,
-        const char* default_path,
-        const char* default_name)
-    {
-        NSURL* url;
-        const char* utf8_path;
-        NSSavePanel* panel;
-        NSOpenPanel* open_panel;
-        NSMutableArray* types_array;
-        NSURL* default_url;
-        char buf[128], * patterns;
-        // XXX: I don't know about memory management with cococa, need to check
-        // if I leak memory here.
-        NSAutoreleasePool* pool = [[NSAutoreleasePool alloc]init];
-
-        if (flags & NOC_FILE_DIALOG_OPEN) {
-            panel = open_panel = [NSOpenPanel openPanel];
-        }
-        else {
-            panel = [NSSavePanel savePanel];
-        }
-
-        if (flags & NOC_FILE_DIALOG_DIR) {
-            [open_panel setCanChooseDirectories : YES] ;
-            [open_panel setCanChooseFiles : NO] ;
-        }
-
-        if (default_path) {
-            default_url = [NSURL fileURLWithPath :
-            [NSString stringWithUTF8String : default_path] ];
-            [panel setDirectoryURL : default_url] ;
-            [panel setNameFieldStringValue : default_url.lastPathComponent] ;
-        }
-
-        if (filters) {
-            types_array = [NSMutableArray array];
-            while (*filters) {
-                filters += strlen(filters) + 1; // skip the name
-                // Split the filter pattern with ';'.
-                strcpy(buf, filters);
-                buf[strlen(buf) + 1] = '\0';
-                for (patterns = buf; *patterns; patterns++)
-                    if (*patterns == ';') *patterns = '\0';
-                patterns = buf;
-                while (*patterns) {
-                    assert(strncmp(patterns, "*.", 2) == 0);
-                    patterns += 2; // Skip the "*."
-                    [types_array addObject : [NSString stringWithUTF8String : patterns] ] ;
-                    patterns += strlen(patterns) + 1;
-                }
-                filters += strlen(filters) + 1;
-            }
-            [panel setAllowedFileTypes : types_array];
-        }
-
-        free(g_noc_file_dialog_ret);
-        g_noc_file_dialog_ret = NULL;
-        if ([panel runModal] == NSModalResponseOK) {
-            url = [panel URL];
-            utf8_path = [[url path]UTF8String];
-            g_noc_file_dialog_ret = strdup(utf8_path);
-        }
-
-        [pool release] ;
-        return g_noc_file_dialog_ret;
-    }
-#endif
-
-
-#endif
-
+    vector<Work> g_pending_work;
 
 
 
@@ -339,7 +505,7 @@ namespace noodle {
 
 
 // Returns input, output
-    inline std::pair<lab::AudioStreamConfig, lab::AudioStreamConfig> GetDefaultAudioDeviceConfiguration(const bool with_input = false)
+    std::pair<lab::AudioStreamConfig, lab::AudioStreamConfig> GetDefaultAudioDeviceConfiguration(const bool with_input)
     {
         using namespace lab;
         AudioStreamConfig inputConfig;
@@ -423,406 +589,6 @@ namespace noodle {
         if (n == "WaveShaper") return std::make_shared<lab::WaveShaperNode>(ac);
         return {};
     }
-
-
-
-
-    // Audio Nodes and Noodles
-
-    struct AudioGuiNode;
-    struct AudioPin
-    {
-        enum class Kind { Setting, Param, BusIn, BusOut };
-
-        string name, shortName;
-
-        Kind kind;
-        entt::entity pin_id;
-        entt::entity node;
-        shared_ptr<lab::AudioSetting> setting;
-        shared_ptr<lab::AudioParam> param;
-
-        std::string value;
-
-        ImVec2 pos_cs; // canvas space position
-    };
-
-    // the whole point of an ECS is that the AudioPin should be a component associated with the entity LOL
-    map<entt::entity, AudioPin> g_pins;
-
-    struct AudioGuiNode
-    {
-        entt::entity gui_node_id;
-
-        std::string name;
-        ImVec2 pos;
-        ImVec2 lr;   // recalculated at the beginning of each interaction cycle
-
-        shared_ptr<lab::AudioNode> node;
-        vector<entt::entity> pins;
-
-        AudioGuiNode(char const* const n)  : name(n) { Create(n); }
-        AudioGuiNode(const std::string& n) : name(n) { Create(n.c_str()); }
-        AudioGuiNode(char const* const n,  shared_ptr<lab::AudioNode> node) { Create(node, n); }
-        AudioGuiNode(const std::string& n, shared_ptr<lab::AudioNode> node) { Create(node, n.c_str()); }
-        ~AudioGuiNode() = default;
-
-        void Create(const std::string& name) { Create(name.c_str()); }
-        void Create(char const* const name_)
-        {
-            // create the node, and fetch its parameters and settings
-            auto node = NodeFactory(name_);
-            if (node)
-                Create(node, name_);
-        }
-
-        void Create(shared_ptr<lab::AudioNode> audio_node, char const*const name_)
-        {
-            name = name_;
-            gui_node_id = g_registry.create();
-
-            node = audio_node;
-            if (!node)
-                return;
-
-            ContextRenderLock r(g_audio_context.get(), "LabSoundGraphToy_init");
-
-            if (!strncmp(name_, "Analyser", 8))
-            {
-                g_audio_context->addAutomaticPullNode(audio_node);
-            }
-
-            vector<string> names = audio_node->settingNames();
-            vector<string> shortNames = audio_node->settingShortNames();
-            auto settings = audio_node->settings();
-            int c = (int) settings.size();
-            for (int i = 0; i < c; ++i)
-            {
-                entt::entity pin_id = g_registry.create();
-                pins.emplace_back(pin_id);
-                g_pins[pin_id] = AudioPin{
-                    names[i], shortNames[i], AudioPin::Kind::Setting,
-                    pin_id, gui_node_id,
-                    settings[i]
-                };
-
-                char buff[64] = { '\0' };
-
-                lab::AudioSetting::Type type = settings[i]->type();
-                if (type == lab::AudioSetting::Type::Float)
-                {
-                    sprintf(buff, "%f", settings[i]->valueFloat());
-                }
-                else if (type == lab::AudioSetting::Type::Integer)
-                {
-                    sprintf(buff, "%d", settings[i]->valueUint32());
-                }
-                else if (type == lab::AudioSetting::Type::Bool)
-                {
-                    sprintf(buff, "%s", settings[i]->valueBool() ? "1" : "0");
-                }
-                else if (type == lab::AudioSetting::Type::Enumeration)
-                {
-                    char const* const* names = settings[i]->enums();
-                    sprintf(buff, "%s", names[settings[i]->valueUint32()]);
-                }
-
-                g_pins[pin_id].value.assign(buff);
-            }
-            names = audio_node->paramNames();
-            shortNames = audio_node->paramShortNames();
-            auto params = audio_node->params();
-            c = (int) params.size();
-            for (int i = 0; i < c; ++i)
-            {
-                entt::entity pin_id = g_registry.create();
-                pins.emplace_back(pin_id);
-                g_pins[pin_id] = AudioPin{
-                    names[i], shortNames[i], AudioPin::Kind::Param,
-                    pin_id, gui_node_id,
-                    shared_ptr<AudioSetting>(),
-                    params[i]
-                    };
-
-                char buff[64];
-                sprintf(buff, "%f", params[i]->value(r));
-                g_pins[pin_id].value.assign(buff);
-            }
-            c = (int) audio_node->numberOfInputs();
-            for (int i = 0; i < c; ++i)
-            {
-                entt::entity pin_id = g_registry.create();
-                pins.emplace_back(pin_id);
-                g_pins[pin_id] = AudioPin{
-                    "", "", AudioPin::Kind::BusIn,
-                    pin_id, gui_node_id,
-                    shared_ptr<AudioSetting>(),
-                    };
-            }
-            c = (int) audio_node->numberOfOutputs();
-            for (int i = 0; i < c; ++i)
-            {
-                entt::entity pin_id = g_registry.create();
-                pins.emplace_back(pin_id);
-                g_pins[pin_id] = AudioPin{
-                    "", "", AudioPin::Kind::BusOut,
-                    pin_id, gui_node_id,
-                    shared_ptr<AudioSetting>(),
-                    };
-            }
-        }
-    };
-
-    // the whole point of an ECS is that the AudioGuiNode should be a component associated with the entity LOL
-    map<entt::entity, shared_ptr<AudioGuiNode>> g_nodes;
-
-
-    struct Connection
-    {
-        entt::entity id;
-        entt::entity pin_from;
-        entt::entity node_from;
-        entt::entity pin_to;
-        entt::entity node_to;
-    };
-
-    // the whole point of an ECS is that the Connection should be a component associated with the entity LOL
-    map<entt::entity, Connection> g_connections;
-
-
-
-
-
-
-    enum class WorkType
-    {
-        Nop, CreateRealtimeContext, CreateNode, DeleteNode, SetParam,
-        SetFloatSetting, SetIntSetting, SetBoolSetting, SetBusSetting,
-        ConnectAudioOutToAudioIn, ConnectAudioOutToParamIn,
-        DisconnectInFromOut,
-        Start, Bang,
-    };
-
-    struct Work
-    {
-        WorkType type = WorkType::Nop;
-        std::string name;
-        entt::entity input_node = g_no_entity;
-        entt::entity output_node = g_no_entity;
-        entt::entity param_pin = g_no_entity;
-        entt::entity setting_pin = g_no_entity;
-        entt::entity connection_id = g_no_entity;
-        float float_value = 0.f;
-        int int_value = 0;
-        bool bool_value = false;
-        ImVec2 canvas_pos = { 0, 0 };
-
-        void eval()
-        {
-            if (type == WorkType::CreateRealtimeContext)
-            {
-                const auto defaultAudioDeviceConfigurations = GetDefaultAudioDeviceConfiguration();
-                g_audio_context = lab::MakeRealtimeAudioContext(defaultAudioDeviceConfigurations.second, defaultAudioDeviceConfigurations.first);
-                auto node = std::make_shared<AudioGuiNode>(name, g_audio_context->device());
-                node->pos = canvas_pos;
-                g_nodes[node->gui_node_id] = node;
-                printf("CreateRealtimeContext %d\n", node->gui_node_id);
-            }
-            else if (type == WorkType::CreateNode)
-            {
-                auto node = std::make_shared<AudioGuiNode>(name);
-                node->pos = canvas_pos;
-                g_nodes[node->gui_node_id] = node;
-                printf("CreateNode %s %d\n", name.c_str(), node->gui_node_id);
-            }
-            else if (type == WorkType::SetParam)
-            {
-                if (param_pin != g_no_entity)
-                {
-                    auto pin = g_pins.find(param_pin);
-                    if (pin != g_pins.end())
-                        pin->second.param->setValue(float_value);
-                    printf("SetParam(%f) %d\n", float_value, param_pin);
-                }
-            }
-            else if (type == WorkType::SetFloatSetting)
-            {
-                if (setting_pin != g_no_entity)
-                {
-                    auto setting = g_pins.find(setting_pin);
-                    if (setting != g_pins.end())
-                        setting->second.setting->setFloat(float_value);
-                    printf("SetFloatSetting(%f) %d\n", float_value, setting_pin);
-                }
-            }
-            else if (type == WorkType::SetIntSetting)
-            {
-                if (setting_pin != g_no_entity)
-                {
-                    auto setting = g_pins.find(setting_pin);
-                    if (setting != g_pins.end())
-                        setting->second.setting->setUint32(int_value);
-                    printf("SetIntSetting(%d) %d\n", int_value, setting_pin);
-                }
-            }
-            else if (type == WorkType::SetBoolSetting)
-            {
-                if (setting_pin != g_no_entity)
-                {
-                    auto setting = g_pins.find(setting_pin);
-                    if (setting != g_pins.end())
-                        setting->second.setting->setBool(bool_value);
-                    printf("SetBoolSetting(%s) %d\n", bool_value? "true": "false", setting_pin);
-                }
-            }
-            else if (type == WorkType::SetBusSetting)
-            {
-                if (setting_pin != g_no_entity && name.length() > 0)
-                {
-                    auto setting = g_pins.find(setting_pin);
-                    if (setting != g_pins.end())
-                    {
-                        auto soundClip = lab::MakeBusFromFile(name.c_str(), false);
-                        setting->second.setting->setBus(soundClip.get());
-                        printf("SetBusSetting %d\n", setting_pin);
-                    }
-                }
-            }
-            else if (type == WorkType::ConnectAudioOutToAudioIn)
-            {
-                auto in_it = g_nodes.find(input_node);
-                auto out_it = g_nodes.find(output_node);
-                if (in_it != g_nodes.end() && out_it != g_nodes.end())
-                {
-                    g_audio_context->connect(in_it->second->node, out_it->second->node, 0, 0);
-                    printf("ConnectAudioOutToAudioIn %d %d\n", input_node, output_node);
-                }
-            }
-            else if (type == WorkType::ConnectAudioOutToParamIn)
-            {
-                auto in_it = g_pins.find(param_pin);
-                auto out_it = g_nodes.find(output_node);
-                if (in_it != g_pins.end() && out_it != g_nodes.end())
-                {
-                    g_audio_context->connectParam(in_it->second.param, out_it->second->node, 0);
-                    printf("ConnectAudioOutToParamIn %d %d\n", param_pin, output_node);
-                }
-            }
-            else if (type == WorkType::DisconnectInFromOut)
-            {
-                auto conn_it = g_connections.find(connection_id);
-                if (conn_it != g_connections.end())
-                {
-                    entt::entity input_node = conn_it->second.node_to;
-                    entt::entity output_node = conn_it->second.node_from;
-                    entt::entity input_pin = conn_it->second.pin_to;
-                    entt::entity output_pin = conn_it->second.pin_from;
-                    auto in_it = g_nodes.find(input_node);
-                    auto out_it = g_nodes.find(output_node);
-                    auto in_pin = g_pins.find(input_pin);
-                    auto out_pin = g_pins.find(output_pin);
-                    if (in_it != g_nodes.end() && out_it != g_nodes.end() &&
-                        in_pin != g_pins.end() && out_pin != g_pins.end())
-                    {
-                        if ((in_pin->second.kind == AudioPin::Kind::BusIn) && (out_pin->second.kind == AudioPin::Kind::BusOut))
-                        {
-                            g_audio_context->disconnect(in_it->second->node, out_it->second->node, 0, 0);
-                            printf("DisconnectInFromOut (bus from bus) %d %d\n", input_node, output_node);
-                        }
-                        else if ((in_pin->second.kind == AudioPin::Kind::Param) && (out_pin->second.kind == AudioPin::Kind::BusOut))
-                        {
-                            g_audio_context->disconnectParam(in_pin->second.param, out_it->second->node, 0);
-                            printf("DisconnectInFromOut (param from bus) %d %d\n", input_node, output_node);
-                        }
-                    }
-
-                    g_connections.erase(connection_id);
-                    g_registry.destroy(connection_id);
-                }
-            }
-            else if (type == WorkType::DeleteNode)
-            {
-                // force full disconnection
-                auto in_it = g_nodes.find(input_node);
-                if (in_it != g_nodes.end())
-                {
-                    g_audio_context->disconnect(in_it->second->node);
-
-                    for (map<entt::entity, AudioPin>::iterator i = g_pins.begin(); i != g_pins.end(); ++i)
-                    {
-                        if (i->second.node == input_node)
-                        {
-                            g_registry.destroy(i->second.pin_id);
-                            i = g_pins.erase(i);
-                            if (i == g_pins.end())
-                                break;
-                        }
-                    }
-
-                    printf("DeleteNode %d\n", input_node);
-                    g_nodes.erase(in_it);
-                }
-                auto out_it = g_nodes.find(output_node);
-                if (out_it != g_nodes.end())
-                {
-                    g_audio_context->disconnect(out_it->second->node);
-
-                    for (map<entt::entity, AudioPin>::iterator i = g_pins.begin(); i != g_pins.end(); ++i)
-                    {
-                        if (i->second.node == output_node)
-                        {
-                            g_registry.destroy(i->second.pin_id);
-                            i = g_pins.erase(i);
-                            if (i == g_pins.end())
-                                break;
-                        }
-                    }
-
-                    printf("DeleteNode %d\n", output_node);
-                    g_nodes.erase(out_it);
-                }
-                for (map<entt::entity, Connection>::iterator i = g_connections.begin(); i != g_connections.end(); ++i)
-                {
-                    if ((i->second.node_from == input_node) || (i->second.node_to == input_node) ||
-                        (i->second.node_from == output_node) || (i->second.node_to == output_node))
-                    {
-                        g_registry.destroy(i->second.id);
-                        i = g_connections.erase(i);
-                        if (i == g_connections.end())
-                            break;
-                    }
-                }
-                if (input_node != g_no_entity)
-                    g_registry.destroy(input_node);
-                if (output_node != g_no_entity)
-                    g_registry.destroy(output_node);
-            }
-            else if (type == WorkType::Start)
-            {
-                auto in_it = g_nodes.find(input_node);
-                lab::AudioScheduledSourceNode* n = dynamic_cast<lab::AudioScheduledSourceNode*>(in_it->second->node.get());
-
-                if (n)
-                {
-                    if (n->isPlayingOrScheduled())
-                        n->stop(0);
-                    else
-                        n->start(0);
-                }
-
-                printf("Start %d\n", input_node);
-            }
-            else if (type == WorkType::Bang)
-            {
-                ContextRenderLock r(g_audio_context.get(), "pin read");
-                auto in_it = g_nodes.find(input_node);
-                in_it->second->node->_scheduler.start(0);
-                printf("Bang %d\n", input_node);
-            }
-        }
-    };
-
-    vector<Work> g_pending_work;
 
 
 
@@ -1142,12 +908,12 @@ namespace noodle {
 
     void EditPin(entt::entity pin)
     {
-        auto pin_it = g_pins.find(pin);
-        if (pin_it == g_pins.end())
+        auto pin_it = g_graph.pins.find(pin);
+        if (pin_it == g_graph.pins.end())
             return;
 
-        auto node_it = g_nodes.find(pin_it->second.node);
-        if (node_it == g_nodes.end())
+        auto node_it = g_graph.nodes.find(pin_it->second.node);
+        if (node_it == g_graph.nodes.end())
             return;
 
         char buff[256];
@@ -1283,8 +1049,8 @@ namespace noodle {
 
     void EditConnection(entt::entity connection)
     {
-        auto conn_it = g_connections.find(connection);
-        if (conn_it == g_connections.end())
+        auto conn_it = g_graph.connections.find(connection);
+        if (conn_it == g_graph.connections.end())
         {
             g_edit_connection = g_no_entity;
             return;
@@ -1311,8 +1077,8 @@ namespace noodle {
 
     void EditNode(entt::entity node)
     {
-        auto node_it = g_nodes.find(node);
-        if (node_it == g_nodes.end())
+        auto node_it = g_graph.nodes.find(node);
+        if (node_it == g_graph.nodes.end())
         {
             g_edit_node = g_no_entity;
             return;
@@ -1382,37 +1148,6 @@ namespace noodle {
 
 
     // GraphEditor stuff
-
-    struct HoverState
-    {
-        void reset(entt::entity en)
-        {
-            g_hover.node_id = en;
-            g_originating_pin_id = en;
-            g_hover.pin_id = en;
-            g_hover.pin_label_id = en;
-            pin_pos_cs = { 0, 0 };
-            node_menu = false;
-            bang = false;
-            play = false;
-            node.reset();
-        }
-
-        std::shared_ptr<AudioGuiNode> node;
-        ImVec2 pin_pos_cs = { 0,0 };
-        entt::entity node_id;
-        entt::entity pin_id;
-        entt::entity pin_label_id;
-        entt::entity connection_id;
-        bool node_menu = false;
-        bool bang = false;
-        bool play = false;
-    } g_hover;
-
-    const float terminal_w = 20;
-    static bool g_interacting_with_canvas = false;
-    static bool g_click_initiated = false;
-    static bool g_click_ended = false;
 
     void init()
     {
@@ -1517,7 +1252,7 @@ namespace noodle {
             g_hover.connection_id = g_no_entity;
             float mouse_x_cs = g_mouse_cs.x;
             float mouse_y_cs = g_mouse_cs.y;
-            for (auto& i : g_nodes)
+            for (auto& i : g_graph.nodes)
             {
                 ImVec2 ul = i.second->pos;
                 ImVec2 lr = i.second->lr;
@@ -1532,7 +1267,7 @@ namespace noodle {
                         pin_ul.y = ul.y + 8;// +8 * g_canvas_scale;
                         for (auto& j : i.second->pins)
                         {
-                            auto pin_it = g_pins.find(j);
+                            auto pin_it = g_graph.pins.find(j);
                             if (pin_it->second.kind != lab::noodle::AudioPin::Kind::BusOut)
                                 continue;
 
@@ -1566,7 +1301,7 @@ namespace noodle {
                         pin_ul.y += 8 * g_canvas_scale;
                         for (auto& j : i.second->pins)
                         {
-                            auto pin_it = g_pins.find(j);
+                            auto pin_it = g_graph.pins.find(j);
                             if (pin_it->second.kind != lab::noodle::AudioPin::Kind::BusIn)
                                 continue;
 
@@ -1590,7 +1325,7 @@ namespace noodle {
                             // keep looking for param pins
                             for (auto& j : i.second->pins)
                             {
-                                auto pin_it = g_pins.find(j);
+                                auto pin_it = g_graph.pins.find(j);
                                 if (pin_it->second.kind != lab::noodle::AudioPin::Kind::Param)
                                     continue;
 
@@ -1627,7 +1362,7 @@ namespace noodle {
                             pin_ul.y += 8;
                             for (auto& j : i.second->pins)
                             {
-                                auto pin_it = g_pins.find(j);
+                                auto pin_it = g_graph.pins.find(j);
                                 if (pin_it->second.kind != lab::noodle::AudioPin::Kind::Setting)
                                     continue;
 
@@ -1685,12 +1420,12 @@ namespace noodle {
             if (g_hover.node_id == g_no_entity)
             {
                 // no node or node furniture hovered, check connections
-                for (auto i : g_connections)
+                for (auto i : g_graph.connections)
                 {
                     entt::entity from_pin = i.second.pin_from;
                     entt::entity to_pin = i.second.pin_to;
-                    auto from_it = g_pins.find(i.second.pin_from);
-                    auto to_it = g_pins.find(i.second.pin_to);
+                    auto from_it = g_graph.pins.find(i.second.pin_from);
+                    auto to_it = g_graph.pins.find(i.second.pin_to);
                     ImVec2 from_pos = from_it->second.pos_cs + ImVec2(16, 10);
                     ImVec2 to_pos = to_it->second.pos_cs + ImVec2(0, 10);
 
@@ -1718,7 +1453,7 @@ namespace noodle {
         //---------------------------------------------------------------------
         // ensure node sizes are up to date
 
-        for (auto& i : g_nodes)
+        for (auto& i : g_graph.nodes)
         {
             int in_height = 0;
             int middle_height = 0;
@@ -1726,7 +1461,7 @@ namespace noodle {
 
             for (auto& j : i.second->pins)
             {
-                auto pin_it = g_pins.find(j);
+                auto pin_it = g_graph.pins.find(j);
                 switch (pin_it->second.kind)
                 {
                 case lab::noodle::AudioPin::Kind::BusIn: in_height += 1; break;
@@ -1843,10 +1578,10 @@ namespace noodle {
         {
             if (g_originating_pin_id != g_no_entity && g_hover.pin_id != g_no_entity)
             {
-                auto from = g_pins.find(g_originating_pin_id);
-                auto to = g_pins.find(g_hover.pin_id);
+                auto from = g_graph.pins.find(g_originating_pin_id);
+                auto to = g_graph.pins.find(g_hover.pin_id);
 
-                if (from == g_pins.end() || to == g_pins.end())
+                if (from == g_graph.pins.end() || to == g_graph.pins.end())
                 {
                     printf("from and/or to are not valid pins\n");
                 }
@@ -1887,7 +1622,7 @@ namespace noodle {
                         }
 
                         entt::entity wire = g_registry.create();
-                        g_connections[wire] = Connection{
+                        g_graph.connections[wire] = Connection{
                             wire,
                             g_originating_pin_id,
                             from->second.node,
@@ -1942,7 +1677,7 @@ namespace noodle {
                 {
                     // set mode to edit the value of the hovered pin
                     g_edit_pin = g_hover.pin_label_id;
-                    auto pin_it = g_pins.find(g_edit_pin);
+                    auto pin_it = g_graph.pins.find(g_edit_pin);
                     ContextRenderLock r(g_audio_context.get(), "pin read");
                     if (pin_it->second.kind == AudioPin::Kind::Param)
                         g_edit_pin_float = pin_it->second.param->value(r);
@@ -2025,12 +1760,12 @@ namespace noodle {
 
         drawList->ChannelsSetCurrent(ChannelNodes);
 
-        for (auto i : g_connections)
+        for (auto i : g_graph.connections)
         {
             entt::entity from_pin = i.second.pin_from;
             entt::entity to_pin = i.second.pin_to;
-            auto from_it = g_pins.find(i.second.pin_from);
-            auto to_it = g_pins.find(i.second.pin_to);
+            auto from_it = g_graph.pins.find(i.second.pin_from);
+            auto to_it = g_graph.pins.find(i.second.pin_to);
             ImVec2 from_pos = from_it->second.pos_cs + ImVec2(16, 10);
             ImVec2 to_pos = to_it->second.pos_cs + ImVec2(0, 10);
 
@@ -2052,7 +1787,7 @@ namespace noodle {
 
         // draw nodes
 
-        for (auto& i : g_nodes)
+        for (auto& i : g_graph.nodes)
         {
             ImVec2 ul_ws = i.second->pos;
             ImVec2 lr_ws = i.second->lr;
@@ -2113,7 +1848,7 @@ namespace noodle {
             pin_ul.y += 8 * g_canvas_scale;
             for (auto& j : i.second->pins)
             {
-                auto pin_it = g_pins.find(j);
+                auto pin_it = g_graph.pins.find(j);
                 if (pin_it->second.kind != lab::noodle::AudioPin::Kind::BusIn)
                     continue;
 
@@ -2138,7 +1873,7 @@ namespace noodle {
 
             for (auto& j : i.second->pins)
             {
-                auto pin_it = g_pins.find(j);
+                auto pin_it = g_graph.pins.find(j);
                 if (pin_it->second.kind != lab::noodle::AudioPin::Kind::Param)
                     continue;
 
@@ -2171,7 +1906,7 @@ namespace noodle {
             pin_ul.y += 8 * g_canvas_scale;
             for (auto& j : i.second->pins)
             {
-                auto pin_it = g_pins.find(j);
+                auto pin_it = g_graph.pins.find(j);
                 if (pin_it->second.kind != lab::noodle::AudioPin::Kind::Setting)
                     continue;
 
@@ -2204,7 +1939,7 @@ namespace noodle {
             pin_ul.y = ul_ws.y + 8 * g_canvas_scale;
             for (auto& j : i.second->pins)
             {
-                auto pin_it = g_pins.find(j);
+                auto pin_it = g_graph.pins.find(j);
                 if (pin_it->second.kind != lab::noodle::AudioPin::Kind::BusOut)
                     continue;
 
