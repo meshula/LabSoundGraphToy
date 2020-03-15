@@ -473,10 +473,10 @@ namespace noodle {
     {
         void reset(entt::entity en)
         {
-            g_hover.node_id = en;
+            node_id = en;
             g_originating_pin_id = en;
-            g_hover.pin_id = en;
-            g_hover.pin_label_id = en;
+            pin_id = en;
+            pin_label_id = en;
             pin_pos_cs = { 0, 0 };
             node_menu = false;
             bang = false;

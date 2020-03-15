@@ -1,7 +1,12 @@
 
-
+#ifdef __WIN32
 #define NOC_FILE_DIALOG_WIN32
-#define NOC_FILE_DIALOG_IMPLEMENTATION
+#elif defined(__APPLE__)
+#define NOC_FILE_DIALOG_OSX
+#else
+#define NOC_FILE_DIALOG_GTK
+#endif
+
 //https://github.com/guillaumechereau/noc/blob/master/noc_file_dialog.h
 /* noc_file_dialog library
  *
