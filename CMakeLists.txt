@@ -119,8 +119,14 @@ foreach(SHADER ${PLAYGROUND_SHADERS})
 endforeach()
 add_custom_target(ProcessPlaygroundShaderFiles ALL DEPENDS ${PLAYGROUND_SHADERS_SRC})
 
+if(APPLE)
+    set(NFD src/nfd.h src/nfd.mm)
+else()
+    set(NFD src/nfd.h src/nfd.cc)
+endif()
+
 add_executable(LabSoundGraphToy
-    src/nfd.h
+    ${NFD}
     ${PLAYGROUND_SRC}
     ${ST_GFX_SRC}
     ${PLAYGROUND_SHADERS_SRC}

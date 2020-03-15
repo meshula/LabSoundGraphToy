@@ -1166,7 +1166,6 @@ namespace noodle {
         g_edit_connection = g_no_entity;
         g_edit_node = g_no_entity;
 
-        ImGuiIO& io = ImGui::GetIO();
         ImGuiWindow* win = ImGui::GetCurrentWindow();
         ImRect edit_rect = win->ContentRegionRect;
         float y = (edit_rect.Max.y + edit_rect.Min.y) * 0.5f - 64;
