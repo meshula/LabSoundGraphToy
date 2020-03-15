@@ -816,8 +816,7 @@ namespace noodle {
             {
                 ContextRenderLock r(g_audio_context.get(), "pin read");
                 auto in_it = g_nodes.find(input_node);
-                lab::BangInterface* b = dynamic_cast<lab::BangInterface*>(in_it->second->node.get());
-                b->bang(0);
+                in_it->second->node->_scheduler.start(0);
                 printf("Bang %d\n", input_node);
             }
         }
@@ -1665,7 +1664,7 @@ namespace noodle {
                         if (scheduled)
                             testx += 20;
 
-                        if (!play && mouse_x_cs < testx && i.second->node->hasBang())
+                        if (!play && mouse_x_cs < testx && i.second->node->_scheduler._onStart)
                         {
                             g_hover.bang = true;
                             bang = true;
@@ -2091,7 +2090,7 @@ namespace noodle {
                     }
                     label_pos.x += 20;
                 }
-                if (i.second->node->hasBang())
+                if (i.second->node->_scheduler._onStart)
                 {
                     const char* label = "!";
                     drawList->AddText(io.FontDefault, font_size, label_pos, text_color, label, label + 1);
