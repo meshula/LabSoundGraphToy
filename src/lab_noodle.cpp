@@ -469,6 +469,8 @@ namespace noodle {
     static int g_edit_pin_int = 0;
     static bool g_edit_pin_bool = false;
 
+    static float g_total_profile_duration = 1; // in microseconds
+
     struct HoverState
     {
         void reset(entt::entity en)
@@ -1447,7 +1449,22 @@ namespace noodle {
 
     bool run_noodles()
     {
+        struct RunWork
+        {
+            ~RunWork()
+            {
+                for (Work& work : g_pending_work)
+                    work.eval();
+
+                g_pending_work.clear();
+            }
+        } run_work;
+
         init();
+
+        // don't run until the device is ready
+        if (!g_audio_context || !g_audio_context->device())
+            return false;
 
         //---------------------------------------------------------------------
         // ensure node sizes are up to date
@@ -1786,8 +1803,13 @@ namespace noodle {
 
         // draw nodes
 
+        g_total_profile_duration = g_audio_context->device()->graphTime.microseconds.count();
+
         for (auto& i : g_graph.nodes)
         {
+            float node_profile_duration = i.second->node->totalTime.microseconds.count() - i.second->node->graphTime.microseconds.count();
+            node_profile_duration = std::abs(node_profile_duration); /// @TODO, the destination node doesn't yet have a totalTime, so abs is a hack in the nonce
+
             ImVec2 ul_ws = i.second->pos;
             ImVec2 lr_ws = i.second->lr;
             ul_ws = window_origin_offset_ws + ul_ws * g_canvas_scale + g_canvas_pixel_offset_ws;
@@ -1798,6 +1820,14 @@ namespace noodle {
             const float rounding = 10;
             drawList->AddRectFilled(ul_ws, lr_ws, ImColor(10, 20, 30, 128), rounding);
             drawList->AddRect(ul_ws, lr_ws, ImColor(255, g_hover.node_id == i.second->gui_node_id ? 255 : 0, 0, 255), rounding, 15, 2);
+
+            {
+                ImVec2 p1{ ul_ws.x, lr_ws.y };
+                ImVec2 p2{ lr_ws.x, lr_ws.y + g_canvas_scale * 16 };
+                drawList->AddRect(p1, p2, ImColor(128, 255, 128, 255));
+                p2.x = p1.x + (p2.x - p1.x) * node_profile_duration / g_total_profile_duration;
+                drawList->AddRectFilled(p1, p2, ImColor(255, 255, 255, 128));
+            }
 
             if (!strncmp(i.second->name.c_str(), "Analyser", 8))
             {
@@ -1989,17 +2019,14 @@ namespace noodle {
         drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
         sprintf(buff, "edit connection: %d", g_edit_connection);
         drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
+        sprintf(buff, "quantum time: %f uS", g_total_profile_duration);
+        drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
         drawList->ChannelsSetCurrent(ChannelContent);
 
         // finish
 
         drawList->ChannelsMerge();
         EndChild();
-
-        for (Work& work : g_pending_work)
-            work.eval();
-
-        g_pending_work.clear();
 
         return true;
     }
