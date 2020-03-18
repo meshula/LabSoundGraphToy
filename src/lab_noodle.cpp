@@ -67,7 +67,6 @@ namespace noodle {
         map<entt::entity, AudioPin> pins;
     };
 
-    AudioGraph g_graph;
 
     struct AudioGuiNode
     {
@@ -80,22 +79,22 @@ namespace noodle {
         shared_ptr<lab::AudioNode> node;
         vector<entt::entity> pins;
 
-        AudioGuiNode(char const* const n) : name(n) { Create(n); }
-        AudioGuiNode(const std::string& n) : name(n) { Create(n.c_str()); }
-        AudioGuiNode(char const* const n, shared_ptr<lab::AudioNode> node) { Create(node, n); }
-        AudioGuiNode(const std::string& n, shared_ptr<lab::AudioNode> node) { Create(node, n.c_str()); }
+        AudioGuiNode(AudioGraph& graph, char const* const n) : name(n) { Create(graph, n); }
+        AudioGuiNode(AudioGraph& graph, const std::string& n) : name(n) { Create(graph, n.c_str()); }
+        AudioGuiNode(AudioGraph& graph, char const* const n, shared_ptr<lab::AudioNode> node) { Create(graph, node, n); }
+        AudioGuiNode(AudioGraph& graph, const std::string& n, shared_ptr<lab::AudioNode> node) { Create(graph, node, n.c_str()); }
         ~AudioGuiNode() = default;
 
-        void Create(const std::string& name) { Create(name.c_str()); }
-        void Create(char const* const name_)
+        void Create(AudioGraph& graph, const std::string& name) { Create(graph, name.c_str()); }
+        void Create(AudioGraph& graph, char const* const name_)
         {
             // create the node, and fetch its parameters and settings
             auto node = NodeFactory(name_);
             if (node)
-                Create(node, name_);
+                Create(graph, node, name_);
         }
 
-        void Create(shared_ptr<lab::AudioNode> audio_node, char const* const name_)
+        void Create(AudioGraph& graph, shared_ptr<lab::AudioNode> audio_node, char const* const name_)
         {
             name = name_;
             gui_node_id = g_registry.create();
@@ -119,7 +118,7 @@ namespace noodle {
             {
                 entt::entity pin_id = g_registry.create();
                 pins.emplace_back(pin_id);
-                g_graph.pins[pin_id] = AudioPin{
+                graph.pins[pin_id] = AudioPin{
                     names[i], shortNames[i], AudioPin::Kind::Setting,
                     pin_id, gui_node_id,
                     settings[i]
@@ -146,7 +145,7 @@ namespace noodle {
                     sprintf(buff, "%s", names[settings[i]->valueUint32()]);
                 }
 
-                g_graph.pins[pin_id].value.assign(buff);
+                graph.pins[pin_id].value.assign(buff);
             }
             names = audio_node->paramNames();
             shortNames = audio_node->paramShortNames();
@@ -156,7 +155,7 @@ namespace noodle {
             {
                 entt::entity pin_id = g_registry.create();
                 pins.emplace_back(pin_id);
-                g_graph.pins[pin_id] = AudioPin{
+                graph.pins[pin_id] = AudioPin{
                     names[i], shortNames[i], AudioPin::Kind::Param,
                     pin_id, gui_node_id,
                     shared_ptr<AudioSetting>(),
@@ -165,14 +164,14 @@ namespace noodle {
 
                 char buff[64];
                 sprintf(buff, "%f", params[i]->value(r));
-                g_graph.pins[pin_id].value.assign(buff);
+                graph.pins[pin_id].value.assign(buff);
             }
             c = (int)audio_node->numberOfInputs();
             for (int i = 0; i < c; ++i)
             {
                 entt::entity pin_id = g_registry.create();
                 pins.emplace_back(pin_id);
-                g_graph.pins[pin_id] = AudioPin{
+                graph.pins[pin_id] = AudioPin{
                     "", "", AudioPin::Kind::BusIn,
                     pin_id, gui_node_id,
                     shared_ptr<AudioSetting>(),
@@ -183,7 +182,7 @@ namespace noodle {
             {
                 entt::entity pin_id = g_registry.create();
                 pins.emplace_back(pin_id);
-                g_graph.pins[pin_id] = AudioPin{
+                graph.pins[pin_id] = AudioPin{
                     "", "", AudioPin::Kind::BusOut,
                     pin_id, gui_node_id,
                     shared_ptr<AudioSetting>(),
@@ -192,6 +191,7 @@ namespace noodle {
         }
     };
 
+    AudioGraph g_graph;
 
 
     enum class WorkType
@@ -223,14 +223,14 @@ namespace noodle {
             {
                 const auto defaultAudioDeviceConfigurations = GetDefaultAudioDeviceConfiguration();
                 g_audio_context = lab::MakeRealtimeAudioContext(defaultAudioDeviceConfigurations.second, defaultAudioDeviceConfigurations.first);
-                auto node = std::make_shared<AudioGuiNode>(name, g_audio_context->device());
+                auto node = std::make_shared<AudioGuiNode>(g_graph, name, g_audio_context->device());
                 node->pos = canvas_pos;
                 g_graph.nodes[node->gui_node_id] = node;
                 printf("CreateRealtimeContext %d\n", node->gui_node_id);
             }
             else if (type == WorkType::CreateNode)
             {
-                auto node = std::make_shared<AudioGuiNode>(name);
+                auto node = std::make_shared<AudioGuiNode>(g_graph, name);
                 node->pos = canvas_pos;
                 g_graph.nodes[node->gui_node_id] = node;
                 printf("CreateNode %s %d\n", name.c_str(), node->gui_node_id);
@@ -1783,7 +1783,7 @@ namespace noodle {
             auto from_it = g_graph.pins.find(i.second.pin_from);
             auto to_it = g_graph.pins.find(i.second.pin_to);
             ImVec2 from_pos = from_it->second.pos_cs + ImVec2(16, 10);
-            ImVec2 to_pos = to_it->second.pos_cs + ImVec2(0, 10);
+            ImVec2 to_pos = to_it->second.pos_cs + ImVec2(2, 10);
 
             ImVec2 p0 = window_origin_offset_ws + from_pos * g_canvas_scale + g_canvas_pixel_offset_ws;
             ImVec2 p1 = { p0.x + 64 * g_canvas_scale, p0.y };
