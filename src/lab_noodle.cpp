@@ -348,7 +348,7 @@ namespace noodle {
                 {
                     g_audio_context->disconnect(in_it->second->node);
 
-                    for (map<entt::entity, AudioPin>::iterator i = g_graph.pins.begin(); i != g_graph.pins.end(); ++i)
+                    for (map<entt::entity, AudioPin>::iterator i = g_graph.pins.begin(); i != g_graph.pins.end(); )
                     {
                         if (i->second.node == input_node)
                         {
@@ -356,7 +356,11 @@ namespace noodle {
                             i = g_graph.pins.erase(i);
                             if (i == g_graph.pins.end())
                                 break;
+                            else
+                                ++i;
                         }
+                        else
+                            ++i;
                     }
 
                     printf("DeleteNode %d\n", input_node);
@@ -367,7 +371,7 @@ namespace noodle {
                 {
                     g_audio_context->disconnect(out_it->second->node);
 
-                    for (map<entt::entity, AudioPin>::iterator i = g_graph.pins.begin(); i != g_graph.pins.end(); ++i)
+                    for (map<entt::entity, AudioPin>::iterator i = g_graph.pins.begin(); i != g_graph.pins.end(); )
                     {
                         if (i->second.node == output_node)
                         {
@@ -375,13 +379,17 @@ namespace noodle {
                             i = g_graph.pins.erase(i);
                             if (i == g_graph.pins.end())
                                 break;
+                            else
+                                ++i;
                         }
+                        else
+                            ++i;
                     }
 
                     printf("DeleteNode %d\n", output_node);
                     g_graph.nodes.erase(out_it);
                 }
-                for (map<entt::entity, Connection>::iterator i = g_graph.connections.begin(); i != g_graph.connections.end(); ++i)
+                for (map<entt::entity, Connection>::iterator i = g_graph.connections.begin(); i != g_graph.connections.end(); )
                 {
                     if ((i->second.node_from == input_node) || (i->second.node_to == input_node) ||
                         (i->second.node_from == output_node) || (i->second.node_to == output_node))
@@ -390,7 +398,11 @@ namespace noodle {
                         i = g_graph.connections.erase(i);
                         if (i == g_graph.connections.end())
                             break;
+                        else
+                            ++i;
                     }
+                    else
+                        ++i;
                 }
                 if (input_node != g_no_entity)
                     g_registry.destroy(input_node);
@@ -1427,6 +1439,10 @@ namespace noodle {
                     entt::entity to_pin = i.second.pin_to;
                     auto from_it = g_graph.pins.find(i.second.pin_from);
                     auto to_it = g_graph.pins.find(i.second.pin_to);
+
+                    if (from_it == g_graph.pins.end() || to_it == g_graph.pins.end())
+                        continue;
+
                     ImVec2 from_pos = from_it->second.pos_cs + ImVec2(16, 10);
                     ImVec2 to_pos = to_it->second.pos_cs + ImVec2(0, 10);
 
