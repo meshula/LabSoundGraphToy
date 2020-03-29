@@ -1264,6 +1264,7 @@ namespace noodle {
                         - ImGui::GetTextLineHeightWithSpacing();  // space for horizontal scroller
 
         bool rv = ImGui::BeginChild(g_id_main_window, ImVec2(0, height), false,
+                        ImGuiWindowFlags_NoBringToFrontOnFocus |
                         ImGuiWindowFlags_NoMove |
                         ImGuiWindowFlags_NoScrollbar |
                         ImGuiWindowFlags_NoScrollWithMouse);
@@ -1688,43 +1689,30 @@ namespace noodle {
             }
         }
 
-        if (g_show_debug_info)
-        {
-            // draw debug information
-            drawList->AddRect(ImVec2{ 0,0 }, ImVec2{ 300, 250 }, 0xffffffff);
-            static char buff[256];
-            float y = 10;
-            sprintf(buff, "pos %d %d", (int)g_mouse_cs.x, (int)g_mouse_cs.y);
-            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y }, 0xffffffff, buff, buff + strlen(buff));
-            sprintf(buff, "LMB %s%s%s", g_click_initiated ? "*" : "-", g_dragging ? "*" : "-", g_click_ended ? "*" : "-");
-            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + 7);
-            sprintf(buff, "canvas interaction: %s", g_interacting_with_canvas ? "*" : ".");
-            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + 21);
-            sprintf(buff, "wire dragging: %s", g_dragging_wire ? "*" : ".");
-            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + 16);
-            sprintf(buff, "node hovered: %s", g_hover.node_id != entt::null ? "*" : ".");
-            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + 15);
-            sprintf(buff, "originating pin id: %d", g_originating_pin_id);
-            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
-            sprintf(buff, "hovered pin id: %d", g_hover.pin_id);
-            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
-            sprintf(buff, "hovered pin label: %d", g_hover.pin_label_id);
-            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
-            sprintf(buff, "hovered connection: %d", g_hover.connection_id);
-            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
-            sprintf(buff, "hovered node menu: %s", g_hover.node_menu ? "*" : ".");
-            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
-            sprintf(buff, "edit connection: %d", g_edit_connection);
-            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
-            sprintf(buff, "quantum time: %f uS", g_total_profile_duration);
-            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
-            drawList->ChannelsSetCurrent(ChannelContent);
-        }
-
         // finish
 
         drawList->ChannelsMerge();
         EndChild();
+
+        if (g_show_debug_info)
+        {
+            ImGui::Begin("Canvas Debug Information");
+
+            ImGui::Text("pos %d %d", (int)g_mouse_cs.x, (int)g_mouse_cs.y);
+            ImGui::Text("LMB %s%s%s", g_click_initiated ? "*" : "-", g_dragging ? "*" : "-", g_click_ended ? "*" : "-");
+            ImGui::Text("canvas interaction: %s", g_interacting_with_canvas ? "*" : ".");
+            ImGui::Text("wire dragging: %s", g_dragging_wire ? "*" : ".");
+            ImGui::Text("node hovered: %s", g_hover.node_id != entt::null ? "*" : ".");
+            ImGui::Text("originating pin id: %d", g_originating_pin_id);
+            ImGui::Text("hovered pin id: %d", g_hover.pin_id);
+            ImGui::Text("hovered pin label: %d", g_hover.pin_label_id);
+            ImGui::Text("hovered connection: %d", g_hover.connection_id);
+            ImGui::Text("hovered node menu: %s", g_hover.node_menu ? "*" : ".");
+            ImGui::Text("edit connection: %d", g_edit_connection);
+            ImGui::Text("quantum time: %f uS", g_total_profile_duration);
+
+            ImGui::End();
+        }
 
         return true;
     }

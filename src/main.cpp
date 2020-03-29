@@ -1,29 +1,85 @@
-//------------------------------------------------------------------------------
-//  imgui-sapp.c
-//
-//  Demonstrates Dear ImGui UI rendering via sokol_gfx.h and
-//  the utility header sokol_imgui.h
-//------------------------------------------------------------------------------
-
 #define SOKOL_TRACE_HOOKS
+
 #include "sokol_app.h"
 #include "sokol_gfx.h"
 #include "sokol_time.h"
 #include "imgui.h"
 #include "sokol_imgui.h"
 #include "sokol_gfx_imgui.h"
+#include "IconsFontaudio.h"
+
 #include <string>
+#include <vector>
+#include <fstream>
+#include <iostream>
 
 static uint64_t last_time = 0;
-
-
 static sg_pass_action pass_action;
 sg_imgui_t sg_imgui;
-#define MSAA_SAMPLES (4)
+
+#define MSAA_SAMPLES (8)
 
 std::string g_app_path;
 static bool quit = false;
-ImFont* g_roboto = nullptr;
+ImFont * g_roboto = nullptr;
+ImFont * g_cousine = nullptr;
+ImFont * g_audio_icon = nullptr;
+
+// gui::imgui_fixed_window_begin("asset-browser", { { 0, 0 },{ width, height } });
+
+inline void imgui_fixed_window_begin(const char * name, float min_x, float min_y, float max_x, float max_y)
+{
+    ImGui::SetNextWindowPos({min_x, min_y});
+    ImGui::SetNextWindowSize({max_x - min_x, max_y - min_y});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(0, 0));
+    bool result = ImGui::Begin(name, NULL, ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+    ImGui::TextColored({ 1,1,1,1 }, name);
+    assert(result);
+}
+
+inline void imgui_fixed_window_end()
+{
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+}
+
+namespace imgui_fonts
+{
+    unsigned int getCousineRegularCompressedSize();
+    const unsigned int * getCousineRegularCompressedData();
+}
+
+inline std::vector<uint8_t> read_file_binary(const std::string & pathToFile)
+{
+    std::ifstream file(pathToFile, std::ios::binary);
+    std::vector<uint8_t> fileBufferBytes;
+
+    if (file.is_open())
+    {
+        file.seekg(0, std::ios::end);
+        size_t sizeBytes = file.tellg();
+        file.seekg(0, std::ios::beg);
+        fileBufferBytes.resize(sizeBytes);
+        if (file.read((char*)fileBufferBytes.data(), sizeBytes)) return fileBufferBytes;
+    }
+    else throw std::runtime_error("could not open binary ifstream to path " + pathToFile);
+    return fileBufferBytes;
+}
+
+std::vector<uint8_t> s_audioIconFontBuffer;
+void append_audio_icon_font(const std::vector<uint8_t> & buffer)
+{
+    ImGuiIO & io = ImGui::GetIO();
+    s_audioIconFontBuffer = buffer;
+    static const ImWchar icons_ranges[] = { ICON_MIN_FAD, ICON_MAX_FAD, 0 };
+    ImFontConfig icons_config; 
+    icons_config.MergeMode = true; 
+    icons_config.PixelSnapH = true;
+    icons_config.FontDataOwnedByAtlas = false;
+    g_audio_icon = io.Fonts->AddFontFromMemoryTTF((void *)s_audioIconFontBuffer.data(), (int)s_audioIconFontBuffer.size(), 16.f, &icons_config, icons_ranges);
+    IM_ASSERT(g_audio_icon != NULL);
+}
 
 namespace lab { namespace noodle {
     bool run_noodles();
@@ -57,6 +113,43 @@ void init(void) {
     pass_action.colors[0].val[1] = 0.5f;
     pass_action.colors[0].val[2] = 0.7f;
     pass_action.colors[0].val[3] = 1.0f;
+
+    ImGuiIO & io = ImGui::GetIO();
+
+    ImFontConfig config;
+    config.OversampleH = 6;
+    config.OversampleV = 6;
+    g_cousine = io.Fonts->AddFontFromMemoryCompressedTTF(imgui_fonts::getCousineRegularCompressedData(), imgui_fonts::getCousineRegularCompressedSize(), 15.0f, &config);
+    assert(g_cousine != nullptr);
+
+    const auto font_audio_ttf = read_file_binary("../resources/fontaudio.ttf");
+    append_audio_icon_font(font_audio_ttf);
+
+    // Upload new font texture atlas
+    unsigned char* font_pixels;
+    int font_width, font_height;
+    io.Fonts->GetTexDataAsRGBA32(&font_pixels, &font_width, &font_height);
+    sg_image_desc img_desc = { };
+    img_desc.width = font_width;
+    img_desc.height = font_height;
+    img_desc.pixel_format = SG_PIXELFORMAT_RGBA8;
+    img_desc.wrap_u = SG_WRAP_CLAMP_TO_EDGE;
+    img_desc.wrap_v = SG_WRAP_CLAMP_TO_EDGE;
+    img_desc.min_filter = SG_FILTER_LINEAR;
+    img_desc.mag_filter = SG_FILTER_LINEAR;
+    img_desc.content.subimage[0][0].ptr = font_pixels;
+    img_desc.content.subimage[0][0].size = font_width * font_height * 4;
+    io.Fonts->TexID = (ImTextureID)(uintptr_t) sg_make_image(&img_desc).id;
+
+    ImGuiStyle& style = ImGui::GetStyle();
+
+    style.WindowRounding = 0.f;
+    style.ChildRounding = 0.f;
+    style.FrameRounding = 0.f;
+    style.PopupRounding = 0.f;
+    style.ScrollbarRounding = 0.f;
+    style.GrabRounding = 0.f;
+    style.TabRounding = 0.f;
 }
 
 void frame()
@@ -75,12 +168,15 @@ void frame()
     ImGui::SetNextWindowPos({ 0,0 });
     ImGui::SetNextWindowSize(io.DisplaySize);
     static bool show_editor = true;
-    ImGui::Begin("Editor", &show_editor,
-        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollWithMouse);
 
-    if (ImGui::BeginMainMenuBar()) {
-        if (ImGui::BeginMenu("GraphToy")) {
+    ImGui::PushFont(g_cousine);
+
+    imgui_fixed_window_begin("GraphToy", 0, 20, width, height);
+
+    if (ImGui::BeginMainMenuBar()) 
+    {
+        if (ImGui::BeginMenu(" " ICON_FAD_HEADPHONES " File")) 
+        {
             ImGui::MenuItem("Quit", 0, &quit);
             if (quit)
                 sapp_request_quit();
@@ -91,9 +187,11 @@ void frame()
 
     lab::noodle::run_noodles();
 
+    imgui_fixed_window_end();
 
-//    AudioGraphEditor_RunUI();
-    ImGui::End();
+    ImGui::ShowDemoWindow();
+
+    ImGui::PopFont();
 
     sg_imgui_draw(&sg_imgui);
 
