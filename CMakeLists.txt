@@ -137,6 +137,9 @@ add_executable(LabSoundGraphToy
 )
 add_dependencies(LabSoundGraphToy ProcessPlaygroundShaderFiles)
 
+set_target_properties(LabSoundGraphToy PROPERTIES
+                      RUNTIME_OUTPUT_DIRECTORY bin)
+
 target_compile_definitions(LabSoundGraphToy PRIVATE
     ${ST_GFX_DEFS}
     IMGUI_DEFINE_MATH_OPERATORS
@@ -188,4 +191,15 @@ target_link_libraries(LabSoundGraphToy
 # Installer
 #-------------------------------------------------------------------------------
 
-install(TARGETS LabSoundGraphToy DESTINATION bin)
+install(
+    TARGETS LabSoundGraphToy
+    BUNDLE DESTINATION bin
+    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION lib
+    RUNTIME DESTINATION bin)
+
+install(
+    FILES
+        resources/fontaudio.ttf
+        resources/preview.png
+    DESTINATION bin/LabSoundGraphToy_rsrc/)

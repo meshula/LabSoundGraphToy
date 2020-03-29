@@ -22,7 +22,7 @@ namespace noodle {
 
     struct Canvas
     {
-        ImVec2 window_origin_offset_ws() const { return ImGui::GetWindowPos(); }
+        ImVec2 window_origin_offset_ws = { 0, 0 };
         ImVec2 origin_offset_ws = { 0,0 };
         float scale = 1.f;
     }
@@ -54,7 +54,7 @@ namespace noodle {
         {
             float x = column_number * GraphNodeLayout::k_column_width;
             ImVec2 res = (node_origin_cs + ImVec2{ x, pos_y_cs }) * canvas.scale;
-            return res + canvas.origin_offset_ws + canvas.window_origin_offset_ws();
+            return res + canvas.origin_offset_ws + canvas.window_origin_offset_ws;
         }
         bool pin_contains_cs_point(Canvas& canvas, float x, float y) const
         {
@@ -132,13 +132,11 @@ namespace noodle {
             g_originating_pin_id = en;
             pin_id = en;
             pin_label_id = en;
-            pin_pos_cs = { 0, 0 };
             node_menu = false;
             bang = false;
             play = false;
         }
 
-        ImVec2 pin_pos_cs = { 0,0 };
         entt::entity node_id;
         entt::entity pin_id;
         entt::entity pin_label_id;
@@ -312,14 +310,7 @@ namespace noodle {
         }
     };
 
-
-
-
     vector<Work> g_pending_work;
-
-
-
-
 
 
 
@@ -360,10 +351,6 @@ namespace noodle {
         }
         return result;
     }
-
-
-
-
 
 
     // This Icon drawing is adapted from thedmd's imgui_node_editor blueprint sample because the icons are nice
@@ -574,9 +561,6 @@ namespace noodle {
             }
         }
     }
-
-
-
 
 
     static bool imgui_knob(const char* label, float* p_value, float v_min, float v_max)
@@ -1120,14 +1104,6 @@ namespace noodle {
                         g_hover.pin_label_id = entt::null;
                     }
                     g_hover.node_id = pin.node_id;
-
-                    // if no originating pin from a drag, then keep updated the hovered pin position
-                    if (g_originating_pin_id == entt::null)
-                    {
-                        ImVec2 ul = pnl.ul_ws(g_canvas);
-                        g_hover.pin_pos_cs.x = ul.x + GraphPinLayout::k_width * 0.5f * g_canvas.scale;
-                        g_hover.pin_pos_cs.y = ul.y + GraphPinLayout::k_width * 0.5f * g_canvas.scale;
-                    }
                 }
                 else if (pnl.label_contains_cs_point(g_canvas, mouse_x_cs, mouse_y_cs))
                 {
@@ -1211,12 +1187,17 @@ namespace noodle {
                     ImVec2 to_pos = to_gpl.ul_ws(g_canvas) + ImVec2(0, 10) * g_canvas.scale;
 
                     ImVec2 p0 = from_pos;
-                    ImVec2 p1 = { p0.x + 64, p0.y };
                     ImVec2 p3 = to_pos;
-                    ImVec2 p2 = { p3.x - 64, p3.y };
-                    ImVec2 closest = ImBezierClosestPointCasteljau(p0, p1, p2, p3, g_mouse_ws, 10);
+                    ImVec2 pd = p0 - p3;
+                    float wiggle = std::min(64.f, sqrtf(pd.x * pd.x + pd.y * pd.y)) * g_canvas.scale;
+                    ImVec2 p1 = { p0.x + wiggle, p0.y };
+                    ImVec2 p2 = { p3.x - wiggle, p3.y };
+
+                    ImVec2 test = g_mouse_ws + g_canvas.window_origin_offset_ws + g_canvas.origin_offset_ws;
+                    //printf("p0(%01.f, %0.1f) p3(%0.1f, %0.1f) m(%01.f, %01.f)\n", p0.x, p0.y, p3.x, p3.y, test.x, test.y);
+                    ImVec2 closest = ImBezierClosestPointCasteljau(p0, p1, p2, p3, test, 10);
                     
-                    ImVec2 delta = g_mouse_ws - closest;
+                    ImVec2 delta = test - closest;
                     float d = delta.x * delta.x + delta.y * delta.y;
                     if (d < 100)
                     {
@@ -1232,6 +1213,7 @@ namespace noodle {
 
     bool run_noodles()
     {
+        ImGui::BeginChild("###Noodles");
         struct RunWork
         {
             ~RunWork()
@@ -1240,21 +1222,24 @@ namespace noodle {
                     work.eval();
 
                 g_pending_work.clear();
+                ImGui::EndChild();
             }
         } run_work;
 
         init(_provider);
 
         //---------------------------------------------------------------------
-        // ensure node sizes are up to date
-
-        lay_out_pins(_provider);
-
-        //---------------------------------------------------------------------
+        // ensure coordinate systems are initialized properly
 
         ImGuiIO& io = ImGui::GetIO();
         ImGuiWindow* win = ImGui::GetCurrentWindow();
         ImRect edit_rect = win->ContentRegionRect;
+        g_canvas.window_origin_offset_ws = ImGui::GetWindowPos() + ImGui::GetWindowContentRegionMin();
+
+        //---------------------------------------------------------------------
+        // ensure node sizes are up to date
+
+        lay_out_pins(_provider);
 
         //---------------------------------------------------------------------
         // Create a canvas
@@ -1542,18 +1527,25 @@ namespace noodle {
             ImVec2 to_pos = to_gpl.ul_ws(g_canvas) + ImVec2(0, 10) * g_canvas.scale;
 
             ImVec2 p0 = from_pos;
-            ImVec2 p1 = { p0.x + 64 * g_canvas.scale, p0.y };
             ImVec2 p3 = to_pos;
-            ImVec2 p2 = { p3.x - 64 * g_canvas.scale, p3.y };
-            drawList->AddBezierCurve(p0, p1, p2, p3, 0xffffffff, 2.f);
+            ImVec2 pd = p0 - p3;
+            float wiggle = std::min(64.f, sqrtf(pd.x * pd.x + pd.y * pd.y)) * g_canvas.scale;
+            ImVec2 p1 = { p0.x + wiggle, p0.y };
+            ImVec2 p2 = { p3.x - wiggle, p3.y };
+
+            ImU32 color = entity == g_hover.connection_id ? 0xff00ffff : 0xffffffff;
+            drawList->AddBezierCurve(p0, p1, p2, p3, color, 2.f);
         }
 
         if (g_dragging_wire)
         {
-            ImVec2 p0 = g_canvas.window_origin_offset_ws() + g_hover.pin_pos_cs * g_canvas.scale + g_canvas.origin_offset_ws;
-            ImVec2 p1 = { p0.x + 64 * g_canvas.scale, p0.y };
-            ImVec2 p3 = g_mouse_ws;
-            ImVec2 p2 = { p3.x - 64 * g_canvas.scale, p3.y };
+            GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(g_originating_pin_id);
+            ImVec2 p0 = from_gpl.ul_ws(g_canvas) + ImVec2(16, 10) * g_canvas.scale;
+            ImVec2 p3 = g_mouse_ws + g_canvas.window_origin_offset_ws;
+            ImVec2 pd = p0 - p3;
+            float wiggle = std::min(64.f, sqrtf(pd.x * pd.x + pd.y * pd.y)) * g_canvas.scale;
+            ImVec2 p1 = { p0.x + wiggle, p0.y };
+            ImVec2 p2 = { p3.x - wiggle, p3.y };
             drawList->AddBezierCurve(p0, p1, p2, p3, 0xffffffff, 2.f);
         }
 
@@ -1578,8 +1570,8 @@ namespace noodle {
             GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(entity);
             ImVec2 ul_ws = gnl.pos_cs;
             ImVec2 lr_ws = gnl.lr_cs;
-            ul_ws = g_canvas.window_origin_offset_ws() + ul_ws * g_canvas.scale + g_canvas.origin_offset_ws;
-            lr_ws = g_canvas.window_origin_offset_ws() + lr_ws * g_canvas.scale + g_canvas.origin_offset_ws;
+            ul_ws = g_canvas.window_origin_offset_ws + ul_ws * g_canvas.scale + g_canvas.origin_offset_ws;
+            lr_ws = g_canvas.window_origin_offset_ws + lr_ws * g_canvas.scale + g_canvas.origin_offset_ws;
 
             // draw node
 
@@ -1698,7 +1690,12 @@ namespace noodle {
         {
             ImGui::Begin("Canvas Debug Information");
 
-            ImGui::Text("pos %d %d", (int)g_mouse_cs.x, (int)g_mouse_cs.y);
+            ImGui::Text("canvas    pos (%d, %d)", (int)g_mouse_cs.x, (int)g_mouse_cs.y);
+            ImGui::Text("drawlist  pos (%d, %d)", (int)g_mouse_ws.x, (int)g_mouse_ws.y);
+            ImVec2 off = g_canvas.window_origin_offset_ws;
+            ImGui::Text("canvas window offset (%d, %d)", (int)off.x, (int)off.y);
+            off = g_canvas.origin_offset_ws;
+            ImGui::Text("canvas origin offset (%d, %d)", (int)off.x, (int)off.y);
             ImGui::Text("LMB %s%s%s", g_click_initiated ? "*" : "-", g_dragging ? "*" : "-", g_click_ended ? "*" : "-");
             ImGui::Text("canvas interaction: %s", g_interacting_with_canvas ? "*" : ".");
             ImGui::Text("wire dragging: %s", g_dragging_wire ? "*" : ".");
