@@ -50,7 +50,7 @@ namespace noodle {
         ImVec2 node_origin_cs = { 0, 0 };
         float pos_y_cs = 0.f;
         float column_number = 0;
-        ImVec2 canvas_ul(Canvas& canvas) const
+        ImVec2 ul_ws(Canvas& canvas) const
         {
             float x = column_number * GraphNodeLayout::k_column_width;
             ImVec2 res = (node_origin_cs + ImVec2{ x, pos_y_cs }) * canvas.scale;
@@ -74,23 +74,10 @@ namespace noodle {
     const float GraphPinLayout::k_height = 20.f;
     const float GraphPinLayout::k_width = 20.f;
 
-    struct GraphConnection
-    {
-        entt::entity id;
-
-        entt::entity pin_from;
-        entt::entity node_from;
-        entt::entity pin_to;
-        entt::entity node_to;
-    };
-
     lab::Sound::Provider _provider;
-
-
 
     //--------------------
     // Enumerations
-
 
     // ImGui channels for layering the graphics
 
@@ -786,13 +773,19 @@ namespace noodle {
     void EditConnection(lab::Sound::Provider& provider, entt::entity connection)
     {
         entt::registry& reg = provider.registry();
-        if (!reg.valid(connection) || !reg.any<GraphConnection>(connection))
+        if (!reg.valid(connection))
         {
             g_edit_connection = entt::null;
             return;
         }
+        if (!reg.any<lab::Sound::Connection>(connection))
+        {
+            printf("No GraphConnection for %d", connection);
+            g_edit_connection = entt::null;
+            return;
+        }
 
-        GraphConnection& conn = reg.get<GraphConnection>(connection);
+        lab::Sound::Connection& conn = reg.get<lab::Sound::Connection>(connection);
 
         ImGui::OpenPopup("Connection");
         if (ImGui::BeginPopupModal("Connection", nullptr, ImGuiWindowFlags_NoCollapse))
@@ -879,11 +872,6 @@ namespace noodle {
         }
         drawList->PathStroke(ImColor(255, 255, 0, 255), false, 2);
     }
-
-
-
-
-
 
 
 
@@ -981,76 +969,108 @@ namespace noodle {
 
         // may the counting begin
 
-        for (auto entity : registry.view<GraphNodeLayout>())
+        for (auto node_entity : registry.view<GraphNodeLayout>())
         {
-            GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(entity);
+            GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(node_entity);
+            if (!registry.valid(node_entity))
+                continue;
+
             gnl.in_height = 0;
             gnl.mid_height = 0;
             gnl.out_height = 0;
-        }
+            gnl.column_count = 1;
 
-        // layout the pins
-
-        for (const auto entity : registry.view<lab::Sound::AudioPin>())
-        {
-            if (!registry.valid(entity))
-                continue;
-
-            lab::Sound::AudioPin& pin = registry.get<lab::Sound::AudioPin>(entity);
-            if (!registry.valid(pin.node_id))
-                continue;
-
-            lab::Sound::AudioNode& node = registry.get<lab::Sound::AudioNode>(pin.node_id);
-            GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(pin.node_id);
-
-            // lazily create the layouts on demand.
-            if (!registry.any<GraphPinLayout>(entity))
-                registry.assign<GraphPinLayout>(entity, GraphPinLayout{});
-
-            GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity);
-            pnl.node_origin_cs = gnl.pos_cs;
-
-            switch (pin.kind)
+            // calculate column heights
+            if (registry.any<vector<entt::entity>>(node_entity))
             {
-            case lab::Sound::AudioPin::Kind::BusIn:
-                pnl.column_number = 0;
-                pnl.pos_y_cs = 16 + GraphPinLayout::k_height * static_cast<float>(gnl.in_height);
-                gnl.in_height += 1; 
-                break;
-            case lab::Sound::AudioPin::Kind::BusOut:
-                pnl.column_number = 2;
-                pnl.pos_y_cs = 16 + GraphPinLayout::k_height * static_cast<float>(gnl.out_height);
-                gnl.out_height += 1;
-                break;
-            case lab::Sound::AudioPin::Kind::Param:
-                pnl.column_number = 0;
-                pnl.pos_y_cs = 16 + GraphPinLayout::k_height * static_cast<float>(gnl.in_height);
-                gnl.in_height += 1;
-                break;
-            case lab::Sound::AudioPin::Kind::Setting:
-                pnl.column_number = 1;
-                pnl.pos_y_cs = 16 + GraphPinLayout::k_height * static_cast<float>(gnl.mid_height);
-                gnl.mid_height += 1;
-                break;
+                vector<entt::entity>& pins = registry.get<vector<entt::entity>>(node_entity);
+                for (const entt::entity entity : pins)
+                {
+                    if (!registry.valid(entity))
+                        continue;
+
+                    lab::Sound::AudioPin& pin = registry.get<lab::Sound::AudioPin>(entity);
+                    if (!registry.valid(pin.node_id))
+                        continue;
+
+                    // lazily create the layouts on demand.
+                    if (!registry.any<GraphPinLayout>(entity))
+                        registry.assign<GraphPinLayout>(entity, GraphPinLayout{});
+
+                    GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity);
+                    pnl.node_origin_cs = gnl.pos_cs;
+
+                    switch (pin.kind)
+                    {
+                    case lab::Sound::AudioPin::Kind::BusIn:
+                        gnl.in_height += 1;
+                        break;
+                    case lab::Sound::AudioPin::Kind::BusOut:
+                        gnl.out_height += 1;
+                        break;
+                    case lab::Sound::AudioPin::Kind::Param:
+                        gnl.in_height += 1;
+                        break;
+                    case lab::Sound::AudioPin::Kind::Setting:
+                        gnl.mid_height += 1;
+                        break;
+                    }
+                }
             }
-        }
 
-        // adjust the node size to fit the counted pins
-
-        for (auto entity : registry.view<GraphNodeLayout>())
-        {
-            GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(entity);
-            gnl.column_count = gnl.mid_height > 0 ? 3 : 2;
+            gnl.column_count += gnl.mid_height > 0 ? 1 : 0;
 
             int height = gnl.in_height > gnl.mid_height ? gnl.in_height : gnl.mid_height;
             if (gnl.out_height > height)
                 height = gnl.out_height;
 
-            float width = 256;
-            if (gnl.mid_height > 0)
-                width += 128;
+            float width = GraphNodeLayout::k_column_width * gnl.column_count;
+            gnl.lr_cs = gnl.pos_cs + ImVec2{ width, GraphPinLayout::k_height * (1.5f + (float)height) };
 
-            gnl.lr_cs = gnl.pos_cs + ImVec2{ width, 16 + GraphPinLayout::k_height * (float)height };
+            gnl.in_height = 0;
+            gnl.mid_height = 0;
+            gnl.out_height = 0;
+
+            // assign columns
+            if (registry.any<vector<entt::entity>>(node_entity))
+            {
+                vector<entt::entity>& pins = registry.get<vector<entt::entity>>(node_entity);
+                for (const entt::entity entity : pins)
+                {
+                    if (!registry.valid(entity))
+                        continue;
+
+                    lab::Sound::AudioPin& pin = registry.get<lab::Sound::AudioPin>(entity);
+                    if (!registry.valid(pin.node_id))
+                        continue;
+
+                    GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity);
+
+                    switch (pin.kind)
+                    {
+                    case lab::Sound::AudioPin::Kind::BusIn:
+                        pnl.column_number = 0;
+                        pnl.pos_y_cs = 16 + GraphPinLayout::k_height * static_cast<float>(gnl.in_height);
+                        gnl.in_height += 1;
+                        break;
+                    case lab::Sound::AudioPin::Kind::BusOut:
+                        pnl.column_number = static_cast<float>(gnl.column_count);
+                        pnl.pos_y_cs = 16 + GraphPinLayout::k_height * static_cast<float>(gnl.out_height);
+                        gnl.out_height += 1;
+                        break;
+                    case lab::Sound::AudioPin::Kind::Param:
+                        pnl.column_number = 0;
+                        pnl.pos_y_cs = 16 + GraphPinLayout::k_height * static_cast<float>(gnl.in_height);
+                        gnl.in_height += 1;
+                        break;
+                    case lab::Sound::AudioPin::Kind::Setting:
+                        pnl.column_number = 1;
+                        pnl.pos_y_cs = 16 + GraphPinLayout::k_height * static_cast<float>(gnl.mid_height);
+                        gnl.mid_height += 1;
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -1104,7 +1124,7 @@ namespace noodle {
                     // if no originating pin from a drag, then keep updated the hovered pin position
                     if (g_originating_pin_id == entt::null)
                     {
-                        ImVec2 ul = pnl.canvas_ul(g_canvas);
+                        ImVec2 ul = pnl.ul_ws(g_canvas);
                         g_hover.pin_pos_cs.x = ul.x + GraphPinLayout::k_width * 0.5f * g_canvas.scale;
                         g_hover.pin_pos_cs.y = ul.y + GraphPinLayout::k_width * 0.5f * g_canvas.scale;
                     }
@@ -1126,7 +1146,7 @@ namespace noodle {
             }
 
             // test all nodes
-            for (const auto entity : registry.view<lab::Sound::AudioNode>())
+            for (const entt::entity entity : registry.view<lab::Sound::AudioNode>())
             {
                 GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(entity);
                 ImVec2 ul = gnl.pos_cs;
@@ -1141,6 +1161,9 @@ namespace noodle {
                         bool play = false;
                         bool bang = false;
                         shared_ptr<lab::AudioNode> a_node = registry.get<shared_ptr<lab::AudioNode>>(entity);
+                        if (!a_node)
+                            continue;
+
                         bool scheduled = a_node->isScheduledNode();
 
                         // in banner
@@ -1184,16 +1207,16 @@ namespace noodle {
 
                     GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(from_pin);
                     GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(to_pin);
-                    ImVec2 from_pos = from_gpl.canvas_ul(g_canvas) + ImVec2(16, 10) * g_canvas.scale;
-                    ImVec2 to_pos = to_gpl.canvas_ul(g_canvas) + ImVec2(0, 10) * g_canvas.scale;
+                    ImVec2 from_pos = from_gpl.ul_ws(g_canvas) + ImVec2(16, 10) * g_canvas.scale;
+                    ImVec2 to_pos = to_gpl.ul_ws(g_canvas) + ImVec2(0, 10) * g_canvas.scale;
 
                     ImVec2 p0 = from_pos;
                     ImVec2 p1 = { p0.x + 64, p0.y };
                     ImVec2 p3 = to_pos;
                     ImVec2 p2 = { p3.x - 64, p3.y };
-                    ImVec2 closest = ImBezierClosestPointCasteljau(p0, p1, p2, p3, g_mouse_cs, 10);
+                    ImVec2 closest = ImBezierClosestPointCasteljau(p0, p1, p2, p3, g_mouse_ws, 10);
                     
-                    ImVec2 delta = g_mouse_cs - closest;
+                    ImVec2 delta = g_mouse_ws - closest;
                     float d = delta.x * delta.x + delta.y * delta.y;
                     if (d < 100)
                     {
@@ -1365,15 +1388,6 @@ namespace noodle {
                         work.param_pin = to_pin.pin_id;
                         g_pending_work.emplace_back(work);
                     }
-
-                    entt::entity wire = _provider.registry().create();
-                    registry.assign<GraphConnection>(wire, GraphConnection{
-                        wire,
-                        g_originating_pin_id,
-                        from_pin.node_id,
-                        g_hover.pin_id,
-                        to_pin.node_id
-                    });
                 }
             }
             g_dragging_wire = false;
@@ -1520,14 +1534,15 @@ namespace noodle {
             entt::entity to_pin = i.pin_to;
             lab::Sound::AudioPin& from_it = registry.get<lab::Sound::AudioPin>(from_pin);
             lab::Sound::AudioPin& to_it = registry.get<lab::Sound::AudioPin>(to_pin);
+
             GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(from_pin);
             GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(to_pin);
-            ImVec2 from_pos = from_gpl.canvas_ul(g_canvas) + ImVec2(16, 10) * g_canvas.scale;
-            ImVec2 to_pos = to_gpl.canvas_ul(g_canvas) + ImVec2(0, 10) * g_canvas.scale;
+            ImVec2 from_pos = from_gpl.ul_ws(g_canvas) + ImVec2(16, 10) * g_canvas.scale;
+            ImVec2 to_pos = to_gpl.ul_ws(g_canvas) + ImVec2(0, 10) * g_canvas.scale;
 
-            ImVec2 p0 = g_canvas.window_origin_offset_ws() + from_pos * g_canvas.scale + g_canvas.origin_offset_ws;
+            ImVec2 p0 = from_pos;
             ImVec2 p1 = { p0.x + 64 * g_canvas.scale, p0.y };
-            ImVec2 p3 = g_canvas.window_origin_offset_ws() + to_pos * g_canvas.scale + g_canvas.origin_offset_ws;
+            ImVec2 p3 = to_pos;
             ImVec2 p2 = { p3.x - 64 * g_canvas.scale, p3.y };
             drawList->AddBezierCurve(p0, p1, p2, p3, 0xffffffff, 2.f);
         }
@@ -1645,7 +1660,7 @@ namespace noodle {
                     }
 
                     GraphPinLayout& pin_gpl = registry.get<GraphPinLayout>(j);
-                    ImVec2 pin_ul = pin_gpl.canvas_ul(g_canvas);
+                    ImVec2 pin_ul = pin_gpl.ul_ws(g_canvas);
                     uint32_t fill = (j == g_hover.pin_id || j == g_originating_pin_id) ? 0xffffff : 0x000000;
                     fill |= (uint32_t)(128 + 128 * sinf(pulse * 8)) << 24;
                     DrawIcon(drawList, pin_ul, 

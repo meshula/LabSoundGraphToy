@@ -88,11 +88,11 @@ namespace lab { namespace Sound {
         if (n == "DynamicsCompressor") return std::make_shared<lab::DynamicsCompressorNode>(ac);
         //if (n == "Function") return std::make_shared<lab::FunctionNode>(ac);
         if (n == "Gain") return std::make_shared<lab::GainNode>(ac);
-        //if (n == "Granulation") return std::make_shared<lab::GranulationNode>(ac);
+        if (n == "Granulation") return std::make_shared<lab::GranulationNode>(ac);
         if (n == "Noise") return std::make_shared<lab::NoiseNode>(ac);
         //if (n == "OfflineAudioDestination") return std::make_shared<lab::OfflineAudioDestinationNode>(ac);
         if (n == "Oscillator") return std::make_shared<lab::OscillatorNode>(ac);
-        //if (n == "Panner") return std::make_shared<lab::PannerNode>(ac);
+        if (n == "Panner") return std::make_shared<lab::PannerNode>(ac);
 #ifdef PD
         if (n == "PureData") return std::make_shared<lab::PureDataNode>(ac);
 #endif
@@ -101,7 +101,7 @@ namespace lab { namespace Sound {
         if (n == "PolyBLEP") return std::make_shared<lab::PolyBLEPNode>(ac);
         if (n == "PowerMonitor") return std::make_shared<lab::PowerMonitorNode>(ac);
         if (n == "PWM") return std::make_shared<lab::PWMNode>(ac);
-        //if (n == "Recorder") return std::make_shared<lab::RecorderNode>(ac);
+        if (n == "Recorder") return std::make_shared<lab::RecorderNode>(ac);
         if (n == "SampledAudio") return std::make_shared<lab::SampledAudioNode>(ac);
         if (n == "Sfxr") return std::make_shared<lab::SfxrNode>(ac);
         if (n == "Spatialization") return std::make_shared<lab::SpatializationNode>(ac);
@@ -129,12 +129,42 @@ namespace lab { namespace Sound {
             g_audio_context->addAutomaticPullNode(audio_node);
         }
 
+        //---------- inputs
+
+        int c = (int)audio_node->numberOfInputs();
+        for (int i = 0; i < c; ++i)
+        {
+            entt::entity pin_id = registry.create();
+            pins.push_back(pin_id);
+            registry.assign<AudioPin>(pin_id, AudioPin{
+                AudioPin::Kind::BusIn,
+                "", "",
+                pin_id, audio_node_id,
+                shared_ptr<AudioSetting>(),
+                });
+        }
+
+        //---------- outputs
+
+        c = (int)audio_node->numberOfOutputs();
+        for (int i = 0; i < c; ++i)
+        {
+            entt::entity pin_id = registry.create();
+            pins.push_back(pin_id);
+            registry.assign<AudioPin>(pin_id, AudioPin{
+                AudioPin::Kind::BusOut,
+                "", "",
+                pin_id, audio_node_id,
+                shared_ptr<AudioSetting>(),
+                });
+        }
+
         //---------- settings
 
         vector<string> names = audio_node->settingNames();
         vector<string> shortNames = audio_node->settingShortNames();
         auto settings = audio_node->settings();
-        int c = (int)settings.size();
+        c = (int)settings.size();
         for (int i = 0; i < c; ++i)
         {
             char buff[64] = { '\0' };
@@ -188,36 +218,6 @@ namespace lab { namespace Sound {
                 shared_ptr<AudioSetting>(),
                 params[i],
                 buff
-            });
-        }
-
-        //---------- inputs
-
-        c = (int)audio_node->numberOfInputs();
-        for (int i = 0; i < c; ++i)
-        {
-            entt::entity pin_id = registry.create();
-            pins.push_back(pin_id);
-            registry.assign<AudioPin>(pin_id, AudioPin{
-                AudioPin::Kind::BusIn,
-                "", "",
-                pin_id, audio_node_id,
-                shared_ptr<AudioSetting>(),
-            });
-        }
-
-        //---------- outputs
-
-        c = (int)audio_node->numberOfOutputs();
-        for (int i = 0; i < c; ++i)
-        {
-            entt::entity pin_id = registry.create();
-            pins.push_back(pin_id);
-            registry.assign<AudioPin>(pin_id, AudioPin{
-                AudioPin::Kind::BusOut,
-                "", "",
-                pin_id, audio_node_id,
-                shared_ptr<AudioSetting>(),
             });
         }
 
