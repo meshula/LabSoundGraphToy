@@ -18,6 +18,8 @@ set(PLAYGROUND_SRC
     src/lab_noodle.cpp
     src/LabSoundInterface.cpp
     src/LabSoundInterface.h
+    src/ImguiFontCousineRegular.cpp
+	src/IconsFontaudio.h
 )
 
 if(APPLE)
