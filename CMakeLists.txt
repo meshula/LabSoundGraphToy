@@ -16,6 +16,8 @@ endif()
 set(PLAYGROUND_SRC
     src/main.cpp
     src/lab_noodle.cpp
+    src/LabSoundInterface.cpp
+    src/LabSoundInterface.h
 )
 
 if(APPLE)

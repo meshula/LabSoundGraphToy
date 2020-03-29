@@ -6,6 +6,7 @@
 #include <LabSound/LabSound.h>
 #include <LabSound/core/AudioNode.h>
 
+#include "LabSoundInterface.h"
 #include "nfd.h"
 
 namespace lab {
@@ -19,421 +20,71 @@ namespace noodle {
     using std::vector;
     using namespace ImGui;
 
-    std::unique_ptr<lab::AudioContext> g_audio_context;
-    entt::entity g_no_entity;
-    entt::registry g_registry;
-
-    pair<lab::AudioStreamConfig, lab::AudioStreamConfig> GetDefaultAudioDeviceConfiguration(const bool with_input = false);
-    shared_ptr<lab::AudioNode> NodeFactory(const std::string& n);
+    struct Canvas
+    {
+        ImVec2 window_origin_offset_ws() const { return ImGui::GetWindowPos(); }
+        ImVec2 origin_offset_ws = { 0,0 };
+        float scale = 1.f;
+    }
+    g_canvas;
 
     //--------------------
     // Types
 
     // Audio Nodes and Noodles
 
-    struct AudioGuiNode;
-
-    struct AudioPin
+    struct GraphNodeLayout 
     {
-        enum class Kind { Setting, Param, BusIn, BusOut };
-
-        string name, shortName;
-
-        Kind kind;
-        entt::entity pin_id;
-        entt::entity node;
-        shared_ptr<lab::AudioSetting> setting;
-        shared_ptr<lab::AudioParam> param;
-
-        std::string value;
-
-        ImVec2 pos_cs; // canvas space position
+        static const float k_column_width;
+        ImVec2 pos_cs = { 0,0 }, lr_cs = { 0,0 };
+        int in_height = 0, mid_height = 0, out_height = 0;
+        int column_count = 1;
     };
+    const float GraphNodeLayout::k_column_width = 180.f;
 
-    struct Connection
+    struct GraphPinLayout
+    {
+        static const float k_height;
+        static const float k_width;
+
+        ImVec2 node_origin_cs = { 0, 0 };
+        float pos_y_cs = 0.f;
+        float column_number = 0;
+        ImVec2 canvas_ul(Canvas& canvas) const
+        {
+            float x = column_number * GraphNodeLayout::k_column_width;
+            ImVec2 res = (node_origin_cs + ImVec2{ x, pos_y_cs }) * canvas.scale;
+            return res + canvas.origin_offset_ws + canvas.window_origin_offset_ws();
+        }
+        bool pin_contains_cs_point(Canvas& canvas, float x, float y) const
+        {
+            ImVec2 ul = (node_origin_cs + ImVec2{ column_number * GraphNodeLayout::k_column_width, pos_y_cs });
+            ImVec2 lr = { ul.x + k_width, ul.y + k_height };
+            return x >= ul.x && x <= lr.x && y >= ul.y && y <= lr.y;
+        }
+        bool label_contains_cs_point(Canvas& canvas, float x, float y) const
+        {
+            ImVec2 ul = (node_origin_cs + ImVec2{ column_number * GraphNodeLayout::k_column_width, pos_y_cs });
+            ImVec2 lr = { ul.x + GraphNodeLayout::k_column_width, ul.y + k_height };
+            ul.x += k_width;
+            //printf("m(%0.1f, %0.1f) ul(%0.1f, %0.1f) lr(%01.f, %0.1f)\n", x, y, ul.x, ul.y, lr.x, lr.y);
+            return x >= ul.x && x <= lr.x && y >= ul.y && y <= lr.y;
+        }
+    };
+    const float GraphPinLayout::k_height = 20.f;
+    const float GraphPinLayout::k_width = 20.f;
+
+    struct GraphConnection
     {
         entt::entity id;
+
         entt::entity pin_from;
         entt::entity node_from;
         entt::entity pin_to;
         entt::entity node_to;
     };
 
-    struct AudioGraph
-    {
-        // AudioGuiNode, Connection, and AudioPin should be entity-associated
-        map<entt::entity, shared_ptr<AudioGuiNode>> nodes;
-        map<entt::entity, Connection> connections;
-        map<entt::entity, AudioPin> pins;
-    };
-
-
-    struct AudioGuiNode
-    {
-        entt::entity gui_node_id;
-
-        std::string name;
-        ImVec2 pos;
-        ImVec2 lr;   // recalculated at the beginning of each interaction cycle
-
-        shared_ptr<lab::AudioNode> node;
-        vector<entt::entity> pins;
-
-        AudioGuiNode(AudioGraph& graph, char const* const n) : name(n) { Create(graph, n); }
-        AudioGuiNode(AudioGraph& graph, const std::string& n) : name(n) { Create(graph, n.c_str()); }
-        AudioGuiNode(AudioGraph& graph, char const* const n, shared_ptr<lab::AudioNode> node) { Create(graph, node, n); }
-        AudioGuiNode(AudioGraph& graph, const std::string& n, shared_ptr<lab::AudioNode> node) { Create(graph, node, n.c_str()); }
-        ~AudioGuiNode() = default;
-
-        void Create(AudioGraph& graph, const std::string& name) { Create(graph, name.c_str()); }
-        void Create(AudioGraph& graph, char const* const name_)
-        {
-            // create the node, and fetch its parameters and settings
-            auto node = NodeFactory(name_);
-            if (node)
-                Create(graph, node, name_);
-        }
-
-        void Create(AudioGraph& graph, shared_ptr<lab::AudioNode> audio_node, char const* const name_)
-        {
-            name = name_;
-            gui_node_id = g_registry.create();
-
-            node = audio_node;
-            if (!node)
-                return;
-
-            ContextRenderLock r(g_audio_context.get(), "LabSoundGraphToy_init");
-
-            if (!strncmp(name_, "Analyser", 8))
-            {
-                g_audio_context->addAutomaticPullNode(audio_node);
-            }
-
-            vector<string> names = audio_node->settingNames();
-            vector<string> shortNames = audio_node->settingShortNames();
-            auto settings = audio_node->settings();
-            int c = (int)settings.size();
-            for (int i = 0; i < c; ++i)
-            {
-                entt::entity pin_id = g_registry.create();
-                pins.emplace_back(pin_id);
-                graph.pins[pin_id] = AudioPin{
-                    names[i], shortNames[i], AudioPin::Kind::Setting,
-                    pin_id, gui_node_id,
-                    settings[i]
-                };
-
-                char buff[64] = { '\0' };
-
-                lab::AudioSetting::Type type = settings[i]->type();
-                if (type == lab::AudioSetting::Type::Float)
-                {
-                    sprintf(buff, "%f", settings[i]->valueFloat());
-                }
-                else if (type == lab::AudioSetting::Type::Integer)
-                {
-                    sprintf(buff, "%d", settings[i]->valueUint32());
-                }
-                else if (type == lab::AudioSetting::Type::Bool)
-                {
-                    sprintf(buff, "%s", settings[i]->valueBool() ? "1" : "0");
-                }
-                else if (type == lab::AudioSetting::Type::Enumeration)
-                {
-                    char const* const* names = settings[i]->enums();
-                    sprintf(buff, "%s", names[settings[i]->valueUint32()]);
-                }
-
-                graph.pins[pin_id].value.assign(buff);
-            }
-            names = audio_node->paramNames();
-            shortNames = audio_node->paramShortNames();
-            auto params = audio_node->params();
-            c = (int)params.size();
-            for (int i = 0; i < c; ++i)
-            {
-                entt::entity pin_id = g_registry.create();
-                pins.emplace_back(pin_id);
-                graph.pins[pin_id] = AudioPin{
-                    names[i], shortNames[i], AudioPin::Kind::Param,
-                    pin_id, gui_node_id,
-                    shared_ptr<AudioSetting>(),
-                    params[i]
-                };
-
-                char buff[64];
-                sprintf(buff, "%f", params[i]->value(r));
-                graph.pins[pin_id].value.assign(buff);
-            }
-            c = (int)audio_node->numberOfInputs();
-            for (int i = 0; i < c; ++i)
-            {
-                entt::entity pin_id = g_registry.create();
-                pins.emplace_back(pin_id);
-                graph.pins[pin_id] = AudioPin{
-                    "", "", AudioPin::Kind::BusIn,
-                    pin_id, gui_node_id,
-                    shared_ptr<AudioSetting>(),
-                };
-            }
-            c = (int)audio_node->numberOfOutputs();
-            for (int i = 0; i < c; ++i)
-            {
-                entt::entity pin_id = g_registry.create();
-                pins.emplace_back(pin_id);
-                graph.pins[pin_id] = AudioPin{
-                    "", "", AudioPin::Kind::BusOut,
-                    pin_id, gui_node_id,
-                    shared_ptr<AudioSetting>(),
-                };
-            }
-        }
-    };
-
-    AudioGraph g_graph;
-
-
-    enum class WorkType
-    {
-        Nop, CreateRealtimeContext, CreateNode, DeleteNode, SetParam,
-        SetFloatSetting, SetIntSetting, SetBoolSetting, SetBusSetting,
-        ConnectAudioOutToAudioIn, ConnectAudioOutToParamIn,
-        DisconnectInFromOut,
-        Start, Bang,
-    };
-
-    struct Work
-    {
-        WorkType type = WorkType::Nop;
-        std::string name;
-        entt::entity input_node = g_no_entity;
-        entt::entity output_node = g_no_entity;
-        entt::entity param_pin = g_no_entity;
-        entt::entity setting_pin = g_no_entity;
-        entt::entity connection_id = g_no_entity;
-        float float_value = 0.f;
-        int int_value = 0;
-        bool bool_value = false;
-        ImVec2 canvas_pos = { 0, 0 };
-
-        void eval()
-        {
-            if (type == WorkType::CreateRealtimeContext)
-            {
-                const auto defaultAudioDeviceConfigurations = GetDefaultAudioDeviceConfiguration();
-                g_audio_context = lab::MakeRealtimeAudioContext(defaultAudioDeviceConfigurations.second, defaultAudioDeviceConfigurations.first);
-                auto node = std::make_shared<AudioGuiNode>(g_graph, name, g_audio_context->device());
-                node->pos = canvas_pos;
-                g_graph.nodes[node->gui_node_id] = node;
-                printf("CreateRealtimeContext %d\n", node->gui_node_id);
-            }
-            else if (type == WorkType::CreateNode)
-            {
-                auto node = std::make_shared<AudioGuiNode>(g_graph, name);
-                node->pos = canvas_pos;
-                g_graph.nodes[node->gui_node_id] = node;
-                printf("CreateNode %s %d\n", name.c_str(), node->gui_node_id);
-            }
-            else if (type == WorkType::SetParam)
-            {
-                if (param_pin != g_no_entity)
-                {
-                    auto pin = g_graph.pins.find(param_pin);
-                    if (pin != g_graph.pins.end())
-                        pin->second.param->setValue(float_value);
-                    printf("SetParam(%f) %d\n", float_value, param_pin);
-                }
-            }
-            else if (type == WorkType::SetFloatSetting)
-            {
-                if (setting_pin != g_no_entity)
-                {
-                    auto setting = g_graph.pins.find(setting_pin);
-                    if (setting != g_graph.pins.end())
-                        setting->second.setting->setFloat(float_value);
-                    printf("SetFloatSetting(%f) %d\n", float_value, setting_pin);
-                }
-            }
-            else if (type == WorkType::SetIntSetting)
-            {
-                if (setting_pin != g_no_entity)
-                {
-                    auto setting = g_graph.pins.find(setting_pin);
-                    if (setting != g_graph.pins.end())
-                        setting->second.setting->setUint32(int_value);
-                    printf("SetIntSetting(%d) %d\n", int_value, setting_pin);
-                }
-            }
-            else if (type == WorkType::SetBoolSetting)
-            {
-                if (setting_pin != g_no_entity)
-                {
-                    auto setting = g_graph.pins.find(setting_pin);
-                    if (setting != g_graph.pins.end())
-                        setting->second.setting->setBool(bool_value);
-                    printf("SetBoolSetting(%s) %d\n", bool_value ? "true" : "false", setting_pin);
-                }
-            }
-            else if (type == WorkType::SetBusSetting)
-            {
-                if (setting_pin != g_no_entity && name.length() > 0)
-                {
-                    auto setting = g_graph.pins.find(setting_pin);
-                    if (setting != g_graph.pins.end())
-                    {
-                        auto soundClip = lab::MakeBusFromFile(name.c_str(), false);
-                        setting->second.setting->setBus(soundClip.get());
-                        printf("SetBusSetting %d\n", setting_pin);
-                    }
-                }
-            }
-            else if (type == WorkType::ConnectAudioOutToAudioIn)
-            {
-                auto in_it = g_graph.nodes.find(input_node);
-                auto out_it = g_graph.nodes.find(output_node);
-                if (in_it != g_graph.nodes.end() && out_it != g_graph.nodes.end())
-                {
-                    g_audio_context->connect(in_it->second->node, out_it->second->node, 0, 0);
-                    printf("ConnectAudioOutToAudioIn %d %d\n", input_node, output_node);
-                }
-            }
-            else if (type == WorkType::ConnectAudioOutToParamIn)
-            {
-                auto in_it = g_graph.pins.find(param_pin);
-                auto out_it = g_graph.nodes.find(output_node);
-                if (in_it != g_graph.pins.end() && out_it != g_graph.nodes.end())
-                {
-                    g_audio_context->connectParam(in_it->second.param, out_it->second->node, 0);
-                    printf("ConnectAudioOutToParamIn %d %d\n", param_pin, output_node);
-                }
-            }
-            else if (type == WorkType::DisconnectInFromOut)
-            {
-                auto conn_it = g_graph.connections.find(connection_id);
-                if (conn_it != g_graph.connections.end())
-                {
-                    entt::entity input_node = conn_it->second.node_to;
-                    entt::entity output_node = conn_it->second.node_from;
-                    entt::entity input_pin = conn_it->second.pin_to;
-                    entt::entity output_pin = conn_it->second.pin_from;
-                    auto in_it = g_graph.nodes.find(input_node);
-                    auto out_it = g_graph.nodes.find(output_node);
-                    auto in_pin = g_graph.pins.find(input_pin);
-                    auto out_pin = g_graph.pins.find(output_pin);
-                    if (in_it != g_graph.nodes.end() && out_it != g_graph.nodes.end() &&
-                        in_pin != g_graph.pins.end() && out_pin != g_graph.pins.end())
-                    {
-                        if ((in_pin->second.kind == AudioPin::Kind::BusIn) && (out_pin->second.kind == AudioPin::Kind::BusOut))
-                        {
-                            g_audio_context->disconnect(in_it->second->node, out_it->second->node, 0, 0);
-                            printf("DisconnectInFromOut (bus from bus) %d %d\n", input_node, output_node);
-                        }
-                        else if ((in_pin->second.kind == AudioPin::Kind::Param) && (out_pin->second.kind == AudioPin::Kind::BusOut))
-                        {
-                            g_audio_context->disconnectParam(in_pin->second.param, out_it->second->node, 0);
-                            printf("DisconnectInFromOut (param from bus) %d %d\n", input_node, output_node);
-                        }
-                    }
-
-                    g_graph.connections.erase(connection_id);
-                    g_registry.destroy(connection_id);
-                }
-            }
-            else if (type == WorkType::DeleteNode)
-            {
-                // force full disconnection
-                auto in_it = g_graph.nodes.find(input_node);
-                if (in_it != g_graph.nodes.end())
-                {
-                    g_audio_context->disconnect(in_it->second->node);
-
-                    for (map<entt::entity, AudioPin>::iterator i = g_graph.pins.begin(); i != g_graph.pins.end(); )
-                    {
-                        if (i->second.node == input_node)
-                        {
-                            g_registry.destroy(i->second.pin_id);
-                            i = g_graph.pins.erase(i);
-                            if (i == g_graph.pins.end())
-                                break;
-                            else
-                                ++i;
-                        }
-                        else
-                            ++i;
-                    }
-
-                    printf("DeleteNode %d\n", input_node);
-                    g_graph.nodes.erase(in_it);
-                }
-                auto out_it = g_graph.nodes.find(output_node);
-                if (out_it != g_graph.nodes.end())
-                {
-                    g_audio_context->disconnect(out_it->second->node);
-
-                    for (map<entt::entity, AudioPin>::iterator i = g_graph.pins.begin(); i != g_graph.pins.end(); )
-                    {
-                        if (i->second.node == output_node)
-                        {
-                            g_registry.destroy(i->second.pin_id);
-                            i = g_graph.pins.erase(i);
-                            if (i == g_graph.pins.end())
-                                break;
-                            else
-                                ++i;
-                        }
-                        else
-                            ++i;
-                    }
-
-                    printf("DeleteNode %d\n", output_node);
-                    g_graph.nodes.erase(out_it);
-                }
-                for (map<entt::entity, Connection>::iterator i = g_graph.connections.begin(); i != g_graph.connections.end(); )
-                {
-                    if ((i->second.node_from == input_node) || (i->second.node_to == input_node) ||
-                        (i->second.node_from == output_node) || (i->second.node_to == output_node))
-                    {
-                        g_registry.destroy(i->second.id);
-                        i = g_graph.connections.erase(i);
-                        if (i == g_graph.connections.end())
-                            break;
-                        else
-                            ++i;
-                    }
-                    else
-                        ++i;
-                }
-                if (input_node != g_no_entity)
-                    g_registry.destroy(input_node);
-                if (output_node != g_no_entity)
-                    g_registry.destroy(output_node);
-            }
-            else if (type == WorkType::Start)
-            {
-                auto in_it = g_graph.nodes.find(input_node);
-                lab::AudioScheduledSourceNode* n = dynamic_cast<lab::AudioScheduledSourceNode*>(in_it->second->node.get());
-
-                if (n)
-                {
-                    if (n->isPlayingOrScheduled())
-                        n->stop(0);
-                    else
-                        n->start(0);
-                }
-
-                printf("Start %d\n", input_node);
-            }
-            else if (type == WorkType::Bang)
-            {
-                ContextRenderLock r(g_audio_context.get(), "pin read");
-                auto in_it = g_graph.nodes.find(input_node);
-                in_it->second->node->_scheduler.start(0);
-                printf("Bang %d\n", input_node);
-            }
-        }
-    };
-
+    lab::Sound::Provider _provider;
 
 
 
@@ -453,8 +104,6 @@ namespace noodle {
     ImGuiID g_id_main_window;
     ImGuiID g_id_main_invis;
 
-    ImVec2 g_canvas_pixel_offset_ws = { 0, 0 };
-    float g_canvas_scale = 1;
     ImU32 g_bg_color;
 
     bool g_in_canvas = false;
@@ -465,6 +114,8 @@ namespace noodle {
     bool g_click_initiated = false;
     bool g_click_ended = false;
 
+    bool g_show_debug_info = true;
+
     ImVec2 g_node_initial_pos_cs = { 0, 0 };
     ImVec2 g_initial_click_pos_ws = { 0, 0 };
     ImVec2 g_canvas_clickpos_cs = { 0, 0 };
@@ -473,10 +124,13 @@ namespace noodle {
     ImVec2 g_mouse_ws = { 0, 0 };
     ImVec2 g_mouse_cs = { 0, 0 };
 
-    static entt::entity g_edit_connection;
-    static entt::entity g_originating_pin_id;
-    static entt::entity g_edit_pin;
-    static entt::entity g_edit_node;
+    static entt::entity g_edit_connection = entt::null;
+    static entt::entity g_originating_pin_id = entt::null;
+    static entt::entity g_edit_pin = entt::null;
+    static entt::entity g_edit_node = entt::null;
+
+    static entt::entity g_device_node = entt::null;
+
     static float g_edit_pin_float = 0;
     static int g_edit_pin_int = 0;
     static bool g_edit_pin_bool = false;
@@ -495,10 +149,8 @@ namespace noodle {
             node_menu = false;
             bang = false;
             play = false;
-            node.reset();
         }
 
-        std::shared_ptr<AudioGuiNode> node;
         ImVec2 pin_pos_cs = { 0,0 };
         entt::entity node_id;
         entt::entity pin_id;
@@ -509,114 +161,182 @@ namespace noodle {
         bool play = false;
     } g_hover;
 
-    const float terminal_w = 20;
+
+
+    enum class WorkType
+    {
+        Nop, CreateRuntimeContext, CreateNode, DeleteNode, SetParam,
+        SetFloatSetting, SetIntSetting, SetBoolSetting, SetBusSetting,
+        ConnectBusOutToBusIn, ConnectBusOutToParamIn,
+        DisconnectInFromOut,
+        Start, Bang,
+    };
+
+
+    struct Work
+    {
+        lab::Sound::Provider& provider;
+        WorkType type = WorkType::Nop;
+        std::string name;
+        entt::entity input_node = entt::null;
+        entt::entity output_node = entt::null;
+        entt::entity param_pin = entt::null;
+        entt::entity setting_pin = entt::null;
+        entt::entity connection_id = entt::null;
+        float float_value = 0.f;
+        int int_value = 0;
+        bool bool_value = false;
+        ImVec2 canvas_pos = { 0, 0 };
+
+        Work() = delete;
+        ~Work() = default;
+
+        explicit Work(lab::Sound::Provider& provider)
+            : provider(provider)
+        {
+            output_node = input_node;
+            param_pin = input_node;
+            setting_pin = input_node;
+            connection_id = input_node;
+        }
+
+        void eval()
+        {
+            entt::registry& registry = provider.registry();
+
+            lab::Sound::Work work;
+
+            switch (type)
+            {
+            case WorkType::CreateRuntimeContext:
+            {
+                lab::Sound::Work work;
+                work.type = lab::Sound::WorkType::CreateRuntimeContext;
+                g_device_node = work.eval();
+                registry.assign<GraphNodeLayout>(g_device_node, GraphNodeLayout{ canvas_pos });
+                break;
+            }
+            case WorkType::CreateNode:
+            {
+                lab::Sound::Work work;
+                work.type = lab::Sound::WorkType::CreateNode;
+                work.name = name;
+                entt::entity new_node = work.eval();
+                registry.assign<GraphNodeLayout>(new_node, GraphNodeLayout{ canvas_pos });
+                break;
+            }
+            case WorkType::SetParam:
+            {
+                lab::Sound::Work work;
+                work.type = lab::Sound::WorkType::SetParam;
+                work.pin_id = param_pin;
+                work.float_value = float_value;
+                work.eval();
+                break;
+            }
+            case WorkType::SetFloatSetting:
+            {
+                lab::Sound::Work work;
+                work.type = lab::Sound::WorkType::SetFloatSetting;
+                work.pin_id = setting_pin;
+                work.float_value = float_value;
+                work.eval();
+                break;
+            }
+            case WorkType::SetIntSetting:
+            {
+                lab::Sound::Work work;
+                work.type = lab::Sound::WorkType::SetIntSetting;
+                work.pin_id = setting_pin;
+                work.int_value = int_value;
+                work.eval();
+                break;
+            }
+            case WorkType::SetBoolSetting:
+            {
+                lab::Sound::Work work;
+                work.type = lab::Sound::WorkType::SetBoolSetting;
+                work.pin_id = setting_pin;
+                work.bool_value = bool_value;
+                work.eval();
+                break;
+            }
+            case WorkType::SetBusSetting:
+            {
+                lab::Sound::Work work;
+                work.type = lab::Sound::WorkType::SetBusSetting;
+                work.name = name;
+                work.pin_id = setting_pin;
+                work.eval();
+                break;
+            }
+            case WorkType::ConnectBusOutToBusIn:
+            {
+                lab::Sound::Work work;
+                work.type = lab::Sound::WorkType::ConnectBusOutToBusIn;
+                work.input_node_id = input_node;
+                work.output_node_id = output_node;
+                work.eval();
+                break;
+            }
+            case WorkType::ConnectBusOutToParamIn:
+            {
+                lab::Sound::Work work;
+                work.type = lab::Sound::WorkType::ConnectBusOutToParamIn;
+                work.pin_id = param_pin;
+                work.output_node_id = output_node;
+                work.eval();
+                break;
+            }
+            case WorkType::DisconnectInFromOut:
+            {
+                lab::Sound::Work work;
+                work.type = lab::Sound::WorkType::DisconnectInFromOut;
+                work.connection_id = connection_id;
+                work.eval();
+                break;
+            }
+            case WorkType::DeleteNode:
+            {
+                lab::Sound::Work work;
+                work.type = lab::Sound::WorkType::DeleteNode;
+                work.input_node_id = input_node;
+                work.output_node_id = output_node;
+                work.eval();
+                break;
+            }
+            case WorkType::Start:
+            {
+                lab::Sound::Work work;
+                work.type = lab::Sound::WorkType::Start;
+                work.input_node_id = input_node;
+                work.eval();
+                break;
+            }
+            case WorkType::Bang:
+            {
+                lab::Sound::Work work;
+                work.type = lab::Sound::WorkType::Bang;
+                work.input_node_id = input_node;
+                work.eval();
+                break;
+            }
+            }
+        }
+    };
+
+
+
 
     vector<Work> g_pending_work;
 
 
 
-    // LabSound stuff
-
-
-// Returns input, output
-    std::pair<lab::AudioStreamConfig, lab::AudioStreamConfig> GetDefaultAudioDeviceConfiguration(const bool with_input)
-    {
-        using namespace lab;
-        AudioStreamConfig inputConfig;
-        AudioStreamConfig outputConfig;
-
-        const std::vector<AudioDeviceInfo> audioDevices = lab::MakeAudioDeviceList();
-        const uint32_t default_output_device = lab::GetDefaultOutputAudioDeviceIndex();
-        const uint32_t default_input_device = lab::GetDefaultInputAudioDeviceIndex();
-
-        AudioDeviceInfo defaultOutputInfo, defaultInputInfo;
-        for (auto& info : audioDevices)
-        {
-            if (info.index == default_output_device) defaultOutputInfo = info;
-            else if (info.index == default_input_device) defaultInputInfo = info;
-        }
-
-        if (defaultOutputInfo.index != -1)
-        {
-            outputConfig.device_index = defaultOutputInfo.index;
-            outputConfig.desired_channels = std::min(uint32_t(2), defaultOutputInfo.num_output_channels);
-            outputConfig.desired_samplerate = defaultOutputInfo.nominal_samplerate;
-        }
-
-        if (with_input)
-        {
-            if (defaultInputInfo.index != -1)
-            {
-                inputConfig.device_index = defaultInputInfo.index;
-                inputConfig.desired_channels = std::min(uint32_t(1), defaultInputInfo.num_input_channels);
-                inputConfig.desired_samplerate = defaultInputInfo.nominal_samplerate;
-            }
-            else
-            {
-                throw std::invalid_argument("the default audio input device was requested but none were found");
-            }
-        }
-
-        return { inputConfig, outputConfig };
-    }
-
-
-
-    shared_ptr<lab::AudioNode> NodeFactory(const std::string& n)
-    {
-        AudioContext& ac = *g_audio_context.get();
-        if (n == "ADSR") return std::make_shared<lab::ADSRNode>(ac);
-        if (n == "Analyser") return std::make_shared<lab::AnalyserNode>(ac);
-        //if (n == "AudioBasicProcessor") return std::make_shared<lab::AudioBasicProcessorNode>(ac);
-        //if (n == "AudioHardwareSource") return std::make_shared<lab::ADSRNode>(ac);
-        if (n == "BiquadFilter") return std::make_shared<lab::BiquadFilterNode>(ac);
-        if (n == "ChannelMerger") return std::make_shared<lab::ChannelMergerNode>(ac);
-        if (n == "ChannelSplitter") return std::make_shared<lab::ChannelSplitterNode>(ac);
-        if (n == "Clip") return std::make_shared<lab::ClipNode>(ac);
-        if (n == "Convolver") return std::make_shared<lab::ConvolverNode>(ac);
-        //if (n == "DefaultAudioDestination") return std::make_shared<lab::DefaultAudioDestinationNode>(ac);
-        if (n == "Delay") return std::make_shared<lab::DelayNode>(ac);
-        if (n == "Diode") return std::make_shared<lab::DiodeNode>(ac);
-        if (n == "DynamicsCompressor") return std::make_shared<lab::DynamicsCompressorNode>(ac);
-        //if (n == "Function") return std::make_shared<lab::FunctionNode>(ac);
-        if (n == "Gain") return std::make_shared<lab::GainNode>(ac);
-        //if (n == "Granulation") return std::make_shared<lab::GranulationNode>(ac);
-        if (n == "Noise") return std::make_shared<lab::NoiseNode>(ac);
-        //if (n == "OfflineAudioDestination") return std::make_shared<lab::OfflineAudioDestinationNode>(ac);
-        if (n == "Oscillator") return std::make_shared<lab::OscillatorNode>(ac);
-        //if (n == "Panner") return std::make_shared<lab::PannerNode>(ac);
-#ifdef PD
-        if (n == "PureData") return std::make_shared<lab::PureDataNode>(ac);
-#endif
-        if (n == "PeakCompressor") return std::make_shared<lab::PeakCompNode>(ac);
-        //if (n == "PingPongDelay") return std::make_shared<lab::PingPongDelayNode>(ac);
-        if (n == "PolyBLEP") return std::make_shared<lab::PolyBLEPNode>(ac);
-        if (n == "PowerMonitor") return std::make_shared<lab::PowerMonitorNode>(ac);
-        if (n == "PWM") return std::make_shared<lab::PWMNode>(ac);
-        //if (n == "Recorder") return std::make_shared<lab::RecorderNode>(ac);
-        if (n == "SampledAudio") return std::make_shared<lab::SampledAudioNode>(ac);
-        if (n == "Sfxr") return std::make_shared<lab::SfxrNode>(ac);
-        if (n == "Spatialization") return std::make_shared<lab::SpatializationNode>(ac);
-        if (n == "SpectralMonitor") return std::make_shared<lab::SpectralMonitorNode>(ac);
-        if (n == "StereoPanner") return std::make_shared<lab::StereoPannerNode>(ac);
-        if (n == "SuperSaw") return std::make_shared<lab::SupersawNode>(ac);
-        if (n == "WaveShaper") return std::make_shared<lab::WaveShaperNode>(ac);
-        return {};
-    }
 
 
 
 
-
-
-
-
-
-
-
-
-
-    bool NoodleMenu(ImVec2 canvas_pos)
+    bool NoodleMenu(lab::Sound::Provider& provider, ImVec2 canvas_pos)
     {
         static bool result = false;
         static ImGuiID id = ImGui::GetID(&result);
@@ -641,7 +361,7 @@ namespace noodle {
                 ImGui::EndMenu();
                 if (pressed.size() > 0)
                 {
-                    Work work;
+                    Work work(provider);
                     work.type = WorkType::CreateNode;
                     work.canvas_pos = canvas_pos;
                     work.name = pressed;
@@ -920,18 +640,20 @@ namespace noodle {
     }
 
 
-    void EditPin(entt::entity pin)
+    void EditPin(lab::Sound::Provider& provider, entt::entity pin_id)
     {
-        auto pin_it = g_graph.pins.find(pin);
-        if (pin_it == g_graph.pins.end())
+        entt::registry& registry = provider.registry();
+        if (!registry.valid(pin_id))
             return;
 
-        auto node_it = g_graph.nodes.find(pin_it->second.node);
-        if (node_it == g_graph.nodes.end())
+        lab::Sound::AudioPin& pin = registry.get<lab::Sound::AudioPin>(pin_id);
+        if (!registry.valid(pin.node_id))
             return;
+
+        lab::Sound::AudioNode& node = registry.get<lab::Sound::AudioNode>(pin.node_id);
 
         char buff[256];
-        sprintf(buff, "%s:%s", node_it->second->name.c_str(), pin_it->second.name.c_str());
+        sprintf(buff, "%s:%s", node.name.c_str(), pin.name.c_str());
 
         ImGui::OpenPopup(buff);
         if (ImGui::BeginPopupModal(buff, nullptr, ImGuiWindowFlags_NoCollapse))
@@ -941,10 +663,10 @@ namespace noodle {
             char const* const* names = nullptr;
 
             lab::AudioSetting::Type type = lab::AudioSetting::Type::None;
-            if (pin_it->second.kind == AudioPin::Kind::Setting)
-                type = pin_it->second.setting->type();
+            if (pin.kind == lab::Sound::AudioPin::Kind::Setting)
+                type = pin.setting->type();
 
-            if (pin_it->second.kind == AudioPin::Kind::Param || type == lab::AudioSetting::Type::Float)
+            if (pin.kind == lab::Sound::AudioPin::Kind::Param || type == lab::AudioSetting::Type::Float)
             {
                 if (ImGui::InputFloat("###EditPinParamFloat", &g_edit_pin_float,
                     0, 0, 5,
@@ -971,7 +693,7 @@ namespace noodle {
             }
             else if (type == lab::AudioSetting::Type::Enumeration)
             {
-                names = pin_it->second.setting->enums();
+                names = pin.setting->enums();
                 int enum_idx = g_edit_pin_int;
                 if (ImGui::BeginMenu(names[enum_idx]))
                 {
@@ -1000,24 +722,24 @@ namespace noodle {
                     const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_OPEN, "*.*", ".", "*.*");
                     if (file)
                     {
-                        Work work;
-                        work.setting_pin = pin;
+                        Work work(provider);
+                        work.setting_pin = pin_id;
                         work.name.assign(file);
                         work.type = WorkType::SetBusSetting;
                         g_pending_work.emplace_back(work);
-                        g_edit_pin = g_no_entity;
+                        g_edit_pin = entt::null;
                     }
                 }
             }
 
             if ((type != lab::AudioSetting::Type::Bus) && (accept || ImGui::Button("OK")))
             {
-                Work work;
-                work.param_pin = pin;
-                work.setting_pin = pin;
+                Work work(provider);
+                work.param_pin = pin_id;
+                work.setting_pin = pin_id;
                 buff[0] = '\0'; // clear the string
 
-                if (pin_it->second.kind == AudioPin::Kind::Param)
+                if (pin.kind == lab::Sound::AudioPin::Kind::Param)
                 {
                     sprintf(buff, "%f", g_edit_pin_float);
                     work.type = WorkType::SetParam;
@@ -1048,72 +770,78 @@ namespace noodle {
                     work.int_value = g_edit_pin_int;
                 }
 
-                pin_it->second.value.assign(buff);
+                pin.value_as_string.assign(buff);
 
                 g_pending_work.emplace_back(work);
-                g_edit_pin = g_no_entity;
+                g_edit_pin = entt::null;
             }
             ImGui::SameLine();
             if (ImGui::Button("Cancel"))
-                g_edit_pin = g_no_entity;
+                g_edit_pin = entt::null;
 
             ImGui::EndPopup();
         }
     }
 
-    void EditConnection(entt::entity connection)
+    void EditConnection(lab::Sound::Provider& provider, entt::entity connection)
     {
-        auto conn_it = g_graph.connections.find(connection);
-        if (conn_it == g_graph.connections.end())
+        entt::registry& reg = provider.registry();
+        if (!reg.valid(connection) || !reg.any<GraphConnection>(connection))
         {
-            g_edit_connection = g_no_entity;
+            g_edit_connection = entt::null;
             return;
         }
+
+        GraphConnection& conn = reg.get<GraphConnection>(connection);
 
         ImGui::OpenPopup("Connection");
         if (ImGui::BeginPopupModal("Connection", nullptr, ImGuiWindowFlags_NoCollapse))
         {
             if (ImGui::Button("Delete"))
             {
-                Work work{ WorkType::DisconnectInFromOut };
+                Work work(provider);
+                work.type = WorkType::DisconnectInFromOut;
                 work.connection_id = connection;
                 g_pending_work.emplace_back(work);
-                g_edit_connection = g_no_entity;
+                g_edit_connection = entt::null;
             }
 
             ImGui::SameLine();
             if (ImGui::Button("Cancel"))
-                g_edit_connection = g_no_entity;
+                g_edit_connection = entt::null;
 
             ImGui::EndPopup();
         }
     }
 
-    void EditNode(entt::entity node)
+    void EditNode(lab::Sound::Provider& provider, entt::entity node)
     {
-        auto node_it = g_graph.nodes.find(node);
-        if (node_it == g_graph.nodes.end())
+        entt::registry& reg = provider.registry();
+        if (!reg.valid(node) || !reg.any<shared_ptr<lab::AudioNode>>(node))
         {
-            g_edit_node = g_no_entity;
+            g_edit_node = entt::null;
             return;
         }
 
+        shared_ptr<lab::AudioNode> node_it = reg.get<shared_ptr<lab::AudioNode>>(node);
+
         char buff[256];
-        sprintf(buff, "%s Node", node_it->second->name.c_str());
+        sprintf(buff, "%s Node", node_it->name());
         ImGui::OpenPopup(buff);
         if (ImGui::BeginPopupModal(buff, nullptr, ImGuiWindowFlags_NoCollapse))
         {
             if (ImGui::Button("Delete"))
             {
-                Work work{ WorkType::DeleteNode };
+                Work work(provider);
+                work.type = WorkType::DeleteNode;
                 work.input_node = node;
                 g_pending_work.emplace_back(work);
-                g_edit_node = g_no_entity;
+                g_edit_node = entt::null;
             }
 
             ImGui::SameLine();
             if (ImGui::Button("Cancel"))
-                g_edit_node = g_no_entity;
+                g_edit_node = entt::null;
 
             ImGui::EndPopup();
         }
@@ -1123,18 +851,18 @@ namespace noodle {
 
 
 
-    void DrawSpectrum(shared_ptr<AudioGuiNode> gui_node, ImVec2 ul_ws, ImVec2 lr_ws, float canvas_scale, ImDrawList* drawList)
+    void DrawSpectrum(lab::Sound::Provider& provider, std::shared_ptr<lab::AudioNode> audio_node, ImVec2 ul_ws, ImVec2 lr_ws, float scale, ImDrawList* drawList)
     {
         float rounding = 3;
-        ul_ws.x += 5 * canvas_scale; ul_ws.y += 5 * canvas_scale;
+        ul_ws.x += 5 * scale; ul_ws.y += 5 * scale;
         lr_ws.x = ul_ws.x + (lr_ws.x - ul_ws.x) * 0.5f;
-        lr_ws.y -= 5 * canvas_scale;
+        lr_ws.y -= 5 * scale;
         drawList->AddRect(ul_ws, lr_ws, ImColor(255, 128, 0, 255), rounding, 15, 2);
 
-        int left = static_cast<int>(ul_ws.x + 2 * canvas_scale);
-        int right = static_cast<int>(lr_ws.x - 2 * canvas_scale);
+        int left = static_cast<int>(ul_ws.x + 2 * scale);
+        int right = static_cast<int>(lr_ws.x - 2 * scale);
         int pixel_width = right - left;
-        lab::AnalyserNode* node = dynamic_cast<lab::AnalyserNode*>(gui_node->node.get());
+        lab::AnalyserNode* node = dynamic_cast<lab::AnalyserNode*>(audio_node.get());
         static vector<uint8_t> bins;
         if (bins.size() != pixel_width)
             bins.resize(pixel_width);
@@ -1142,8 +870,8 @@ namespace noodle {
         // fetch the byte frequency data because it is normalized vs the analyser's min/maxDecibels.
         node->getByteFrequencyData(bins, true);
 
-        float base = lr_ws.y - 2 * canvas_scale;
-        float height = lr_ws.y - ul_ws.y - 4 * canvas_scale;
+        float base = lr_ws.y - 2 * scale;
+        float height = lr_ws.y - ul_ws.y - 4 * scale;
         drawList->PathClear();
         for (int x = 0; x < pixel_width; ++x)
         {
@@ -1163,32 +891,33 @@ namespace noodle {
 
     // GraphEditor stuff
 
-    void init()
+    void init(lab::Sound::Provider& provider)
     {
         static bool once = true;
         if (!once)
             return;
 
         once = false;
-        g_ent_main_window = g_registry.create();
+        g_ent_main_window = provider.registry().create();
         g_id_main_window = ImGui::GetID(&g_ent_main_window);
         g_bg_color = ImColor(0.2f, 0.2f, 0.2f, 1.0f);
         g_id_main_invis = ImGui::GetID(&g_id_main_invis);
-        g_no_entity = g_registry.create();
-        g_hover.reset(g_no_entity);
-        g_edit_pin = g_no_entity;
-        g_edit_connection = g_no_entity;
-        g_edit_node = g_no_entity;
+        g_hover.reset(entt::null);
+        g_edit_pin = entt::null;
+        g_edit_connection = entt::null;
+        g_edit_node = entt::null;
 
         ImGuiWindow* win = ImGui::GetCurrentWindow();
         ImRect edit_rect = win->ContentRegionRect;
         float y = (edit_rect.Max.y + edit_rect.Min.y) * 0.5f - 64;
-        Work work = { WorkType::CreateRealtimeContext, "AudioDestination" };
+        Work work(provider);
+        work.type = WorkType::CreateRuntimeContext;
+        work.name = "AudioDestination";
         work.canvas_pos = ImVec2{ edit_rect.Max.x - 300, y };
         g_pending_work.push_back(work);
     }
 
-    void update_mouse_state() 
+    void update_mouse_state(lab::Sound::Provider& provider)
     {
         //---------------------------------------------------------------------
         // determine hovered, dragging, pressed, and released, as well as
@@ -1218,7 +947,7 @@ namespace noodle {
             if (g_in_canvas)
             {
                 g_mouse_ws = io.MousePos - ImGui::GetCurrentWindow()->Pos;
-                g_mouse_cs = (g_mouse_ws - g_canvas_pixel_offset_ws) / g_canvas_scale;
+                g_mouse_cs = (g_mouse_ws - g_canvas.origin_offset_ws) / g_canvas.scale;
 
                 if (io.MouseDown[0] && io.MouseDownOwned[0])
                 {
@@ -1228,7 +957,7 @@ namespace noodle {
                         g_click_initiated = true;
                         g_initial_click_pos_ws = io.MousePos;
                         g_canvas_clickpos_cs = g_mouse_cs;
-                        g_canvas_clicked_pixel_offset_ws = g_canvas_pixel_offset_ws;
+                        g_canvas_clicked_pixel_offset_ws = g_canvas.origin_offset_ws;
                     }
 
                     g_dragging = true;
@@ -1243,164 +972,176 @@ namespace noodle {
             g_dragging = false;
 
         if (!g_dragging)
-            g_hover.node.reset();
+            g_hover.node_id = entt::null;
+    }
+
+    void lay_out_pins(lab::Sound::Provider& provider)
+    {
+        entt::registry& registry = provider.registry();
+
+        // may the counting begin
+
+        for (auto entity : registry.view<GraphNodeLayout>())
+        {
+            GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(entity);
+            gnl.in_height = 0;
+            gnl.mid_height = 0;
+            gnl.out_height = 0;
+        }
+
+        // layout the pins
+
+        for (const auto entity : registry.view<lab::Sound::AudioPin>())
+        {
+            if (!registry.valid(entity))
+                continue;
+
+            lab::Sound::AudioPin& pin = registry.get<lab::Sound::AudioPin>(entity);
+            if (!registry.valid(pin.node_id))
+                continue;
+
+            lab::Sound::AudioNode& node = registry.get<lab::Sound::AudioNode>(pin.node_id);
+            GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(pin.node_id);
+
+            // lazily create the layouts on demand.
+            if (!registry.any<GraphPinLayout>(entity))
+                registry.assign<GraphPinLayout>(entity, GraphPinLayout{});
+
+            GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity);
+            pnl.node_origin_cs = gnl.pos_cs;
+
+            switch (pin.kind)
+            {
+            case lab::Sound::AudioPin::Kind::BusIn:
+                pnl.column_number = 0;
+                pnl.pos_y_cs = 16 + GraphPinLayout::k_height * static_cast<float>(gnl.in_height);
+                gnl.in_height += 1; 
+                break;
+            case lab::Sound::AudioPin::Kind::BusOut:
+                pnl.column_number = 2;
+                pnl.pos_y_cs = 16 + GraphPinLayout::k_height * static_cast<float>(gnl.out_height);
+                gnl.out_height += 1;
+                break;
+            case lab::Sound::AudioPin::Kind::Param:
+                pnl.column_number = 0;
+                pnl.pos_y_cs = 16 + GraphPinLayout::k_height * static_cast<float>(gnl.in_height);
+                gnl.in_height += 1;
+                break;
+            case lab::Sound::AudioPin::Kind::Setting:
+                pnl.column_number = 1;
+                pnl.pos_y_cs = 16 + GraphPinLayout::k_height * static_cast<float>(gnl.mid_height);
+                gnl.mid_height += 1;
+                break;
+            }
+        }
+
+        // adjust the node size to fit the counted pins
+
+        for (auto entity : registry.view<GraphNodeLayout>())
+        {
+            GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(entity);
+            gnl.column_count = gnl.mid_height > 0 ? 3 : 2;
+
+            int height = gnl.in_height > gnl.mid_height ? gnl.in_height : gnl.mid_height;
+            if (gnl.out_height > height)
+                height = gnl.out_height;
+
+            float width = 256;
+            if (gnl.mid_height > 0)
+                width += 128;
+
+            gnl.lr_cs = gnl.pos_cs + ImVec2{ width, 16 + GraphPinLayout::k_height * (float)height };
+        }
     }
 
 
-    void update_hovers()
+    void update_hovers(lab::Sound::Provider& provider)
     {
-        // if a node is not already hovered, and the button is not pressed, go look for hover highlights
-        bool find_highlights = g_dragging_wire;
-        find_highlights |= !g_hover.node && !g_dragging;
+        entt::registry& registry = provider.registry();
 
+        //bool currently_hovered = g_hover.node_id != entt::null;
+
+        // refresh highlights if dragging a wire, or if a node is not being dragged
+        bool find_highlights = g_dragging_wire || !g_dragging;
+        
         if (find_highlights)
         {
             g_hover.bang = false;
             g_hover.play = false;
             g_hover.node_menu = false;
-            g_edit_node = g_no_entity;
-            g_hover.node_id = g_no_entity;
-            g_hover.pin_id = g_no_entity;
-            g_hover.pin_label_id = g_no_entity;
-            g_hover.connection_id = g_no_entity;
+            g_edit_node = entt::null;
+            g_hover.node_id = entt::null;
+            g_hover.pin_id = entt::null;
+            g_hover.pin_label_id = entt::null;
+            g_hover.connection_id = entt::null;
             float mouse_x_cs = g_mouse_cs.x;
             float mouse_y_cs = g_mouse_cs.y;
-            for (auto& i : g_graph.nodes)
+
+            // check all pins
+            for (const auto entity : registry.view<lab::Sound::AudioPin>())
             {
-                ImVec2 ul = i.second->pos;
-                ImVec2 lr = i.second->lr;
-                if (mouse_x_cs >= ul.x && mouse_x_cs <= (lr.x + terminal_w) && mouse_y_cs >= (ul.y - 20) && mouse_y_cs <= lr.y)
+                if (!registry.valid(entity))
+                {
+                    // @TODO slate entity for demolition
+                    continue;
+                }
+
+                GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity);
+                if (pnl.pin_contains_cs_point(g_canvas, mouse_x_cs, mouse_y_cs))
+                {
+                    lab::Sound::AudioPin& pin = registry.get<lab::Sound::AudioPin>(entity);
+                    if (pin.kind == lab::Sound::AudioPin::Kind::Setting)
+                    {
+                        g_hover.pin_id = entt::null;
+                    }
+                    else
+                    {
+                        g_hover.pin_id = entity;
+                        g_hover.pin_label_id = entt::null;
+                    }
+                    g_hover.node_id = pin.node_id;
+
+                    // if no originating pin from a drag, then keep updated the hovered pin position
+                    if (g_originating_pin_id == entt::null)
+                    {
+                        ImVec2 ul = pnl.canvas_ul(g_canvas);
+                        g_hover.pin_pos_cs.x = ul.x + GraphPinLayout::k_width * 0.5f * g_canvas.scale;
+                        g_hover.pin_pos_cs.y = ul.y + GraphPinLayout::k_width * 0.5f * g_canvas.scale;
+                    }
+                }
+                else if (pnl.label_contains_cs_point(g_canvas, mouse_x_cs, mouse_y_cs))
+                {
+                    lab::Sound::AudioPin& pin = registry.get<lab::Sound::AudioPin>(entity);
+                    if (pin.kind == lab::Sound::AudioPin::Kind::Setting || pin.kind == lab::Sound::AudioPin::Kind::Param)
+                    {
+                        g_hover.pin_id = entt::null;
+                        g_hover.pin_label_id = entity;
+                    }
+                    else
+                    {
+                        g_hover.pin_label_id = entt::null;
+                    }
+                    g_hover.node_id = pin.node_id;
+                }
+            }
+
+            // test all nodes
+            for (const auto entity : registry.view<lab::Sound::AudioNode>())
+            {
+                GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(entity);
+                ImVec2 ul = gnl.pos_cs;
+                ImVec2 lr = gnl.lr_cs;
+                if (mouse_x_cs >= ul.x && mouse_x_cs <= (lr.x + GraphPinLayout::k_width) && mouse_y_cs >= (ul.y - 20) && mouse_y_cs <= lr.y)
                 {
                     ImVec2 pin_ul;
-
-                    // check output pins
-                    if (mouse_x_cs >= lr.x)
-                    {
-                        pin_ul.x = lr.x - 4;// -4 * g_canvas_scale;
-                        pin_ul.y = ul.y + 8;// +8 * g_canvas_scale;
-                        for (auto& j : i.second->pins)
-                        {
-                            auto pin_it = g_graph.pins.find(j);
-                            if (pin_it->second.kind != lab::noodle::AudioPin::Kind::BusOut)
-                                continue;
-
-                            if (mouse_y_cs >= pin_ul.y && mouse_y_cs <= (pin_ul.y + terminal_w))
-                            {
-                                g_hover.pin_id = pin_it->second.pin_id;
-                                g_hover.node_id = i.second->gui_node_id;
-                                g_hover.node = i.second;
-                                if (g_originating_pin_id == g_no_entity)
-                                {
-                                    g_hover.pin_pos_cs.x = pin_ul.x + terminal_w * 0.5f;
-                                    g_hover.pin_pos_cs.y = pin_ul.y + terminal_w * 0.5f;
-                                }
-                                break;
-                            }
-                            pin_ul.y += 20;
-                        }
-                    }
-                    if (g_hover.node_id != g_no_entity)
-                        break;
-
-                    // not hovered on an output, x is outside, continue to next node
-                    if (mouse_x_cs > lr.x)
-                        continue;
-
-                    if (mouse_x_cs < lr.x)
-                    {
-                        // check input pins
-                        pin_ul = ul;
-                        pin_ul.x -= 3 * g_canvas_scale;
-                        pin_ul.y += 8 * g_canvas_scale;
-                        for (auto& j : i.second->pins)
-                        {
-                            auto pin_it = g_graph.pins.find(j);
-                            if (pin_it->second.kind != lab::noodle::AudioPin::Kind::BusIn)
-                                continue;
-
-                            if ((mouse_x_cs < ul.x + terminal_w) && mouse_y_cs >= pin_ul.y && mouse_y_cs <= (pin_ul.y + terminal_w))
-                            {
-                                g_hover.pin_id = pin_it->second.pin_id;
-                                g_hover.node_id = i.second->gui_node_id;
-                                if (g_originating_pin_id == g_no_entity)
-                                {
-                                    g_hover.pin_pos_cs.x = pin_ul.x + terminal_w * 0.5f;
-                                    g_hover.pin_pos_cs.y = pin_ul.y + terminal_w * 0.5f;
-                                }
-                                break;
-                            }
-
-                            pin_ul.y += 20;
-                        }
-
-                        if (g_hover.node_id == g_no_entity)
-                        {
-                            // keep looking for param pins
-                            for (auto& j : i.second->pins)
-                            {
-                                auto pin_it = g_graph.pins.find(j);
-                                if (pin_it->second.kind != lab::noodle::AudioPin::Kind::Param)
-                                    continue;
-
-                                if (mouse_y_cs >= pin_ul.y && mouse_y_cs <= (pin_ul.y + terminal_w))
-                                {
-                                    if (mouse_x_cs < ul.x + terminal_w)
-                                    {
-                                        g_hover.pin_id = pin_it->second.pin_id;
-                                        g_hover.node_id = i.second->gui_node_id;
-                                    }
-                                    else if (mouse_x_cs < ul.x + 150)
-                                    {
-                                        g_hover.pin_label_id = pin_it->second.pin_id;
-                                        g_hover.node_id = i.second->gui_node_id;
-                                    }
-
-                                    if (g_originating_pin_id == g_no_entity)
-                                    {
-                                        g_hover.pin_pos_cs.x = pin_ul.x + terminal_w * 0.5f;
-                                        g_hover.pin_pos_cs.y = pin_ul.y + terminal_w * 0.5f;
-                                    }
-                                    break;
-                                }
-
-                                pin_ul.y += 20;
-                            }
-                        }
-
-                        if (g_hover.node_id == g_no_entity)
-                        {
-                            // keep looking, for settings
-                            pin_ul = ul;
-                            pin_ul.x += 200;
-                            pin_ul.y += 8;
-                            for (auto& j : i.second->pins)
-                            {
-                                auto pin_it = g_graph.pins.find(j);
-                                if (pin_it->second.kind != lab::noodle::AudioPin::Kind::Setting)
-                                    continue;
-
-                                if (mouse_y_cs >= pin_ul.y && mouse_y_cs <= (pin_ul.y + terminal_w))
-                                {
-                                    if (mouse_x_cs > pin_ul.x)
-                                    {
-                                        g_hover.pin_id = g_no_entity;
-                                        g_hover.pin_label_id = pin_it->second.pin_id;
-                                        g_hover.node_id = i.second->gui_node_id;
-                                    }
-                                    break;
-                                }
-
-                                pin_ul.y += 20;
-                            }
-                        }
-                    }
 
                     if (mouse_y_cs < ul.y)
                     {
                         float testx = ul.x + 20;
                         bool play = false;
                         bool bang = false;
-                        bool scheduled = i.second->node->isScheduledNode();
+                        shared_ptr<lab::AudioNode> a_node = registry.get<shared_ptr<lab::AudioNode>>(entity);
+                        bool scheduled = a_node->isScheduledNode();
 
                         // in banner
                         if (mouse_x_cs < testx && scheduled)
@@ -1412,7 +1153,7 @@ namespace noodle {
                         if (scheduled)
                             testx += 20;
 
-                        if (!play && mouse_x_cs < testx && i.second->node->_scheduler._onStart)
+                        if (!play && mouse_x_cs < testx && a_node->_scheduler._onStart)
                         {
                             g_hover.bang = true;
                             bang = true;
@@ -1424,27 +1165,27 @@ namespace noodle {
                         }
                     }
 
-                    g_hover.node_id = i.second->gui_node_id;
-                    g_hover.node = i.second;
+                    g_hover.node_id = entity;
                     break;
                 }
             }
 
-            if (g_hover.node_id == g_no_entity)
+            // test all connections
+            if (g_hover.node_id == entt::null)
             {
                 // no node or node furniture hovered, check connections
-                for (auto i : g_graph.connections)
+                for (const auto entity : registry.view<lab::Sound::Connection>())
                 {
-                    entt::entity from_pin = i.second.pin_from;
-                    entt::entity to_pin = i.second.pin_to;
-                    auto from_it = g_graph.pins.find(i.second.pin_from);
-                    auto to_it = g_graph.pins.find(i.second.pin_to);
-
-                    if (from_it == g_graph.pins.end() || to_it == g_graph.pins.end())
+                    lab::Sound::Connection& connection = registry.get<lab::Sound::Connection>(entity);
+                    entt::entity from_pin = connection.pin_from;
+                    entt::entity to_pin = connection.pin_to;
+                    if (!registry.valid(from_pin) || !registry.valid(to_pin))
                         continue;
 
-                    ImVec2 from_pos = from_it->second.pos_cs + ImVec2(16, 10);
-                    ImVec2 to_pos = to_it->second.pos_cs + ImVec2(0, 10);
+                    GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(from_pin);
+                    GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(to_pin);
+                    ImVec2 from_pos = from_gpl.canvas_ul(g_canvas) + ImVec2(16, 10) * g_canvas.scale;
+                    ImVec2 to_pos = to_gpl.canvas_ul(g_canvas) + ImVec2(0, 10) * g_canvas.scale;
 
                     ImVec2 p0 = from_pos;
                     ImVec2 p1 = { p0.x + 64, p0.y };
@@ -1455,7 +1196,10 @@ namespace noodle {
                     ImVec2 delta = g_mouse_cs - closest;
                     float d = delta.x * delta.x + delta.y * delta.y;
                     if (d < 100)
-                        g_hover.connection_id = i.second.id;
+                    {
+                        g_hover.connection_id = entity;
+                        break;
+                    }
                 }
             }
         }
@@ -1476,43 +1220,12 @@ namespace noodle {
             }
         } run_work;
 
-        init();
-
-        // don't run until the device is ready
-        if (!g_audio_context || !g_audio_context->device())
-            return false;
+        init(_provider);
 
         //---------------------------------------------------------------------
         // ensure node sizes are up to date
 
-        for (auto& i : g_graph.nodes)
-        {
-            int in_height = 0;
-            int middle_height = 0;
-            int out_height = 0;
-
-            for (auto& j : i.second->pins)
-            {
-                auto pin_it = g_graph.pins.find(j);
-                switch (pin_it->second.kind)
-                {
-                case lab::noodle::AudioPin::Kind::BusIn: in_height += 1; break;
-                case lab::noodle::AudioPin::Kind::BusOut: out_height += 1; break;
-                case lab::noodle::AudioPin::Kind::Param: in_height += 1; break;
-                case lab::noodle::AudioPin::Kind::Setting: middle_height += 1; break;
-                }
-            }
-
-            int height = in_height > middle_height ? in_height : middle_height;
-            if (out_height > height)
-                height = out_height;
-
-            float width = 256;
-            if (middle_height > 0)
-                width += 128;
-
-            i.second->lr = i.second->pos + ImVec2{ width, 16 + 20 * (float)height };
-        }
+        lay_out_pins(_provider);
 
         //---------------------------------------------------------------------
 
@@ -1540,19 +1253,19 @@ namespace noodle {
         drawList->ChannelsSetCurrent(ChannelContent);
         {
             drawList->ChannelsSetCurrent(ChannelGrid);
-            ImU32 grid_color = ImColor(1.f, std::max(1.f, g_canvas_scale * g_canvas_scale), 0.f, 0.25f * g_canvas_scale);
-            float GRID_SX = 128.0f * g_canvas_scale;
-            float GRID_SY = 128.0f * g_canvas_scale;
+            ImU32 grid_color = ImColor(1.f, std::max(1.f, g_canvas.scale * g_canvas.scale), 0.f, 0.25f * g_canvas.scale);
+            float GRID_SX = 128.0f * g_canvas.scale;
+            float GRID_SY = 128.0f * g_canvas.scale;
             ImVec2 VIEW_POS = ImGui::GetWindowPos();
             ImVec2 VIEW_SIZE = ImGui::GetWindowSize();
 
             drawList->AddRectFilled(VIEW_POS, VIEW_POS + VIEW_SIZE, g_bg_color);
 
-            for (float x = fmodf(g_canvas_pixel_offset_ws.x, GRID_SX); x < VIEW_SIZE.x; x += GRID_SX)
+            for (float x = fmodf(g_canvas.origin_offset_ws.x, GRID_SX); x < VIEW_SIZE.x; x += GRID_SX)
             {
                 drawList->AddLine(ImVec2(x, 0.0f) + VIEW_POS, ImVec2(x, VIEW_SIZE.y) + VIEW_POS, grid_color);
             }
-            for (float y = fmodf(g_canvas_pixel_offset_ws.y, GRID_SY); y < VIEW_SIZE.y; y += GRID_SY)
+            for (float y = fmodf(g_canvas.origin_offset_ws.y, GRID_SY); y < VIEW_SIZE.y; y += GRID_SY)
             {
                 drawList->AddLine(ImVec2(0.0f, y) + VIEW_POS, ImVec2(VIEW_SIZE.x, y) + VIEW_POS, grid_color);
             }
@@ -1562,114 +1275,113 @@ namespace noodle {
         //---------------------------------------------------------------------
         // run the Imgui portion of the UI
 
-        update_mouse_state();
-        ImVec2 window_origin_offset_ws = ImGui::GetWindowPos();
+        update_mouse_state(_provider);
 
         if (g_dragging || g_dragging_wire || g_dragging_node)
         {
             if (g_dragging_wire)
-                update_hovers();
+                update_hovers(_provider);
         }
         else
         {
-            bool imgui_business = NoodleMenu(g_mouse_cs);
+            bool imgui_business = NoodleMenu(_provider, g_mouse_cs);
             if (imgui_business)
             {
                 g_dragging = false;
-                g_hover.node.reset();
-                g_hover.reset(g_no_entity);
-                g_edit_pin = g_no_entity;
+                g_hover.node_id = entt::null;
+                g_hover.reset(entt::null);
+                g_edit_pin = entt::null;
             }
-            else if (g_edit_pin != g_no_entity)
+            else if (g_edit_pin != entt::null)
             {
                 ImGui::SetNextWindowPos(g_initial_click_pos_ws);
-                EditPin(g_edit_pin);
+                EditPin(_provider, g_edit_pin);
                 g_dragging = false;
-                g_hover.node.reset();
-                g_hover.reset(g_no_entity);
+                g_hover.node_id = entt::null;
+                g_hover.reset(entt::null);
             }
-            else if (g_edit_connection != g_no_entity)
+            else if (g_edit_connection != entt::null)
             {
                 ImGui::SetNextWindowPos(g_initial_click_pos_ws);
-                EditConnection(g_edit_connection);
+                EditConnection(_provider, g_edit_connection);
                 g_dragging = false;
-                g_hover.node.reset();
-                g_hover.reset(g_no_entity);
+                g_hover.node_id = entt::null;
+                g_hover.reset(entt::null);
             }
-            else if (g_edit_node != g_no_entity)
+            else if (g_edit_node != entt::null)
             {
                 ImGui::SetNextWindowPos(g_initial_click_pos_ws);
-                EditNode(g_edit_node);
+                EditNode(_provider, g_edit_node);
                 g_dragging = false;
             }
             else
-                update_hovers();
+                update_hovers(_provider);
         }
+
+        entt::registry& registry = _provider.registry();
 
         if (!g_dragging && g_dragging_wire)
         {
-            if (g_originating_pin_id != g_no_entity && g_hover.pin_id != g_no_entity)
+            if (g_originating_pin_id != entt::null && g_hover.pin_id != entt::null && registry.valid(g_originating_pin_id) && registry.valid(g_hover.pin_id))
             {
-                auto from = g_graph.pins.find(g_originating_pin_id);
-                auto to = g_graph.pins.find(g_hover.pin_id);
+                GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(g_originating_pin_id);
+                GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(g_hover.pin_id);
 
-                if (from == g_graph.pins.end() || to == g_graph.pins.end())
+                lab::Sound::AudioPin from_pin = registry.get<lab::Sound::AudioPin>(g_originating_pin_id);
+                lab::Sound::AudioPin to_pin = registry.get<lab::Sound::AudioPin>(g_hover.pin_id);
+
+                /// @TODO this logic can be duplicated into hover to turn the wire red for disallowed connections
+                // ensure to is the connection destination
+                if (from_pin.kind == lab::Sound::AudioPin::Kind::BusIn || from_pin.kind == lab::Sound::AudioPin::Kind::Param)
                 {
-                    printf("from and/or to are not valid pins\n");
+                    std::swap(to_pin, from_pin);
+                    std::swap(g_originating_pin_id, g_hover.pin_id);
+                }
+
+                // check if a valid connection is requested
+                lab::Sound::AudioPin::Kind to_kind = to_pin.kind;
+                lab::Sound::AudioPin::Kind from_kind = from_pin.kind;
+                if (to_kind == lab::Sound::AudioPin::Kind::Setting || to_kind == lab::Sound::AudioPin::Kind::BusOut ||
+                    from_kind == lab::Sound::AudioPin::Kind::BusIn || from_kind == lab::Sound::AudioPin::Kind::Param || from_kind == lab::Sound::AudioPin::Kind::Setting)
+                {
+                    printf("invalid connection request\n");
                 }
                 else
                 {
-                    /// @TODO this logic can be duplicated into hover to turn the wire red for disallowed connections
-                    // ensure to is the connection destination
-                    if (from->second.kind == AudioPin::Kind::BusIn || from->second.kind == AudioPin::Kind::Param)
+                    if (to_kind == lab::Sound::AudioPin::Kind::BusIn)
                     {
-                        std::swap(to, from);
-                        std::swap(g_originating_pin_id, g_hover.pin_id);
+                        Work work(_provider);
+                        work.type = WorkType::ConnectBusOutToBusIn;
+                        work.input_node = to_pin.node_id;
+                        work.output_node = from_pin.node_id;
+                        g_pending_work.emplace_back(work);
+                    }
+                    else if (to_kind == lab::Sound::AudioPin::Kind::Param)
+                    {
+                        Work work(_provider);
+                        work.type = WorkType::ConnectBusOutToParamIn;
+                        work.input_node = to_pin.node_id;
+                        work.output_node = from_pin.node_id;
+                        work.param_pin = to_pin.pin_id;
+                        g_pending_work.emplace_back(work);
                     }
 
-                    // check if a valid connection is requested
-                    AudioPin::Kind to_kind = to->second.kind;
-                    AudioPin::Kind from_kind = from->second.kind;
-                    if (to_kind == AudioPin::Kind::Setting || to_kind == AudioPin::Kind::BusOut ||
-                        from_kind == AudioPin::Kind::BusIn || from_kind == AudioPin::Kind::Param || from_kind == AudioPin::Kind::Setting)
-                    {
-                        printf("invalid connection request\n");
-                    }
-                    else
-                    {
-                        if (to_kind == AudioPin::Kind::BusIn)
-                        {
-                            Work work{ WorkType::ConnectAudioOutToAudioIn };
-                            work.input_node = to->second.node;
-                            work.output_node = from->second.node;
-                            g_pending_work.emplace_back(work);
-                        }
-                        else if (to_kind == AudioPin::Kind::Param)
-                        {
-                            Work work{ WorkType::ConnectAudioOutToParamIn };
-                            work.input_node = to->second.node;
-                            work.output_node = from->second.node;
-                            work.param_pin = to->second.pin_id;
-                            g_pending_work.emplace_back(work);
-                        }
-
-                        entt::entity wire = g_registry.create();
-                        g_graph.connections[wire] = Connection{
-                            wire,
-                            g_originating_pin_id,
-                            from->second.node,
-                            g_hover.pin_id,
-                            to->second.node
-                        };
-                    }
+                    entt::entity wire = _provider.registry().create();
+                    registry.assign<GraphConnection>(wire, GraphConnection{
+                        wire,
+                        g_originating_pin_id,
+                        from_pin.node_id,
+                        g_hover.pin_id,
+                        to_pin.node_id
+                    });
                 }
             }
             g_dragging_wire = false;
-            g_originating_pin_id = g_no_entity;
+            g_originating_pin_id = entt::null;
         }
         else if (g_click_ended)
         {
-            if (g_hover.connection_id != g_no_entity)
+            if (g_hover.connection_id != entt::null)
             {
                 g_edit_connection = g_hover.connection_id;
             }
@@ -1679,7 +1391,7 @@ namespace noodle {
             }
         }
 
-        g_interacting_with_canvas = !g_hover.node;
+        g_interacting_with_canvas = g_hover.node_id == entt::null && !g_dragging_wire;
         if (!g_interacting_with_canvas)
         {
             // nodes and wires
@@ -1687,46 +1399,49 @@ namespace noodle {
             {
                 if (g_hover.bang)
                 {
-                    Work work{ WorkType::Bang };
-                    work.input_node = g_hover.node->gui_node_id;
+                    Work work(_provider);
+                    work.type = WorkType::Bang;
+                    work.input_node = g_hover.node_id;
                     g_pending_work.push_back(work);
                 }
                 if (g_hover.play)
                 {
-                    Work work{ WorkType::Start };
-                    work.input_node = g_hover.node->gui_node_id;
+                    Work work(_provider);
+                    work.type = WorkType::Start;
+                    work.input_node = g_hover.node_id;
                     g_pending_work.push_back(work);
                 }
-                if (g_hover.pin_id != g_no_entity)
+                if (g_hover.pin_id != entt::null)
                 {
                     g_dragging_wire = true;
                     g_dragging_node = false;
                     g_node_initial_pos_cs = g_mouse_cs;
-                    if (g_originating_pin_id == g_no_entity)
+                    if (g_originating_pin_id == entt::null)
                         g_originating_pin_id = g_hover.pin_id;
                 }
-                else if (g_hover.pin_label_id != g_no_entity)
+                else if (g_hover.pin_label_id != entt::null)
                 {
                     // set mode to edit the value of the hovered pin
                     g_edit_pin = g_hover.pin_label_id;
-                    auto pin_it = g_graph.pins.find(g_edit_pin);
-                    ContextRenderLock r(g_audio_context.get(), "pin read");
-                    if (pin_it->second.kind == AudioPin::Kind::Param)
-                        g_edit_pin_float = pin_it->second.param->value(r);
-                    else if (pin_it->second.kind == AudioPin::Kind::Setting)
+                    lab::Sound::AudioPin& pin = registry.get<lab::Sound::AudioPin>(g_edit_pin);
+                    if (pin.kind == lab::Sound::AudioPin::Kind::Param)
                     {
-                        auto type = pin_it->second.setting->type();
+                        g_edit_pin_float = pin.param->value();
+                    }
+                    else if (pin.kind == lab::Sound::AudioPin::Kind::Setting)
+                    {
+                        auto type = pin.setting->type();
                         if (type == lab::AudioSetting::Type::Float)
                         {
-                            g_edit_pin_float = pin_it->second.setting->valueFloat();
+                            g_edit_pin_float = pin.setting->valueFloat();
                         }
                         else if (type == lab::AudioSetting::Type::Integer || type == lab::AudioSetting::Type::Enumeration)
                         {
-                            g_edit_pin_int = pin_it->second.setting->valueUint32();
+                            g_edit_pin_int = pin.setting->valueUint32();
                         }
                         else if (type == lab::AudioSetting::Type::Bool)
                         {
-                            g_edit_pin_bool = pin_it->second.setting->valueBool();
+                            g_edit_pin_bool = pin.setting->valueBool();
                         }
                     }
                 }
@@ -1734,45 +1449,51 @@ namespace noodle {
                 {
                     g_dragging_wire = false;
                     g_dragging_node = true;
-                    g_node_initial_pos_cs = g_hover.node->pos;
+
+                    GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(g_hover.node_id);
+                    g_node_initial_pos_cs = gnl.pos_cs;
                 }
             }
 
             if (g_dragging_node)
             {
                 ImVec2 delta = g_mouse_cs - g_canvas_clickpos_cs;
-                ImVec2 sz = g_hover.node->lr - g_hover.node->pos;
-                g_hover.node->pos = g_node_initial_pos_cs + delta;
-                g_hover.node->lr = g_hover.node->pos + sz;
 
-                g_hover.node_id = g_hover.node->gui_node_id;  // force the color to be highlighting
+                GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(g_hover.node_id);
+                ImVec2 sz = gnl.lr_cs - gnl.pos_cs;
+                gnl.pos_cs = g_node_initial_pos_cs + delta;
+                gnl.lr_cs = gnl.pos_cs + sz;
+
+                /// @TODO force the color to be highlighting
             }
         }
         else
         {
             // if the interaction is with the canvas itself, offset and scale the canvas
-
-            if (g_dragging)
+            if (!g_dragging_wire)
             {
-                if (fabsf(io.MouseDelta.x) > 0.f || fabsf(io.MouseDelta.y) > 0.f)
+                if (g_dragging)
                 {
-                    // pull the pivot around
-                    g_canvas_pixel_offset_ws = g_canvas_clicked_pixel_offset_ws - g_initial_click_pos_ws + io.MousePos;
+                    if (fabsf(io.MouseDelta.x) > 0.f || fabsf(io.MouseDelta.y) > 0.f)
+                    {
+                        // pull the pivot around
+                        g_canvas.origin_offset_ws = g_canvas_clicked_pixel_offset_ws - g_initial_click_pos_ws + io.MousePos;
+                    }
                 }
-            }
-            else if (g_in_canvas)
-            {
-                if (fabsf(io.MouseWheel) > 0.f)
+                else if (g_in_canvas)
                 {
-                    // scale using where the mouse is currently hovered as the pivot
-                    float prev_scale = g_canvas_scale;
-                    g_canvas_scale += io.MouseWheel * 0.1f;
-                    g_canvas_scale = g_canvas_scale < 1.f / 16.f ? 1.f / 16.f : g_canvas_scale;
-                    g_canvas_scale = g_canvas_scale > 1.f ? 1.f : g_canvas_scale;
+                    if (fabsf(io.MouseWheel) > 0.f)
+                    {
+                        // scale using where the mouse is currently hovered as the pivot
+                        float prev_scale = g_canvas.scale;
+                        g_canvas.scale += io.MouseWheel * 0.1f;
+                        g_canvas.scale = g_canvas.scale < 1.f / 16.f ? 1.f / 16.f : g_canvas.scale;
+                        g_canvas.scale = g_canvas.scale > 1.f ? 1.f : g_canvas.scale;
 
-                    // solve for off2
-                    // (mouse - off1) / scale1 = (mouse - off2) / scale2 
-                    g_canvas_pixel_offset_ws = g_mouse_ws - (g_mouse_ws - g_canvas_pixel_offset_ws) * (g_canvas_scale / prev_scale);
+                        // solve for off2
+                        // (mouse - off1) / scale1 = (mouse - off2) / scale2 
+                        g_canvas.origin_offset_ws = g_mouse_ws - (g_mouse_ws - g_canvas.origin_offset_ws) * (g_canvas.scale / prev_scale);
+                    }
                 }
             }
         }
@@ -1786,258 +1507,204 @@ namespace noodle {
             pulse -= 6.28f;
 
         uint32_t text_color = 0xffffff;
-        text_color |= (uint32_t)(255 * 2 * (g_canvas_scale - 0.5f)) << 24;
+        text_color |= (uint32_t)(255 * 2 * (g_canvas.scale - 0.5f)) << 24;
 
         // draw pulled noodle
 
         drawList->ChannelsSetCurrent(ChannelNodes);
 
-        for (auto i : g_graph.connections)
+        for (const auto entity : registry.view<lab::Sound::Connection>())
         {
-            entt::entity from_pin = i.second.pin_from;
-            entt::entity to_pin = i.second.pin_to;
-            auto from_it = g_graph.pins.find(i.second.pin_from);
-            auto to_it = g_graph.pins.find(i.second.pin_to);
-            ImVec2 from_pos = from_it->second.pos_cs + ImVec2(16, 10);
-            ImVec2 to_pos = to_it->second.pos_cs + ImVec2(2, 10);
+            lab::Sound::Connection& i = registry.get<lab::Sound::Connection>(entity);
+            entt::entity from_pin = i.pin_from;
+            entt::entity to_pin = i.pin_to;
+            lab::Sound::AudioPin& from_it = registry.get<lab::Sound::AudioPin>(from_pin);
+            lab::Sound::AudioPin& to_it = registry.get<lab::Sound::AudioPin>(to_pin);
+            GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(from_pin);
+            GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(to_pin);
+            ImVec2 from_pos = from_gpl.canvas_ul(g_canvas) + ImVec2(16, 10) * g_canvas.scale;
+            ImVec2 to_pos = to_gpl.canvas_ul(g_canvas) + ImVec2(0, 10) * g_canvas.scale;
 
-            ImVec2 p0 = window_origin_offset_ws + from_pos * g_canvas_scale + g_canvas_pixel_offset_ws;
-            ImVec2 p1 = { p0.x + 64 * g_canvas_scale, p0.y };
-            ImVec2 p3 = window_origin_offset_ws + to_pos * g_canvas_scale + g_canvas_pixel_offset_ws;
-            ImVec2 p2 = { p3.x - 64 * g_canvas_scale, p3.y };
+            ImVec2 p0 = g_canvas.window_origin_offset_ws() + from_pos * g_canvas.scale + g_canvas.origin_offset_ws;
+            ImVec2 p1 = { p0.x + 64 * g_canvas.scale, p0.y };
+            ImVec2 p3 = g_canvas.window_origin_offset_ws() + to_pos * g_canvas.scale + g_canvas.origin_offset_ws;
+            ImVec2 p2 = { p3.x - 64 * g_canvas.scale, p3.y };
             drawList->AddBezierCurve(p0, p1, p2, p3, 0xffffffff, 2.f);
         }
 
         if (g_dragging_wire)
         {
-            ImVec2 p0 = window_origin_offset_ws + g_hover.pin_pos_cs * g_canvas_scale + g_canvas_pixel_offset_ws;
-            ImVec2 p1 = { p0.x + 64 * g_canvas_scale, p0.y };
+            ImVec2 p0 = g_canvas.window_origin_offset_ws() + g_hover.pin_pos_cs * g_canvas.scale + g_canvas.origin_offset_ws;
+            ImVec2 p1 = { p0.x + 64 * g_canvas.scale, p0.y };
             ImVec2 p3 = g_mouse_ws;
-            ImVec2 p2 = { p3.x - 64 * g_canvas_scale, p3.y };
+            ImVec2 p2 = { p3.x - 64 * g_canvas.scale, p3.y };
             drawList->AddBezierCurve(p0, p1, p2, p3, 0xffffffff, 2.f);
         }
 
         // draw nodes
+        shared_ptr<lab::AudioNode> dev_node;
+        if (g_device_node != entt::null)
+            dev_node = registry.get<shared_ptr<lab::AudioNode>>(g_device_node);
+        g_total_profile_duration = dev_node ? dev_node->graphTime.microseconds.count() : 0;
 
-        g_total_profile_duration = g_audio_context->device()->graphTime.microseconds.count();
-
-        for (auto& i : g_graph.nodes)
+        for (auto entity : registry.view<lab::Sound::AudioNode>())
         {
-            float node_profile_duration = i.second->node->totalTime.microseconds.count() - i.second->node->graphTime.microseconds.count();
+            shared_ptr<lab::AudioNode> node = registry.get<shared_ptr<lab::AudioNode>>(entity);
+            if (!node)
+            {
+                /// @TODO dead pointer, add this entity to an entity reaping list
+                continue;
+            }
+
+            float node_profile_duration = node->totalTime.microseconds.count() - node->graphTime.microseconds.count();
             node_profile_duration = std::abs(node_profile_duration); /// @TODO, the destination node doesn't yet have a totalTime, so abs is a hack in the nonce
 
-            ImVec2 ul_ws = i.second->pos;
-            ImVec2 lr_ws = i.second->lr;
-            ul_ws = window_origin_offset_ws + ul_ws * g_canvas_scale + g_canvas_pixel_offset_ws;
-            lr_ws = window_origin_offset_ws + lr_ws * g_canvas_scale + g_canvas_pixel_offset_ws;
+            GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(entity);
+            ImVec2 ul_ws = gnl.pos_cs;
+            ImVec2 lr_ws = gnl.lr_cs;
+            ul_ws = g_canvas.window_origin_offset_ws() + ul_ws * g_canvas.scale + g_canvas.origin_offset_ws;
+            lr_ws = g_canvas.window_origin_offset_ws() + lr_ws * g_canvas.scale + g_canvas.origin_offset_ws;
 
             // draw node
 
             const float rounding = 10;
             drawList->AddRectFilled(ul_ws, lr_ws, ImColor(10, 20, 30, 128), rounding);
-            drawList->AddRect(ul_ws, lr_ws, ImColor(255, g_hover.node_id == i.second->gui_node_id ? 255 : 0, 0, 255), rounding, 15, 2);
+            drawList->AddRect(ul_ws, lr_ws, ImColor(255, g_hover.node_id == entity ? 255 : 0, 0, 255), rounding, 15, 2);
 
             {
                 ImVec2 p1{ ul_ws.x, lr_ws.y };
-                ImVec2 p2{ lr_ws.x, lr_ws.y + g_canvas_scale * 16 };
+                ImVec2 p2{ lr_ws.x, lr_ws.y + g_canvas.scale * 16 };
                 drawList->AddRect(p1, p2, ImColor(128, 255, 128, 255));
                 p2.x = p1.x + (p2.x - p1.x) * node_profile_duration / g_total_profile_duration;
                 drawList->AddRectFilled(p1, p2, ImColor(255, 255, 255, 128));
             }
 
-            if (!strncmp(i.second->name.c_str(), "Analyser", 8))
+            if (!strncmp(node->name(), "Analyser", 8))
             {
-                DrawSpectrum(i.second, ul_ws, lr_ws, g_canvas_scale, drawList);
+                DrawSpectrum(_provider, node, ul_ws, lr_ws, g_canvas.scale, drawList);
             }
 
             // node banner
 
-            if (g_canvas_scale > 0.5f)
+            if (g_canvas.scale > 0.5f)
             {
-                float font_size = 16 * g_canvas_scale;
+                float font_size = 16 * g_canvas.scale;
                 ImVec2 label_pos = ul_ws;
-                label_pos.y -= 20 * g_canvas_scale;
+                label_pos.y -= 20 * g_canvas.scale;
 
-                if (i.second->node->isScheduledNode())
+                if (node->isScheduledNode())
                 {
                     const char* label = ">";
                     drawList->AddText(io.FontDefault, font_size, label_pos, text_color, label, label+1);
-                    if (false)
-                    {
-                        Work work{ WorkType::Start };
-                        work.input_node = i.second->gui_node_id;
-                        g_pending_work.push_back(work);
-                    }
                     label_pos.x += 20;
                 }
-                if (i.second->node->_scheduler._onStart)
+                if (node->_scheduler._onStart)
                 {
                     const char* label = "!";
                     drawList->AddText(io.FontDefault, font_size, label_pos, text_color, label, label + 1);
-                    if (false)
-                    {
-                        Work work{ WorkType::Bang };
-                        work.input_node = i.second->gui_node_id;
-                        g_pending_work.push_back(work);
-                    }
                     label_pos.x += 20;
                 }
 
-                drawList->AddText(io.FontDefault, font_size, label_pos, text_color, i.second->name.c_str(), i.second->name.c_str() + i.second->name.length());
+                drawList->AddText(io.FontDefault, font_size, label_pos, text_color, 
+                                  node->name(), node->name() + strlen(node->name()));
             }
 
-            // draw input pins
-
-            ImVec2 pin_ul = ul_ws;
-            pin_ul.x -= 3 * g_canvas_scale;
-            pin_ul.y += 8 * g_canvas_scale;
-            for (auto& j : i.second->pins)
+            if (registry.any<vector<entt::entity>>(entity))
             {
-                auto pin_it = g_graph.pins.find(j);
-                if (pin_it->second.kind != lab::noodle::AudioPin::Kind::BusIn)
-                    continue;
+                vector<entt::entity>& pins = _provider.pins(entity);
 
-                pin_it->second.pos_cs = (pin_ul - window_origin_offset_ws - g_canvas_pixel_offset_ws) / g_canvas_scale;
+                // draw input pins
 
-                uint32_t fill = (pin_it->second.pin_id == g_hover.pin_id || pin_it->second.pin_id == g_originating_pin_id) ? 0xffffff : 0x000000;
-                fill |= (uint32_t)(128 + 128 * sinf(pulse * 8)) << 24;
-                DrawIcon(drawList, pin_ul, ImVec2{ pin_ul.x + terminal_w * g_canvas_scale, pin_ul.y + terminal_w * g_canvas_scale },
-                         lab::noodle::IconType::Flow, false, 0xffffffff, fill);
-                
-                if (g_canvas_scale > 0.5f)
+                for (entt::entity j : pins)
                 {
-                    float font_size = 16 * g_canvas_scale;
-                    ImVec2 label_pos = pin_ul;
-                    label_pos.x += 20 * g_canvas_scale;
-                    drawList->AddText(io.FontDefault, font_size, label_pos, text_color, 
-                        pin_it->second.shortName.c_str(), pin_it->second.shortName.c_str() + pin_it->second.shortName.length());
+                    lab::Sound::AudioPin& pin_it = registry.get<lab::Sound::AudioPin>(j);
+
+                    lab::noodle::IconType icon_type;
+                    bool has_value = false;
+                    uint32_t color;
+                    switch (pin_it.kind)
+                    {
+                    case lab::Sound::AudioPin::Kind::BusIn:
+                        icon_type = lab::noodle::IconType::Flow;
+                        color = 0xffffffff;
+                        break;
+                    case lab::Sound::AudioPin::Kind::Param:
+                        icon_type = lab::noodle::IconType::Flow;
+                        has_value = true;
+                        color = 0xff00ff00;
+                        break;
+                    case lab::Sound::AudioPin::Kind::Setting:
+                        icon_type = lab::noodle::IconType::Grid;
+                        has_value = true;
+                        color = 0xff00ff00;
+                        break;
+                    case lab::Sound::AudioPin::Kind::BusOut:
+                        icon_type = lab::noodle::IconType::Flow;
+                        color = 0xffffffff;
+                        break;
+                    }
+
+                    GraphPinLayout& pin_gpl = registry.get<GraphPinLayout>(j);
+                    ImVec2 pin_ul = pin_gpl.canvas_ul(g_canvas);
+                    uint32_t fill = (j == g_hover.pin_id || j == g_originating_pin_id) ? 0xffffff : 0x000000;
+                    fill |= (uint32_t)(128 + 128 * sinf(pulse * 8)) << 24;
+                    DrawIcon(drawList, pin_ul, 
+                        ImVec2{ pin_ul.x + GraphPinLayout::k_width * g_canvas.scale, pin_ul.y + GraphPinLayout::k_height * g_canvas.scale },
+                        icon_type, false, color, fill);
+
+                    if (g_canvas.scale > 0.5f)
+                    {
+                        float font_size = 16 * g_canvas.scale;
+                        ImVec2 label_pos = pin_ul;
+                        label_pos.x += 20 * g_canvas.scale;
+                        drawList->AddText(io.FontDefault, font_size, label_pos, text_color,
+                            pin_it.shortName.c_str(), pin_it.shortName.c_str() + pin_it.shortName.length());
+
+                        if (has_value)
+                        {
+                            label_pos.x += 50 * g_canvas.scale;
+                            drawList->AddText(io.FontDefault, font_size, label_pos, text_color,
+                                pin_it.value_as_string.c_str(), pin_it.value_as_string.c_str() + pin_it.value_as_string.length());
+                        }
+                    }
+
+                    pin_ul.y += 20 * g_canvas.scale;
                 }
-
-                pin_ul.y += 20 * g_canvas_scale;
-            }
-
-            for (auto& j : i.second->pins)
-            {
-                auto pin_it = g_graph.pins.find(j);
-                if (pin_it->second.kind != lab::noodle::AudioPin::Kind::Param)
-                    continue;
-
-                pin_it->second.pos_cs = (pin_ul - window_origin_offset_ws - g_canvas_pixel_offset_ws) / g_canvas_scale;
-
-                uint32_t fill = (pin_it->second.pin_id == g_hover.pin_id || pin_it->second.pin_id == g_originating_pin_id) ? 0xffffff : 0x000000;
-                fill |= (uint32_t)(128 + 128 * sinf(pulse * 8)) << 24;
-                DrawIcon(drawList, pin_ul, ImVec2{ pin_ul.x + terminal_w * g_canvas_scale, pin_ul.y + terminal_w * g_canvas_scale },
-                    lab::noodle::IconType::Flow, false, 0xff00ff00, fill);
-
-                if (g_canvas_scale > 0.5f)
-                {
-                    float font_size = 16 * g_canvas_scale;
-                    ImVec2 label_pos = pin_ul;
-                    label_pos.x += 23 * g_canvas_scale;
-                    drawList->AddText(io.FontDefault, font_size, label_pos, text_color, 
-                        pin_it->second.shortName.c_str(), pin_it->second.shortName.c_str() + pin_it->second.shortName.length());
-
-                    label_pos.x += 50 * g_canvas_scale;
-                    drawList->AddText(io.FontDefault, font_size, label_pos, text_color, 
-                        pin_it->second.value.c_str(), pin_it->second.value.c_str() + pin_it->second.value.length());
-                }
-
-                pin_ul.y += 20 * g_canvas_scale;
-            }
-
-            // draw settings
-            pin_ul = ul_ws;
-            pin_ul.x += 200 * g_canvas_scale;
-            pin_ul.y += 8 * g_canvas_scale;
-            for (auto& j : i.second->pins)
-            {
-                auto pin_it = g_graph.pins.find(j);
-                if (pin_it->second.kind != lab::noodle::AudioPin::Kind::Setting)
-                    continue;
-
-                pin_it->second.pos_cs = (pin_ul - window_origin_offset_ws - g_canvas_pixel_offset_ws) / g_canvas_scale;
-
-                uint32_t fill = (pin_it->second.pin_id == g_hover.pin_id || pin_it->second.pin_id == g_originating_pin_id) ? 0xffffff : 0x000000;
-                fill |= (uint32_t)(128 + 128 * sinf(pulse * 8)) << 24;
-                DrawIcon(drawList, pin_ul, ImVec2{ pin_ul.x + terminal_w * g_canvas_scale, pin_ul.y + terminal_w * g_canvas_scale },
-                    lab::noodle::IconType::Grid, false, 0xff00ff00, fill);
-
-                if (g_canvas_scale > 0.5f)
-                {
-                    float font_size = 16 * g_canvas_scale;
-                    ImVec2 label_pos = pin_ul;
-                    label_pos.x += 20 * g_canvas_scale;
-                    drawList->AddText(io.FontDefault, font_size, label_pos, text_color, 
-                        pin_it->second.shortName.c_str(), pin_it->second.shortName.c_str() + pin_it->second.shortName.length());
-
-                    label_pos.x += 50 * g_canvas_scale;
-                    drawList->AddText(io.FontDefault, font_size, label_pos, text_color, 
-                        pin_it->second.value.c_str(), pin_it->second.value.c_str() + pin_it->second.value.length());
-                }
-
-                pin_ul.y += 20 * g_canvas_scale;
-            }
-
-            // draw output pins
-
-            pin_ul.x = lr_ws.x - 4 * g_canvas_scale;
-            pin_ul.y = ul_ws.y + 8 * g_canvas_scale;
-            for (auto& j : i.second->pins)
-            {
-                auto pin_it = g_graph.pins.find(j);
-                if (pin_it->second.kind != lab::noodle::AudioPin::Kind::BusOut)
-                    continue;
-
-                pin_it->second.pos_cs = (pin_ul - window_origin_offset_ws - g_canvas_pixel_offset_ws) / g_canvas_scale;
-
-                lr_ws = ImVec2{ ul_ws.x + 16, ul_ws.y + 16 };
-                uint32_t fill = (pin_it->second.pin_id == g_hover.pin_id || pin_it->second.pin_id == g_originating_pin_id) ? 0xffffff : 0x000000;
-                fill |= (uint32_t)(128 + 128 * sinf(pulse * 8)) << 24;
-                DrawIcon(drawList, pin_ul, ImVec2{ pin_ul.x + terminal_w * g_canvas_scale, pin_ul.y + terminal_w * g_canvas_scale },
-                         lab::noodle::IconType::Flow, false, 0xffffffff, fill);
-
-                if (g_canvas_scale > 0.5f)
-                {
-                    float font_size = 16 * g_canvas_scale;
-                    ImVec2 label_pos = pin_ul;
-                    label_pos.x += 20 * g_canvas_scale;
-                    drawList->AddText(io.FontDefault, font_size, label_pos, text_color, 
-                        pin_it->second.shortName.c_str(), pin_it->second.shortName.c_str() + pin_it->second.shortName.length());
-                }
-
-                pin_ul.y += 20 * g_canvas_scale;
             }
         }
 
-        // draw debug information
-        drawList->AddRect(ImVec2{ 0,0 }, ImVec2{ 300, 250 }, 0xffffffff);
-        static char buff[256];
-        float y = 10;
-        sprintf(buff, "pos %d %d", (int) g_mouse_cs.x, (int) g_mouse_cs.y);
-        drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y }, 0xffffffff, buff, buff + strlen(buff));
-        sprintf(buff, "LMB %s%s%s", g_click_initiated ? "*" : "-", g_dragging ? "*" : "-", g_click_ended ? "*" : "-");
-        drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + 7);
-        sprintf(buff, "canvas interaction: %s", g_interacting_with_canvas ? "*" : ".");
-        drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + 21);
-        sprintf(buff, "wire dragging: %s", g_dragging_wire ? "*" : ".");
-        drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + 16);
-        sprintf(buff, "node hovered: %s", g_hover.node_id != g_no_entity ? "*" : ".");
-        drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + 15);
-        sprintf(buff, "originating pin id: %d", g_originating_pin_id);
-        drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
-        sprintf(buff, "hovered pin id: %d", g_hover.pin_id);
-        drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
-        sprintf(buff, "hovered pin label: %d", g_hover.pin_label_id);
-        drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
-        sprintf(buff, "hovered connection: %d", g_hover.connection_id);
-        drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
-        sprintf(buff, "hovered node menu: %s", g_hover.node_menu ? "*" : ".");
-        drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
-        sprintf(buff, "edit connection: %d", g_edit_connection);
-        drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
-        sprintf(buff, "quantum time: %f uS", g_total_profile_duration);
-        drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
-        drawList->ChannelsSetCurrent(ChannelContent);
+        if (g_show_debug_info)
+        {
+            // draw debug information
+            drawList->AddRect(ImVec2{ 0,0 }, ImVec2{ 300, 250 }, 0xffffffff);
+            static char buff[256];
+            float y = 10;
+            sprintf(buff, "pos %d %d", (int)g_mouse_cs.x, (int)g_mouse_cs.y);
+            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y }, 0xffffffff, buff, buff + strlen(buff));
+            sprintf(buff, "LMB %s%s%s", g_click_initiated ? "*" : "-", g_dragging ? "*" : "-", g_click_ended ? "*" : "-");
+            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + 7);
+            sprintf(buff, "canvas interaction: %s", g_interacting_with_canvas ? "*" : ".");
+            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + 21);
+            sprintf(buff, "wire dragging: %s", g_dragging_wire ? "*" : ".");
+            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + 16);
+            sprintf(buff, "node hovered: %s", g_hover.node_id != entt::null ? "*" : ".");
+            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + 15);
+            sprintf(buff, "originating pin id: %d", g_originating_pin_id);
+            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
+            sprintf(buff, "hovered pin id: %d", g_hover.pin_id);
+            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
+            sprintf(buff, "hovered pin label: %d", g_hover.pin_label_id);
+            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
+            sprintf(buff, "hovered connection: %d", g_hover.connection_id);
+            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
+            sprintf(buff, "hovered node menu: %s", g_hover.node_menu ? "*" : ".");
+            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
+            sprintf(buff, "edit connection: %d", g_edit_connection);
+            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
+            sprintf(buff, "quantum time: %f uS", g_total_profile_duration);
+            drawList->AddText(io.FontDefault, 16, ImVec2{ 10, y += 20 }, 0xffffffff, buff, buff + strlen(buff));
+            drawList->ChannelsSetCurrent(ChannelContent);
+        }
 
         // finish
 
