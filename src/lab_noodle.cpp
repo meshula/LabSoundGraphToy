@@ -90,8 +90,8 @@ namespace noodle {
     entt::entity g_ent_main_window;
     ImGuiID g_id_main_window;
     ImGuiID g_id_main_invis;
-
     ImU32 g_bg_color;
+    float g_total_profile_duration = 1; // in microseconds
 
     struct MouseState
     {
@@ -113,25 +113,27 @@ namespace noodle {
     }
     g_mouse;
 
-    static entt::entity g_edit_connection = entt::null;
-    static entt::entity g_originating_pin_id = entt::null;
-    static entt::entity g_edit_pin = entt::null;
-    static entt::entity g_edit_node = entt::null;
+    struct EditState
+    {
+        entt::entity connection = entt::null;
+        entt::entity pin = entt::null;
+        entt::entity node = entt::null;
 
-    static entt::entity g_device_node = entt::null;
+        entt::entity device_node = entt::null;
 
-    static float g_edit_pin_float = 0;
-    static int g_edit_pin_int = 0;
-    static bool g_edit_pin_bool = false;
+        float pin_float = 0;
+        int   pin_int = 0;
+        bool  pin_bool = false;
+    }
+    g_edit;
 
-    static float g_total_profile_duration = 1; // in microseconds
 
     struct HoverState
     {
         void reset(entt::entity en)
         {
             node_id = en;
-            g_originating_pin_id = en;
+            originating_pin_id = en;
             pin_id = en;
             pin_label_id = en;
             node_menu = false;
@@ -139,10 +141,11 @@ namespace noodle {
             play = false;
         }
 
-        entt::entity node_id;
-        entt::entity pin_id;
-        entt::entity pin_label_id;
-        entt::entity connection_id;
+        entt::entity node_id = entt::null;
+        entt::entity pin_id = entt::null;
+        entt::entity pin_label_id = entt::null;
+        entt::entity connection_id = entt::null;
+        entt::entity originating_pin_id = entt::null;
         bool node_menu = false;
         bool bang = false;
         bool play = false;
@@ -200,8 +203,8 @@ namespace noodle {
             {
                 lab::Sound::Work work;
                 work.type = lab::Sound::WorkType::CreateRuntimeContext;
-                g_device_node = work.eval();
-                registry.assign<GraphNodeLayout>(g_device_node, GraphNodeLayout{ canvas_pos });
+                g_edit.device_node = work.eval();
+                registry.assign<GraphNodeLayout>(g_edit.device_node, GraphNodeLayout{ canvas_pos });
                 break;
             }
             case WorkType::CreateNode:
@@ -642,7 +645,7 @@ namespace noodle {
 
             if (pin.kind == lab::Sound::AudioPin::Kind::Param || type == lab::AudioSetting::Type::Float)
             {
-                if (ImGui::InputFloat("###EditPinParamFloat", &g_edit_pin_float,
+                if (ImGui::InputFloat("###EditPinParamFloat", &g_edit.pin_float,
                     0, 0, 5,
                     ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CharsScientific))
                 {
@@ -651,7 +654,7 @@ namespace noodle {
             }
             else if (type == lab::AudioSetting::Type::Integer)
             {
-                if (ImGui::InputInt("###EditPinParamInt", &g_edit_pin_int,
+                if (ImGui::InputInt("###EditPinParamInt", &g_edit.pin_int,
                     0, 0,
                     ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CharsScientific))
                 {
@@ -660,7 +663,7 @@ namespace noodle {
             }
             else if (type == lab::AudioSetting::Type::Bool)
             {
-                if (ImGui::Checkbox("###EditPinParamBool", &g_edit_pin_bool))
+                if (ImGui::Checkbox("###EditPinParamBool", &g_edit.pin_bool))
                 {
                     accept = true;
                 }
@@ -668,7 +671,7 @@ namespace noodle {
             else if (type == lab::AudioSetting::Type::Enumeration)
             {
                 names = pin.setting->enums();
-                int enum_idx = g_edit_pin_int;
+                int enum_idx = g_edit.pin_int;
                 if (ImGui::BeginMenu(names[enum_idx]))
                 {
                     std::string pressed = "";
@@ -684,7 +687,7 @@ namespace noodle {
                     ImGui::EndMenu();
                     if (clicked >= 0)
                     {
-                        g_edit_pin_int = clicked;
+                        g_edit.pin_int = clicked;
                         accept = true;
                     }
                 }
@@ -701,7 +704,7 @@ namespace noodle {
                         work.name.assign(file);
                         work.type = WorkType::SetBusSetting;
                         g_pending_work.emplace_back(work);
-                        g_edit_pin = entt::null;
+                        g_edit.pin = entt::null;
                     }
                 }
             }
@@ -715,43 +718,43 @@ namespace noodle {
 
                 if (pin.kind == lab::Sound::AudioPin::Kind::Param)
                 {
-                    sprintf(buff, "%f", g_edit_pin_float);
+                    sprintf(buff, "%f", g_edit.pin_float);
                     work.type = WorkType::SetParam;
-                    work.float_value = g_edit_pin_float;
+                    work.float_value = g_edit.pin_float;
                 }
                 else if (type == lab::AudioSetting::Type::Float)
                 {
-                    sprintf(buff, "%f", g_edit_pin_float);
+                    sprintf(buff, "%f", g_edit.pin_float);
                     work.type = WorkType::SetFloatSetting;
-                    work.float_value = g_edit_pin_float;
+                    work.float_value = g_edit.pin_float;
                 }
                 else if (type == lab::AudioSetting::Type::Integer)
                 {
-                    sprintf(buff, "%d", g_edit_pin_int);
+                    sprintf(buff, "%d", g_edit.pin_int);
                     work.type = WorkType::SetIntSetting;
-                    work.int_value = g_edit_pin_int;
+                    work.int_value = g_edit.pin_int;
                 }
                 else if (type == lab::AudioSetting::Type::Bool)
                 {
-                    sprintf(buff, "%s", g_edit_pin_bool ? "True" : "False");
+                    sprintf(buff, "%s", g_edit.pin_bool ? "True" : "False");
                     work.type = WorkType::SetBoolSetting;
-                    work.bool_value = g_edit_pin_bool;
+                    work.bool_value = g_edit.pin_bool;
                 }
                 else if (type == lab::AudioSetting::Type::Enumeration)
                 {
-                    sprintf(buff, "%s", names[g_edit_pin_int]);
+                    sprintf(buff, "%s", names[g_edit.pin_int]);
                     work.type = WorkType::SetIntSetting;
-                    work.int_value = g_edit_pin_int;
+                    work.int_value = g_edit.pin_int;
                 }
 
                 pin.value_as_string.assign(buff);
 
                 g_pending_work.emplace_back(work);
-                g_edit_pin = entt::null;
+                g_edit.pin = entt::null;
             }
             ImGui::SameLine();
             if (ImGui::Button("Cancel"))
-                g_edit_pin = entt::null;
+                g_edit.pin = entt::null;
 
             ImGui::EndPopup();
         }
@@ -762,13 +765,13 @@ namespace noodle {
         entt::registry& reg = provider.registry();
         if (!reg.valid(connection))
         {
-            g_edit_connection = entt::null;
+            g_edit.connection = entt::null;
             return;
         }
         if (!reg.any<lab::Sound::Connection>(connection))
         {
             printf("No GraphConnection for %d", connection);
-            g_edit_connection = entt::null;
+            g_edit.connection = entt::null;
             return;
         }
 
@@ -783,12 +786,12 @@ namespace noodle {
                 work.type = WorkType::DisconnectInFromOut;
                 work.connection_id = connection;
                 g_pending_work.emplace_back(work);
-                g_edit_connection = entt::null;
+                g_edit.connection = entt::null;
             }
 
             ImGui::SameLine();
             if (ImGui::Button("Cancel"))
-                g_edit_connection = entt::null;
+                g_edit.connection = entt::null;
 
             ImGui::EndPopup();
         }
@@ -799,7 +802,7 @@ namespace noodle {
         entt::registry& reg = provider.registry();
         if (!reg.valid(node) || !reg.any<shared_ptr<lab::AudioNode>>(node))
         {
-            g_edit_node = entt::null;
+            g_edit.node = entt::null;
             return;
         }
 
@@ -816,12 +819,12 @@ namespace noodle {
                 work.type = WorkType::DeleteNode;
                 work.input_node = node;
                 g_pending_work.emplace_back(work);
-                g_edit_node = entt::null;
+                g_edit.node = entt::null;
             }
 
             ImGui::SameLine();
             if (ImGui::Button("Cancel"))
-                g_edit_node = entt::null;
+                g_edit.node = entt::null;
 
             ImGui::EndPopup();
         }
@@ -878,9 +881,9 @@ namespace noodle {
         g_bg_color = ImColor(0.2f, 0.2f, 0.2f, 1.0f);
         g_id_main_invis = ImGui::GetID(&g_id_main_invis);
         g_hover.reset(entt::null);
-        g_edit_pin = entt::null;
-        g_edit_connection = entt::null;
-        g_edit_node = entt::null;
+        g_edit.pin = entt::null;
+        g_edit.connection = entt::null;
+        g_edit.node = entt::null;
 
         ImGuiWindow* win = ImGui::GetCurrentWindow();
         ImRect edit_rect = win->ContentRegionRect;
@@ -1076,7 +1079,7 @@ namespace noodle {
             g_hover.bang = false;
             g_hover.play = false;
             g_hover.node_menu = false;
-            g_edit_node = entt::null;
+            g_edit.node = entt::null;
             g_hover.node_id = entt::null;
             g_hover.pin_id = entt::null;
             g_hover.pin_label_id = entt::null;
@@ -1302,28 +1305,28 @@ namespace noodle {
                 g_mouse.dragging = false;
                 g_hover.node_id = entt::null;
                 g_hover.reset(entt::null);
-                g_edit_pin = entt::null;
+                g_edit.pin = entt::null;
             }
-            else if (g_edit_pin != entt::null)
+            else if (g_edit.pin != entt::null)
             {
                 ImGui::SetNextWindowPos(g_mouse.initial_click_pos_ws);
-                EditPin(_provider, g_edit_pin);
+                EditPin(_provider, g_edit.pin);
                 g_mouse.dragging = false;
                 g_hover.node_id = entt::null;
                 g_hover.reset(entt::null);
             }
-            else if (g_edit_connection != entt::null)
+            else if (g_edit.connection != entt::null)
             {
                 ImGui::SetNextWindowPos(g_mouse.initial_click_pos_ws);
-                EditConnection(_provider, g_edit_connection);
+                EditConnection(_provider, g_edit.connection);
                 g_mouse.dragging = false;
                 g_hover.node_id = entt::null;
                 g_hover.reset(entt::null);
             }
-            else if (g_edit_node != entt::null)
+            else if (g_edit.node != entt::null)
             {
                 ImGui::SetNextWindowPos(g_mouse.initial_click_pos_ws);
-                EditNode(_provider, g_edit_node);
+                EditNode(_provider, g_edit.node);
                 g_mouse.dragging = false;
             }
             else
@@ -1334,12 +1337,12 @@ namespace noodle {
 
         if (!g_mouse.dragging && g_mouse.dragging_wire)
         {
-            if (g_originating_pin_id != entt::null && g_hover.pin_id != entt::null && registry.valid(g_originating_pin_id) && registry.valid(g_hover.pin_id))
+            if (g_hover.originating_pin_id != entt::null && g_hover.pin_id != entt::null && registry.valid(g_hover.originating_pin_id) && registry.valid(g_hover.pin_id))
             {
-                GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(g_originating_pin_id);
+                GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(g_hover.originating_pin_id);
                 GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(g_hover.pin_id);
 
-                lab::Sound::AudioPin from_pin = registry.get<lab::Sound::AudioPin>(g_originating_pin_id);
+                lab::Sound::AudioPin from_pin = registry.get<lab::Sound::AudioPin>(g_hover.originating_pin_id);
                 lab::Sound::AudioPin to_pin = registry.get<lab::Sound::AudioPin>(g_hover.pin_id);
 
                 /// @TODO this logic can be duplicated into hover to turn the wire red for disallowed connections
@@ -1347,7 +1350,7 @@ namespace noodle {
                 if (from_pin.kind == lab::Sound::AudioPin::Kind::BusIn || from_pin.kind == lab::Sound::AudioPin::Kind::Param)
                 {
                     std::swap(to_pin, from_pin);
-                    std::swap(g_originating_pin_id, g_hover.pin_id);
+                    std::swap(g_hover.originating_pin_id, g_hover.pin_id);
                 }
 
                 // check if a valid connection is requested
@@ -1380,17 +1383,17 @@ namespace noodle {
                 }
             }
             g_mouse.dragging_wire = false;
-            g_originating_pin_id = entt::null;
+            g_hover.originating_pin_id = entt::null;
         }
         else if (g_mouse.click_ended)
         {
             if (g_hover.connection_id != entt::null)
             {
-                g_edit_connection = g_hover.connection_id;
+                g_edit.connection = g_hover.connection_id;
             }
             else if (g_hover.node_menu)
             {
-                g_edit_node = g_hover.node_id;
+                g_edit.node = g_hover.node_id;
             }
         }
 
@@ -1419,32 +1422,32 @@ namespace noodle {
                     g_mouse.dragging_wire = true;
                     g_mouse.dragging_node = false;
                     g_mouse.node_initial_pos_cs = g_mouse.mouse_cs;
-                    if (g_originating_pin_id == entt::null)
-                        g_originating_pin_id = g_hover.pin_id;
+                    if (g_hover.originating_pin_id == entt::null)
+                        g_hover.originating_pin_id = g_hover.pin_id;
                 }
                 else if (g_hover.pin_label_id != entt::null)
                 {
                     // set mode to edit the value of the hovered pin
-                    g_edit_pin = g_hover.pin_label_id;
-                    lab::Sound::AudioPin& pin = registry.get<lab::Sound::AudioPin>(g_edit_pin);
+                    g_edit.pin = g_hover.pin_label_id;
+                    lab::Sound::AudioPin& pin = registry.get<lab::Sound::AudioPin>(g_edit.pin);
                     if (pin.kind == lab::Sound::AudioPin::Kind::Param)
                     {
-                        g_edit_pin_float = pin.param->value();
+                        g_edit.pin_float = pin.param->value();
                     }
                     else if (pin.kind == lab::Sound::AudioPin::Kind::Setting)
                     {
                         auto type = pin.setting->type();
                         if (type == lab::AudioSetting::Type::Float)
                         {
-                            g_edit_pin_float = pin.setting->valueFloat();
+                            g_edit.pin_float = pin.setting->valueFloat();
                         }
                         else if (type == lab::AudioSetting::Type::Integer || type == lab::AudioSetting::Type::Enumeration)
                         {
-                            g_edit_pin_int = pin.setting->valueUint32();
+                            g_edit.pin_int = pin.setting->valueUint32();
                         }
                         else if (type == lab::AudioSetting::Type::Bool)
                         {
-                            g_edit_pin_bool = pin.setting->valueBool();
+                            g_edit.pin_bool = pin.setting->valueBool();
                         }
                     }
                 }
@@ -1542,7 +1545,7 @@ namespace noodle {
 
         if (g_mouse.dragging_wire)
         {
-            GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(g_originating_pin_id);
+            GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(g_hover.originating_pin_id);
             ImVec2 p0 = from_gpl.ul_ws(g_canvas) + ImVec2(16, 10) * g_canvas.scale;
             ImVec2 p3 = g_mouse.mouse_ws + g_canvas.window_origin_offset_ws;
             ImVec2 pd = p0 - p3;
@@ -1554,8 +1557,8 @@ namespace noodle {
 
         // draw nodes
         shared_ptr<lab::AudioNode> dev_node;
-        if (g_device_node != entt::null)
-            dev_node = registry.get<shared_ptr<lab::AudioNode>>(g_device_node);
+        if (g_edit.device_node != entt::null)
+            dev_node = registry.get<shared_ptr<lab::AudioNode>>(g_edit.device_node);
         g_total_profile_duration = dev_node ? dev_node->graphTime.microseconds.count() : 0;
 
         for (auto entity : registry.view<lab::Sound::AudioNode>())
@@ -1658,7 +1661,7 @@ namespace noodle {
 
                     GraphPinLayout& pin_gpl = registry.get<GraphPinLayout>(j);
                     ImVec2 pin_ul = pin_gpl.ul_ws(g_canvas);
-                    uint32_t fill = (j == g_hover.pin_id || j == g_originating_pin_id) ? 0xffffff : 0x000000;
+                    uint32_t fill = (j == g_hover.pin_id || j == g_hover.originating_pin_id) ? 0xffffff : 0x000000;
                     fill |= (uint32_t)(128 + 128 * sinf(pulse * 8)) << 24;
                     DrawIcon(drawList, pin_ul, 
                         ImVec2{ pin_ul.x + GraphPinLayout::k_width * g_canvas.scale, pin_ul.y + GraphPinLayout::k_height * g_canvas.scale },
@@ -1692,24 +1695,34 @@ namespace noodle {
 
         if (show_debug)
         {
-            ImGui::Begin("Canvas Debug Information");
-
+            ImGui::Begin("Debug Information");
+            ImGui::TextUnformatted("Mouse");
             ImGui::Text("canvas    pos (%d, %d)", (int) g_mouse.mouse_cs.x, (int) g_mouse.mouse_cs.y);
             ImGui::Text("drawlist  pos (%d, %d)", (int) g_mouse.mouse_ws.x, (int) g_mouse.mouse_ws.y);
+            ImGui::Text("LMB %s%s%s", g_mouse.click_initiated ? "*" : "-", g_mouse.dragging ? "*" : "-", g_mouse.click_ended ? "*" : "-");
+            ImGui::Text("canvas interaction: %s", g_mouse.interacting_with_canvas ? "*" : ".");
+            ImGui::Text("wire dragging: %s", g_mouse.dragging_wire ? "*" : ".");
+
+            ImGui::Separator();
+            ImGui::TextUnformatted("Canvas");
             ImVec2 off = g_canvas.window_origin_offset_ws;
             ImGui::Text("canvas window offset (%d, %d)", (int) off.x, (int) off.y);
             off = g_canvas.origin_offset_ws;
             ImGui::Text("canvas origin offset (%d, %d)", (int) off.x, (int) off.y);
-            ImGui::Text("LMB %s%s%s", g_mouse.click_initiated ? "*" : "-", g_mouse.dragging ? "*" : "-", g_mouse.click_ended ? "*" : "-");
-            ImGui::Text("canvas interaction: %s", g_mouse.interacting_with_canvas ? "*" : ".");
-            ImGui::Text("wire dragging: %s", g_mouse.dragging_wire ? "*" : ".");
+
+            ImGui::Separator();
+            ImGui::TextUnformatted("Hover");
             ImGui::Text("node hovered: %s", g_hover.node_id != entt::null ? "*" : ".");
-            ImGui::Text("originating pin id: %d", g_originating_pin_id);
+            ImGui::Text("originating pin id: %d", g_hover.originating_pin_id);
             ImGui::Text("hovered pin id: %d", g_hover.pin_id);
             ImGui::Text("hovered pin label: %d", g_hover.pin_label_id);
             ImGui::Text("hovered connection: %d", g_hover.connection_id);
             ImGui::Text("hovered node menu: %s", g_hover.node_menu ? "*" : ".");
-            ImGui::Text("edit connection: %d", g_edit_connection);
+
+            ImGui::Separator();
+            ImGui::TextUnformatted("Edit");
+            ImGui::Text("edit connection: %d", g_edit.connection);
+            ImGui::Separator();
             ImGui::Text("quantum time: %f uS", g_total_profile_duration);
 
             ImGui::End();
