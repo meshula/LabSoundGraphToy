@@ -82,7 +82,7 @@ void append_audio_icon_font(const std::vector<uint8_t> & buffer)
 }
 
 namespace lab { namespace noodle {
-    bool run_noodles(bool show_debug);
+    bool run_noodles(bool show_profiler, bool show_debug);
 } }
 
 void init(void) {
@@ -174,6 +174,7 @@ void frame()
 
     static bool show_demo = false;
     static bool show_debug = false;
+    static bool show_profiler = false;
     if (ImGui::BeginMainMenuBar())
     {
         if (ImGui::BeginMenu(" " ICON_FAD_HEADPHONES " File")) 
@@ -185,6 +186,7 @@ void frame()
         }
         if (ImGui::BeginMenu("Debug"))
         {
+            ImGui::Checkbox("Show Profiler", &show_profiler);
             ImGui::Checkbox("Show Graph Canvas values", &show_debug);
             ImGui::Checkbox("Show ImGui demo", &show_demo);
             ImGui::EndMenu();
@@ -192,7 +194,7 @@ void frame()
         ImGui::EndMainMenuBar();
     }
 
-    lab::noodle::run_noodles(show_debug);
+    lab::noodle::run_noodles(show_profiler, show_debug);
 
     imgui_fixed_window_end();
 
