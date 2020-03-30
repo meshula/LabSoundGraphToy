@@ -82,7 +82,7 @@ void append_audio_icon_font(const std::vector<uint8_t> & buffer)
 }
 
 namespace lab { namespace noodle {
-    bool run_noodles();
+    bool run_noodles(bool show_debug);
 } }
 
 void init(void) {
@@ -167,13 +167,14 @@ void frame()
     ImGuiIO& io = ImGui::GetIO();
     ImGui::SetNextWindowPos({ 0,0 });
     ImGui::SetNextWindowSize(io.DisplaySize);
-    static bool show_editor = true;
 
     ImGui::PushFont(g_cousine);
 
     imgui_fixed_window_begin("GraphToy", 0, 20, width, height);
 
-    if (ImGui::BeginMainMenuBar()) 
+    static bool show_demo = false;
+    static bool show_debug = false;
+    if (ImGui::BeginMainMenuBar())
     {
         if (ImGui::BeginMenu(" " ICON_FAD_HEADPHONES " File")) 
         {
@@ -182,14 +183,21 @@ void frame()
                 sapp_request_quit();
             ImGui::EndMenu();
         }
+        if (ImGui::BeginMenu("Debug"))
+        {
+            ImGui::Checkbox("Show Graph Canvas values", &show_debug);
+            ImGui::Checkbox("Show ImGui demo", &show_demo);
+            ImGui::EndMenu();
+        }
         ImGui::EndMainMenuBar();
     }
 
-    lab::noodle::run_noodles();
+    lab::noodle::run_noodles(show_debug);
 
     imgui_fixed_window_end();
 
-    ImGui::ShowDemoWindow();
+    if (show_demo)
+        ImGui::ShowDemoWindow();
 
     ImGui::PopFont();
 

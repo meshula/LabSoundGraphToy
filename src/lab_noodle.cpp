@@ -101,8 +101,6 @@ namespace noodle {
     bool g_click_initiated = false;
     bool g_click_ended = false;
 
-    bool g_show_debug_info = true;
-
     ImVec2 g_node_initial_pos_cs = { 0, 0 };
     ImVec2 g_initial_click_pos_ws = { 0, 0 };
     ImVec2 g_canvas_clickpos_cs = { 0, 0 };
@@ -1102,8 +1100,8 @@ namespace noodle {
                     {
                         g_hover.pin_id = entity;
                         g_hover.pin_label_id = entt::null;
+                        g_hover.node_id = pin.node_id;
                     }
-                    g_hover.node_id = pin.node_id;
                 }
                 else if (pnl.label_contains_cs_point(g_canvas, mouse_x_cs, mouse_y_cs))
                 {
@@ -1112,12 +1110,12 @@ namespace noodle {
                     {
                         g_hover.pin_id = entt::null;
                         g_hover.pin_label_id = entity;
+                        g_hover.node_id = pin.node_id;
                     }
                     else
                     {
                         g_hover.pin_label_id = entt::null;
                     }
-                    g_hover.node_id = pin.node_id;
                 }
             }
 
@@ -1193,7 +1191,7 @@ namespace noodle {
                     ImVec2 p1 = { p0.x + wiggle, p0.y };
                     ImVec2 p2 = { p3.x - wiggle, p3.y };
 
-                    ImVec2 test = g_mouse_ws + g_canvas.window_origin_offset_ws + g_canvas.origin_offset_ws;
+                    ImVec2 test = g_mouse_ws + g_canvas.window_origin_offset_ws;
                     //printf("p0(%01.f, %0.1f) p3(%0.1f, %0.1f) m(%01.f, %01.f)\n", p0.x, p0.y, p3.x, p3.y, test.x, test.y);
                     ImVec2 closest = ImBezierClosestPointCasteljau(p0, p1, p2, p3, test, 10);
                     
@@ -1211,7 +1209,7 @@ namespace noodle {
 
 
 
-    bool run_noodles()
+    bool run_noodles(bool show_debug)
     {
         ImGui::BeginChild("###Noodles");
         struct RunWork
@@ -1686,7 +1684,7 @@ namespace noodle {
         drawList->ChannelsMerge();
         EndChild();
 
-        if (g_show_debug_info)
+        if (show_debug)
         {
             ImGui::Begin("Canvas Debug Information");
 
