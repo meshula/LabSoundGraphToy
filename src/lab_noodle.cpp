@@ -1,13 +1,12 @@
 
 #include "lab_noodle.h"
 
-#include <imgui.h>
-#include <imgui_internal.h>
-#include <entt/entt.hpp>
 #include <LabSound/LabSound.h>
 #include <LabSound/core/AudioNode.h>
 
 #include "LabSoundInterface.h"
+#include "lab_imgui_ext.hpp"
+
 #include "nfd.h"
 
 #include <algorithm>
@@ -17,26 +16,37 @@
 namespace lab {
 namespace noodle {
 
-    using std::map;
-    using std::pair;
-    using std::shared_ptr;
-    using std::string;
-    using std::unique_ptr;
-    using std::unordered_map;
-    using std::unordered_set;
-    using std::vector;
     using namespace ImGui;
 
-    string unique_name(string name)
+    static const ImColor node_background_fill = ImColor(10, 20, 30, 128);
+    static const ImColor node_outline_hovered = ImColor(231, 76, 60); 
+    static const ImColor node_outline_neutral = ImColor(192, 57, 43);
+
+    static const ImColor icon_pin_flow = ImColor(241, 196, 15);
+    static const ImColor icon_pin_param = ImColor(192, 57, 43);
+    static const ImColor icon_pin_setting = ImColor(192, 57, 43);
+    static const ImColor icon_pin_bus_out = ImColor(241, 196, 15);
+
+    static const ImColor grid_line_color = ImColor(189, 195, 199, 128);
+    static const ImColor grid_bg_color = ImColor(50, 50, 50, 255);
+
+    static const ImColor noodle_bezier_hovered = ImColor(241, 196, 15, 255);
+    static const ImColor noodle_bezier_neutral = ImColor(189, 195, 199, 255);
+
+    static constexpr float node_border_radius = 4.f;
+    static constexpr float style_padding_y = 16.f;    
+    static constexpr float style_padding_x = 12.f;
+
+    std::string unique_name(std::string name)
     {
-        static unordered_map<string, int> bases;
-        static unordered_set<string> names;
+        static std::unordered_map<std::string, int> bases;
+        static std::unordered_set<std::string> names;
 
         size_t pos = name.rfind("-");
-        string base;
+        std::string base;
 
         // no dash, or leading dash, it's not a uniqued name
-        if (pos == string::npos || pos == 0)
+        if (pos == std::string::npos || pos == 0)
         {
             base = name;
             name += "-1";
@@ -54,7 +64,7 @@ namespace noodle {
         }
 
         int id = i->second;
-        string candidate = base + "-" + std::to_string(id);
+        std::string candidate = base + "-" + std::to_string(id);
         while (names.find(candidate) != names.end())
         {
             ++id;
@@ -67,13 +77,13 @@ namespace noodle {
 
     struct Name
     {
-        string name;
+        std::string name;
     };
 
     struct Canvas
     {
         ImVec2 window_origin_offset_ws = { 0, 0 };
-        ImVec2 origin_offset_ws = { 0,0 };
+        ImVec2 origin_offset_ws = { 0, 0 };
         float scale = 1.f;
     }
     g_canvas;
@@ -132,15 +142,15 @@ namespace noodle {
     // ImGui channels for layering the graphics
 
     enum Channels {
-        ChannelContent = 0, ChannelGrid = 1,
-        ChannelNodes = 2,
-        ChannelCount = 3
+        ChannelContent = 0,
+        ChannelGrid    = 1,
+        ChannelNodes   = 2,
+        ChannelCount   = 3
     };
 
     entt::entity g_ent_main_window;
     ImGuiID g_id_main_window;
     ImGuiID g_id_main_invis;
-    ImU32 g_bg_color;
     float g_total_profile_duration = 1; // in microseconds
 
     struct MouseState
@@ -177,7 +187,6 @@ namespace noodle {
     }
     g_edit;
 
-
     struct HoverState
     {
         void reset(entt::entity en)
@@ -202,8 +211,6 @@ namespace noodle {
     } 
     g_hover;
 
-
-
     enum class WorkType
     {
         Nop, CreateRuntimeContext, CreateNode, DeleteNode, SetParam,
@@ -212,7 +219,6 @@ namespace noodle {
         DisconnectInFromOut,
         Start, Bang,
     };
-
 
     struct Work
     {
@@ -368,7 +374,7 @@ namespace noodle {
         }
     };
 
-    vector<Work> g_pending_work;
+    std::vector<Work> g_pending_work;
 
 
 
@@ -409,265 +415,6 @@ namespace noodle {
         }
         return result;
     }
-
-
-    // This Icon drawing is adapted from thedmd's imgui_node_editor blueprint sample because the icons are nice
-
-    enum class IconType { Flow, Circle, Square, Grid, RoundSquare, Diamond };
-
-    void DrawIcon(ImDrawList* drawList, const ImVec2& ul, const ImVec2& lr, IconType type, bool filled, ImU32 color, ImU32 innerColor)
-    {
-        struct rectf {
-            float x, y, w, h;
-            float center_x() const { return x + w * 0.5f; }
-            float center_y() const { return y + h * 0.5f; }
-        };
-
-        rectf rect = { ul.x, ul.y, lr.x - ul.x, lr.y - ul.y };
-        const float outline_scale = rect.w / 24.0f;
-        const int extra_segments = static_cast<int>(2 * outline_scale); // for full circle
-
-        if (type == IconType::Flow)
-        {
-            const auto origin_scale = rect.w / 24.0f;
-
-            const auto offset_x = 1.0f * origin_scale;
-            const auto offset_y = 0.0f * origin_scale;
-            const auto margin = (filled ? 2.0f : 2.0f) * origin_scale;
-            const auto rounding = 0.1f * origin_scale;
-            const auto tip_round = 0.7f; // percentage of triangle edge (for tip)
-            //const auto edge_round = 0.7f; // percentage of triangle edge (for corner)
-            const rectf canvas{
-                rect.x + margin + offset_x,
-                rect.y + margin + offset_y,
-                rect.w - margin * 2.0f,
-                rect.h - margin * 2.0f };
-
-            const auto left = canvas.x + canvas.w * 0.5f * 0.3f;
-            const auto right = canvas.x + canvas.w - canvas.w * 0.5f * 0.3f;
-            const auto top = canvas.y + canvas.h * 0.5f * 0.2f;
-            const auto bottom = canvas.y + canvas.h - canvas.h * 0.5f * 0.2f;
-            const auto center_y = (top + bottom) * 0.5f;
-            //const auto angle = AX_PI * 0.5f * 0.5f * 0.5f;
-
-            const auto tip_top = ImVec2(canvas.x + canvas.w * 0.5f, top);
-            const auto tip_right = ImVec2(right, center_y);
-            const auto tip_bottom = ImVec2(canvas.x + canvas.w * 0.5f, bottom);
-
-            drawList->PathLineTo(ImVec2(left, top) + ImVec2(0, rounding));
-            drawList->PathBezierCurveTo(
-                ImVec2(left, top),
-                ImVec2(left, top),
-                ImVec2(left, top) + ImVec2(rounding, 0));
-            drawList->PathLineTo(tip_top);
-            drawList->PathLineTo(tip_top + (tip_right - tip_top) * tip_round);
-            drawList->PathBezierCurveTo(
-                tip_right,
-                tip_right,
-                tip_bottom + (tip_right - tip_bottom) * tip_round);
-            drawList->PathLineTo(tip_bottom);
-            drawList->PathLineTo(ImVec2(left, bottom) + ImVec2(rounding, 0));
-            drawList->PathBezierCurveTo(
-                ImVec2(left, bottom),
-                ImVec2(left, bottom),
-                ImVec2(left, bottom) - ImVec2(0, rounding));
-
-            if (!filled)
-            {
-                if (innerColor & 0xFF000000)
-                    drawList->AddConvexPolyFilled(drawList->_Path.Data, drawList->_Path.Size, innerColor);
-
-                drawList->PathStroke(color, true, 2.0f * outline_scale);
-            }
-            else
-                drawList->PathFillConvex(color);
-        }
-        else
-        {
-            auto triangleStart = rect.center_x() + 0.32f * rect.w;
-
-            rect.x -= static_cast<int>(rect.w * 0.25f * 0.25f);
-
-            if (type == IconType::Circle)
-            {
-                const ImVec2 c{ rect.center_x(), rect.center_y() };
-
-                if (!filled)
-                {
-                    const auto r = 0.5f * rect.w / 2.0f - 0.5f;
-
-                    if (innerColor & 0xFF000000)
-                        drawList->AddCircleFilled(c, r, innerColor, 12 + extra_segments);
-                    drawList->AddCircle(c, r, color, 12 + extra_segments, 2.0f * outline_scale);
-                }
-                else
-                    drawList->AddCircleFilled(c, 0.5f * rect.w / 2.0f, color, 12 + extra_segments);
-            }
-            else if (type == IconType::Square)
-            {
-                if (filled)
-                {
-                    const auto r = 0.5f * rect.w / 2.0f;
-                    const auto p0 = ImVec2{ rect.center_x(), rect.center_y() } -ImVec2(r, r);
-                    const auto p1 = ImVec2{ rect.center_x(), rect.center_y() } +ImVec2(r, r);
-
-                    drawList->AddRectFilled(p0, p1, color, 0, 15 + extra_segments);
-                }
-                else
-                {
-                    const auto r = 0.5f * rect.w / 2.0f - 0.5f;
-                    const auto p0 = ImVec2{ rect.center_x(), rect.center_y() } -ImVec2(r, r);
-                    const auto p1 = ImVec2{ rect.center_x(), rect.center_y() } +ImVec2(r, r);
-
-                    if (innerColor & 0xFF000000)
-                        drawList->AddRectFilled(p0, p1, innerColor, 0, 15 + extra_segments);
-
-                    drawList->AddRect(p0, p1, color, 0, 15 + extra_segments, 2.0f * outline_scale);
-                }
-            }
-            else if (type == IconType::Grid)
-            {
-                const auto r = 0.5f * rect.w / 2.0f;
-                const auto w = ceilf(r / 3.0f);
-
-                const auto baseTl = ImVec2(floorf(rect.center_x() - w * 2.5f), floorf(rect.center_y() - w * 2.5f));
-                const auto baseBr = ImVec2(floorf(baseTl.x + w), floorf(baseTl.y + w));
-
-                auto tl = baseTl;
-                auto br = baseBr;
-                for (int i = 0; i < 3; ++i)
-                {
-                    tl.x = baseTl.x;
-                    br.x = baseBr.x;
-                    drawList->AddRectFilled(tl, br, color);
-                    tl.x += w * 2;
-                    br.x += w * 2;
-                    if (i != 1 || filled)
-                        drawList->AddRectFilled(tl, br, color);
-                    tl.x += w * 2;
-                    br.x += w * 2;
-                    drawList->AddRectFilled(tl, br, color);
-
-                    tl.y += w * 2;
-                    br.y += w * 2;
-                }
-
-                triangleStart = br.x + w + 1.0f / 24.0f * rect.w;
-            }
-            else if (type == IconType::RoundSquare)
-            {
-                if (filled)
-                {
-                    const auto r = 0.5f * rect.w / 2.0f;
-                    const auto cr = r * 0.5f;
-                    const auto p0 = ImVec2{ rect.center_x(), rect.center_y() } -ImVec2(r, r);
-                    const auto p1 = ImVec2{ rect.center_x(), rect.center_y() } +ImVec2(r, r);
-
-                    drawList->AddRectFilled(p0, p1, color, cr, 15);
-                }
-                else
-                {
-                    const auto r = 0.5f * rect.w / 2.0f - 0.5f;
-                    const auto cr = r * 0.5f;
-                    const auto p0 = ImVec2{ rect.center_x(), rect.center_y() } -ImVec2(r, r);
-                    const auto p1 = ImVec2{ rect.center_x(), rect.center_y() } +ImVec2(r, r);
-
-                    if (innerColor & 0xFF000000)
-                        drawList->AddRectFilled(p0, p1, innerColor, cr, 15);
-
-                    drawList->AddRect(p0, p1, color, cr, 15, 2.0f * outline_scale);
-                }
-            }
-            else if (type == IconType::Diamond)
-            {
-                if (filled)
-                {
-                    const auto r = 0.607f * rect.w / 2.0f;
-                    const auto c = ImVec2{ rect.center_x(), rect.center_y() };
-
-                    drawList->PathLineTo(c + ImVec2(0, -r));
-                    drawList->PathLineTo(c + ImVec2(r, 0));
-                    drawList->PathLineTo(c + ImVec2(0, r));
-                    drawList->PathLineTo(c + ImVec2(-r, 0));
-                    drawList->PathFillConvex(color);
-                }
-                else
-                {
-                    const auto r = 0.607f * rect.w / 2.0f - 0.5f;
-                    const auto c = ImVec2{ rect.center_x(), rect.center_y() };
-
-                    drawList->PathLineTo(c + ImVec2(0, -r));
-                    drawList->PathLineTo(c + ImVec2(r, 0));
-                    drawList->PathLineTo(c + ImVec2(0, r));
-                    drawList->PathLineTo(c + ImVec2(-r, 0));
-
-                    if (innerColor & 0xFF000000)
-                        drawList->AddConvexPolyFilled(drawList->_Path.Data, drawList->_Path.Size, innerColor);
-
-                    drawList->PathStroke(color, true, 2.0f * outline_scale);
-                }
-            }
-            else
-            {
-                const auto triangleTip = triangleStart + rect.w * (0.45f - 0.32f);
-
-                drawList->AddTriangleFilled(
-                    ImVec2(ceilf(triangleTip), rect.center_y() * 0.5f),
-                    ImVec2(triangleStart, rect.center_y() + 0.15f * rect.h),
-                    ImVec2(triangleStart, rect.center_y() - 0.15f * rect.h),
-                    color);
-            }
-        }
-    }
-
-
-    static bool imgui_knob(const char* label, float* p_value, float v_min, float v_max)
-    {
-        ImGuiIO& io = ImGui::GetIO();
-        ImGuiStyle& style = ImGui::GetStyle();
-
-        float radius_outer = 20.0f;
-        ImVec2 pos = ImGui::GetCursorScreenPos();
-        ImVec2 center = ImVec2(pos.x + radius_outer, pos.y + radius_outer);
-        float line_height = ImGui::GetTextLineHeight();
-        ImDrawList* draw_list = ImGui::GetWindowDrawList();
-
-        float ANGLE_MIN = 3.141592f * 0.75f;
-        float ANGLE_MAX = 3.141592f * 2.25f;
-
-        ImGui::InvisibleButton(label, ImVec2(radius_outer * 2, radius_outer * 2 + line_height + style.ItemInnerSpacing.y));
-        bool value_changed = false;
-        bool is_active = ImGui::IsItemActive();
-        bool is_hovered = ImGui::IsItemActive();
-        if (is_active && io.MouseDelta.x != 0.0f)
-        {
-            float step = (v_max - v_min) / 200.0f;
-            *p_value += io.MouseDelta.x * step;
-            if (*p_value < v_min) *p_value = v_min;
-            if (*p_value > v_max) *p_value = v_max;
-            value_changed = true;
-        }
-
-        float t = (*p_value - v_min) / (v_max - v_min);
-        float angle = ANGLE_MIN + (ANGLE_MAX - ANGLE_MIN) * t;
-        float angle_cos = cosf(angle), angle_sin = sinf(angle);
-        float radius_inner = radius_outer * 0.40f;
-        draw_list->AddCircleFilled(center, radius_outer, ImGui::GetColorU32(ImGuiCol_FrameBg), 16);
-        draw_list->AddLine(ImVec2(center.x + angle_cos * radius_inner, center.y + angle_sin * radius_inner), ImVec2(center.x + angle_cos * (radius_outer - 2), center.y + angle_sin * (radius_outer - 2)), ImGui::GetColorU32(ImGuiCol_SliderGrabActive), 2.0f);
-        draw_list->AddCircleFilled(center, radius_inner, ImGui::GetColorU32(is_active ? ImGuiCol_FrameBgActive : is_hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg), 16);
-        draw_list->AddText(ImVec2(pos.x, pos.y + radius_outer * 2 + style.ItemInnerSpacing.y), ImGui::GetColorU32(ImGuiCol_Text), label);
-
-        if (is_active || is_hovered)
-        {
-            ImGui::SetNextWindowPos(ImVec2(pos.x - style.WindowPadding.x, pos.y - line_height - style.ItemInnerSpacing.y - style.WindowPadding.y));
-            ImGui::BeginTooltip();
-            ImGui::Text("%.3f", *p_value);
-            ImGui::EndTooltip();
-        }
-
-        return value_changed;
-    }
-
 
     void EditPin(lab::Sound::Provider& provider, entt::entity pin_id)
     {
@@ -830,7 +577,7 @@ namespace noodle {
         lab::Sound::Connection& conn = reg.get<lab::Sound::Connection>(connection);
 
         ImGui::OpenPopup("Connection");
-        if (ImGui::BeginPopupModal("Connection", nullptr, ImGuiWindowFlags_NoCollapse))
+        if (ImGui::BeginPopupModal("Connection", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize))
         {
             if (ImGui::Button("Delete"))
             {
@@ -852,20 +599,23 @@ namespace noodle {
     void EditNode(lab::Sound::Provider& provider, entt::entity node)
     {
         entt::registry& reg = provider.registry();
-        if (!reg.valid(node) || !reg.any<shared_ptr<lab::AudioNode>>(node))
+        if (!reg.valid(node) || !reg.any<std::shared_ptr<lab::AudioNode>>(node))
         {
             g_edit.node = entt::null;
             return;
         }
 
-        shared_ptr<lab::AudioNode> node_it = reg.get<shared_ptr<lab::AudioNode>>(node);
+        std::shared_ptr<lab::AudioNode> node_it = reg.get<std::shared_ptr<lab::AudioNode>>(node);
 
         char buff[256];
         sprintf(buff, "%s Node", node_it->name());
         ImGui::OpenPopup(buff);
-        if (ImGui::BeginPopupModal(buff, nullptr, ImGuiWindowFlags_NoCollapse))
+
+        if (ImGui::BeginPopupModal(buff, nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize))
         {
-            if (ImGui::Button("Delete"))
+            ImGui::Dummy({256, style_padding_y});
+
+            if (ImGui::Button("Delete", {ImGui::GetWindowContentRegionWidth(), 24}))
             {
                 Work work(provider);
                 work.type = WorkType::DeleteNode;
@@ -873,10 +623,12 @@ namespace noodle {
                 g_pending_work.emplace_back(work);
                 g_edit.node = entt::null;
             }
-
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel"))
+            if (ImGui::Button("Cancel", {ImGui::GetWindowContentRegionWidth(), 24}))
+            {
                 g_edit.node = entt::null;
+            }
+
+            ImGui::Dummy({256, style_padding_y});
 
             ImGui::EndPopup();
         }
@@ -888,17 +640,16 @@ namespace noodle {
 
     void DrawSpectrum(lab::Sound::Provider& provider, std::shared_ptr<lab::AudioNode> audio_node, ImVec2 ul_ws, ImVec2 lr_ws, float scale, ImDrawList* drawList)
     {
-        float rounding = 3;
         ul_ws.x += 5 * scale; ul_ws.y += 5 * scale;
         lr_ws.x = ul_ws.x + (lr_ws.x - ul_ws.x) * 0.5f;
         lr_ws.y -= 5 * scale;
-        drawList->AddRect(ul_ws, lr_ws, ImColor(255, 128, 0, 255), rounding, 15, 2);
+        drawList->AddRect(ul_ws, lr_ws, ImColor(255, 128, 0, 255), node_border_radius, 15, 2);
 
         int left = static_cast<int>(ul_ws.x + 2 * scale);
         int right = static_cast<int>(lr_ws.x - 2 * scale);
         int pixel_width = right - left;
         lab::AnalyserNode* node = dynamic_cast<lab::AnalyserNode*>(audio_node.get());
-        static vector<uint8_t> bins;
+        static std::vector<uint8_t> bins;
         if (bins.size() != pixel_width)
             bins.resize(pixel_width);
 
@@ -930,7 +681,6 @@ namespace noodle {
         once = false;
         g_ent_main_window = provider.registry().create();
         g_id_main_window = ImGui::GetID(&g_ent_main_window);
-        g_bg_color = ImColor(0.2f, 0.2f, 0.2f, 1.0f);
         g_id_main_invis = ImGui::GetID(&g_id_main_invis);
         g_hover.reset(entt::null);
         g_edit.pin = entt::null;
@@ -1023,9 +773,9 @@ namespace noodle {
             gnl.column_count = 1;
 
             // calculate column heights
-            if (registry.any<vector<entt::entity>>(node_entity))
+            if (registry.any<std::vector<entt::entity>>(node_entity))
             {
-                vector<entt::entity>& pins = registry.get<vector<entt::entity>>(node_entity);
+                std::vector<entt::entity>& pins = registry.get<std::vector<entt::entity>>(node_entity);
                 for (const entt::entity entity : pins)
                 {
                     if (!registry.valid(entity))
@@ -1074,9 +824,9 @@ namespace noodle {
             gnl.out_height = 0;
 
             // assign columns
-            if (registry.any<vector<entt::entity>>(node_entity))
+            if (registry.any<std::vector<entt::entity>>(node_entity))
             {
-                vector<entt::entity>& pins = registry.get<vector<entt::entity>>(node_entity);
+                std::vector<entt::entity>& pins = registry.get<std::vector<entt::entity>>(node_entity);
                 for (const entt::entity entity : pins)
                 {
                     if (!registry.valid(entity))
@@ -1092,22 +842,22 @@ namespace noodle {
                     {
                     case lab::Sound::AudioPin::Kind::BusIn:
                         pnl.column_number = 0;
-                        pnl.pos_y_cs = 16 + GraphPinLayout::k_height * static_cast<float>(gnl.in_height);
+                        pnl.pos_y_cs = style_padding_y + GraphPinLayout::k_height * static_cast<float>(gnl.in_height);
                         gnl.in_height += 1;
                         break;
                     case lab::Sound::AudioPin::Kind::BusOut:
                         pnl.column_number = static_cast<float>(gnl.column_count);
-                        pnl.pos_y_cs = 16 + GraphPinLayout::k_height * static_cast<float>(gnl.out_height);
+                        pnl.pos_y_cs = style_padding_y + GraphPinLayout::k_height * static_cast<float>(gnl.out_height);
                         gnl.out_height += 1;
                         break;
                     case lab::Sound::AudioPin::Kind::Param:
                         pnl.column_number = 0;
-                        pnl.pos_y_cs = 16 + GraphPinLayout::k_height * static_cast<float>(gnl.in_height);
+                        pnl.pos_y_cs = style_padding_y + GraphPinLayout::k_height * static_cast<float>(gnl.in_height);
                         gnl.in_height += 1;
                         break;
                     case lab::Sound::AudioPin::Kind::Setting:
                         pnl.column_number = 1;
-                        pnl.pos_y_cs = 16 + GraphPinLayout::k_height * static_cast<float>(gnl.mid_height);
+                        pnl.pos_y_cs = style_padding_y + GraphPinLayout::k_height * static_cast<float>(gnl.mid_height);
                         gnl.mid_height += 1;
                         break;
                     }
@@ -1194,7 +944,7 @@ namespace noodle {
                         float testx = ul.x + 20;
                         bool play = false;
                         bool bang = false;
-                        shared_ptr<lab::AudioNode> a_node = registry.get<shared_ptr<lab::AudioNode>>(entity);
+                        std::shared_ptr<lab::AudioNode> a_node = registry.get<std::shared_ptr<lab::AudioNode>>(entity);
                         if (!a_node)
                             continue;
 
@@ -1241,8 +991,8 @@ namespace noodle {
 
                     GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(from_pin);
                     GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(to_pin);
-                    ImVec2 from_pos = from_gpl.ul_ws(g_canvas) + ImVec2(16, 10) * g_canvas.scale;
-                    ImVec2 to_pos = to_gpl.ul_ws(g_canvas) + ImVec2(0, 10) * g_canvas.scale;
+                    ImVec2 from_pos = from_gpl.ul_ws(g_canvas) + ImVec2(style_padding_y, style_padding_x) * g_canvas.scale;
+                    ImVec2 to_pos = to_gpl.ul_ws(g_canvas) + ImVec2(0, style_padding_x) * g_canvas.scale;
 
                     ImVec2 p0 = from_pos;
                     ImVec2 p3 = to_pos;
@@ -1319,9 +1069,9 @@ namespace noodle {
         //---------------------------------------------------------------------
         // Create a canvas
 
-        float height = edit_rect.Max.y - edit_rect.Min.y
-                        - ImGui::GetTextLineHeightWithSpacing()   // space for the time bar
-                        - ImGui::GetTextLineHeightWithSpacing();  // space for horizontal scroller
+        float height = edit_rect.Max.y - edit_rect.Min.y;
+                        //- ImGui::GetTextLineHeightWithSpacing()   // space for the time bar
+                        //- ImGui::GetTextLineHeightWithSpacing();  // space for horizontal scroller
 
         bool rv = ImGui::BeginChild(g_id_main_window, ImVec2(0, height), false,
                         ImGuiWindowFlags_NoBringToFrontOnFocus |
@@ -1337,21 +1087,21 @@ namespace noodle {
         drawList->ChannelsSetCurrent(ChannelContent);
         {
             drawList->ChannelsSetCurrent(ChannelGrid);
-            ImU32 grid_color = ImColor(1.f, std::max(1.f, g_canvas.scale * g_canvas.scale), 0.f, 0.25f * g_canvas.scale);
-            float GRID_SX = 128.0f * g_canvas.scale;
-            float GRID_SY = 128.0f * g_canvas.scale;
-            ImVec2 VIEW_POS = ImGui::GetWindowPos();
-            ImVec2 VIEW_SIZE = ImGui::GetWindowSize();
 
-            drawList->AddRectFilled(VIEW_POS, VIEW_POS + VIEW_SIZE, g_bg_color);
+            const float grid_step_x = 96.0f * g_canvas.scale;
+            const float grid_step_y = 96.0f * g_canvas.scale;
+            const ImVec2 grid_origin = ImGui::GetWindowPos();
+            const ImVec2 grid_size = ImGui::GetWindowSize();
 
-            for (float x = fmodf(g_canvas.origin_offset_ws.x, GRID_SX); x < VIEW_SIZE.x; x += GRID_SX)
+            drawList->AddRectFilled(grid_origin, grid_origin + grid_size, grid_bg_color);
+
+            for (float x = fmodf(g_canvas.origin_offset_ws.x, grid_step_x); x < grid_size.x; x += grid_step_x)
             {
-                drawList->AddLine(ImVec2(x, 0.0f) + VIEW_POS, ImVec2(x, VIEW_SIZE.y) + VIEW_POS, grid_color);
+                drawList->AddLine(ImVec2(x, 0.0f) + grid_origin, ImVec2(x, grid_size.y) + grid_origin, grid_line_color);
             }
-            for (float y = fmodf(g_canvas.origin_offset_ws.y, GRID_SY); y < VIEW_SIZE.y; y += GRID_SY)
+            for (float y = fmodf(g_canvas.origin_offset_ws.y, grid_step_y); y < grid_size.y; y += grid_step_y)
             {
-                drawList->AddLine(ImVec2(0.0f, y) + VIEW_POS, ImVec2(VIEW_SIZE.x, y) + VIEW_POS, grid_color);
+                drawList->AddLine(ImVec2(0.0f, y) + grid_origin, ImVec2(grid_size.x, y) + grid_origin, grid_line_color);
             }
         }
         drawList->ChannelsSetCurrent(ChannelContent);
@@ -1399,7 +1149,9 @@ namespace noodle {
                 g_mouse.dragging = false;
             }
             else
+            {
                 update_hovers(_provider);
+            }
         }
 
         entt::registry& registry = _provider.registry();
@@ -1561,9 +1313,8 @@ namespace noodle {
                     {
                         // scale using where the mouse is currently hovered as the pivot
                         float prev_scale = g_canvas.scale;
-                        g_canvas.scale += io.MouseWheel * 0.1f;
-                        g_canvas.scale = g_canvas.scale < 1.f / 16.f ? 1.f / 16.f : g_canvas.scale;
-                        g_canvas.scale = g_canvas.scale > 1.f ? 1.f : g_canvas.scale;
+                        g_canvas.scale += std::copysign(0.25f, io.MouseWheel);
+                        g_canvas.scale = std::max(g_canvas.scale, 0.25f);
 
                         // solve for off2
                         // (mouse - off1) / scale1 = (mouse - off2) / scale2 
@@ -1584,7 +1335,9 @@ namespace noodle {
         uint32_t text_color = 0xffffff;
         text_color |= (uint32_t)(255 * 2 * (g_canvas.scale - 0.5f)) << 24;
 
-        // draw pulled noodle
+        ///////////////////////////////////////////
+        //   Noodles Bezier Lines Curves Pulled  //
+        ///////////////////////////////////////////
 
         drawList->ChannelsSetCurrent(ChannelNodes);
 
@@ -1598,8 +1351,8 @@ namespace noodle {
 
             GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(from_pin);
             GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(to_pin);
-            ImVec2 from_pos = from_gpl.ul_ws(g_canvas) + ImVec2(16, 10) * g_canvas.scale;
-            ImVec2 to_pos = to_gpl.ul_ws(g_canvas) + ImVec2(0, 10) * g_canvas.scale;
+            ImVec2 from_pos = from_gpl.ul_ws(g_canvas) + ImVec2(style_padding_y, style_padding_x) * g_canvas.scale;
+            ImVec2 to_pos = to_gpl.ul_ws(g_canvas) + ImVec2(0, style_padding_x) * g_canvas.scale;
 
             ImVec2 p0 = from_pos;
             ImVec2 p3 = to_pos;
@@ -1608,31 +1361,35 @@ namespace noodle {
             ImVec2 p1 = { p0.x + wiggle, p0.y };
             ImVec2 p2 = { p3.x - wiggle, p3.y };
 
-            ImU32 color = entity == g_hover.connection_id ? 0xff00ffff : 0xffffffff;
+            ImU32 color = entity == g_hover.connection_id ? noodle_bezier_hovered : noodle_bezier_neutral;
             drawList->AddBezierCurve(p0, p1, p2, p3, color, 2.f);
         }
 
         if (g_mouse.dragging_wire)
         {
             GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(g_hover.originating_pin_id);
-            ImVec2 p0 = from_gpl.ul_ws(g_canvas) + ImVec2(16, 10) * g_canvas.scale;
+            ImVec2 p0 = from_gpl.ul_ws(g_canvas) + ImVec2(style_padding_y, style_padding_x) * g_canvas.scale;
             ImVec2 p3 = g_mouse.mouse_ws + g_canvas.window_origin_offset_ws;
             ImVec2 pd = p0 - p3;
             float wiggle = std::min(64.f, sqrtf(pd.x * pd.x + pd.y * pd.y)) * g_canvas.scale;
             ImVec2 p1 = { p0.x + wiggle, p0.y };
             ImVec2 p2 = { p3.x - wiggle, p3.y };
-            drawList->AddBezierCurve(p0, p1, p2, p3, 0xffffffff, 2.f);
+            drawList->AddBezierCurve(p0, p1, p2, p3, noodle_bezier_neutral, 2.f);
         }
 
-        // draw nodes
-        shared_ptr<lab::AudioNode> dev_node;
+        ///////////////////////////////////////
+        //   Node Body / Drawing / Profiler  //
+        ///////////////////////////////////////
+
+        std::shared_ptr<lab::AudioNode> dev_node;
         if (g_edit.device_node != entt::null)
-            dev_node = registry.get<shared_ptr<lab::AudioNode>>(g_edit.device_node);
+            dev_node = registry.get<std::shared_ptr<lab::AudioNode>>(g_edit.device_node);
+
         g_total_profile_duration = dev_node ? dev_node->graphTime.microseconds.count() : 0;
 
         for (auto entity : registry.view<lab::Sound::AudioNode>())
         {
-            shared_ptr<lab::AudioNode> node = registry.get<shared_ptr<lab::AudioNode>>(entity);
+            std::shared_ptr<lab::AudioNode> node = registry.get<std::shared_ptr<lab::AudioNode>>(entity);
             if (!node)
             {
                 /// @TODO dead pointer, add this entity to an entity reaping list
@@ -1649,15 +1406,13 @@ namespace noodle {
             lr_ws = g_canvas.window_origin_offset_ws + lr_ws * g_canvas.scale + g_canvas.origin_offset_ws;
 
             // draw node
-
-            const float rounding = 10;
-            drawList->AddRectFilled(ul_ws, lr_ws, ImColor(10, 20, 30, 128), rounding);
-            drawList->AddRect(ul_ws, lr_ws, ImColor(255, g_hover.node_id == entity ? 255 : 0, 0, 255), rounding, 15, 2);
+            drawList->AddRectFilled(ul_ws, lr_ws, node_background_fill, node_border_radius);
+            drawList->AddRect(ul_ws, lr_ws, (g_hover.node_id == entity) ? node_outline_hovered : node_outline_neutral, node_border_radius, 15, 2);
 
             if (config.show_profiler)
             {
                 ImVec2 p1{ ul_ws.x, lr_ws.y };
-                ImVec2 p2{ lr_ws.x, lr_ws.y + g_canvas.scale * 16 };
+                ImVec2 p2{ lr_ws.x, lr_ws.y + g_canvas.scale * style_padding_y };
                 drawList->AddRect(p1, p2, ImColor(128, 255, 128, 255));
                 p2.x = p1.x + (p2.x - p1.x) * node_profile_duration / g_total_profile_duration;
                 drawList->AddRectFilled(p1, p2, ImColor(255, 255, 255, 128));
@@ -1668,64 +1423,72 @@ namespace noodle {
                 DrawSpectrum(_provider, node, ul_ws, lr_ws, g_canvas.scale, drawList);
             }
 
-            // node banner
+            ///////////////////////////////////////////
+            //   Node Header / Banner / Top / Menu   //
+            ///////////////////////////////////////////
 
             if (g_canvas.scale > 0.5f)
             {
-                float font_size = 16 * g_canvas.scale;
+                const float label_font_size = style_padding_y * g_canvas.scale;
                 ImVec2 label_pos = ul_ws;
                 label_pos.y -= 20 * g_canvas.scale;
 
+                // UI elements
                 if (node->isScheduledNode())
                 {
-                    const char* label = ">";
-                    drawList->AddText(io.FontDefault, font_size, label_pos, text_color, label, label+1);
-                    label_pos.x += 20;
-                }
-                if (node->_scheduler._onStart)
-                {
-                    const char* label = "!";
-                    drawList->AddText(io.FontDefault, font_size, label_pos, text_color, label, label + 1);
+                    auto label = std::string(ICON_FAD_PLAY);
+                    drawList->AddText(NULL, label_font_size, label_pos, text_color, label.c_str(), label.c_str() + label.length());
                     label_pos.x += 20;
                 }
 
+                if (node->_scheduler._onStart)
+                {
+                    auto label = std::string(ICON_FAD_HARDCLIP);
+                    drawList->AddText(NULL, label_font_size, label_pos, text_color, label.c_str(), label.c_str() + label.length());
+                    label_pos.x += 20;
+                }
+
+                // Name
                 Name& name = registry.get<Name>(entity);
+                label_pos.x += 5;
                 drawList->AddText(io.FontDefault, font_size, label_pos, text_color, 
                                   name.name.c_str(), name.name.c_str() + name.name.size());
             }
 
-            if (registry.any<vector<entt::entity>>(entity))
-            {
-                vector<entt::entity>& pins = _provider.pins(entity);
+            ///////////////////////////////////////////
+            //   Node Input Pins / Connection / Pin  //
+            ///////////////////////////////////////////
 
-                // draw input pins
+            if (registry.any<std::vector<entt::entity>>(entity))
+            {
+                std::vector<entt::entity> & pins = _provider.pins(entity);
 
                 for (entt::entity j : pins)
                 {
                     lab::Sound::AudioPin& pin_it = registry.get<lab::Sound::AudioPin>(j);
 
-                    lab::noodle::IconType icon_type;
+                    IconType icon_type;
                     bool has_value = false;
                     uint32_t color;
                     switch (pin_it.kind)
                     {
                     case lab::Sound::AudioPin::Kind::BusIn:
-                        icon_type = lab::noodle::IconType::Flow;
-                        color = 0xffffffff;
+                        icon_type = IconType::Flow;
+                        color = icon_pin_flow;
                         break;
                     case lab::Sound::AudioPin::Kind::Param:
-                        icon_type = lab::noodle::IconType::Flow;
+                        icon_type = IconType::Flow;
                         has_value = true;
-                        color = 0xff00ff00;
+                        color = icon_pin_param;
                         break;
                     case lab::Sound::AudioPin::Kind::Setting:
-                        icon_type = lab::noodle::IconType::Grid;
+                        icon_type = IconType::Grid;
                         has_value = true;
-                        color = 0xff00ff00;
+                        color = icon_pin_setting;
                         break;
                     case lab::Sound::AudioPin::Kind::BusOut:
-                        icon_type = lab::noodle::IconType::Flow;
-                        color = 0xffffffff;
+                        icon_type = IconType::Flow;
+                        color = icon_pin_bus_out;
                         break;
                     }
 
@@ -1733,22 +1496,27 @@ namespace noodle {
                     ImVec2 pin_ul = pin_gpl.ul_ws(g_canvas);
                     uint32_t fill = (j == g_hover.pin_id || j == g_hover.originating_pin_id) ? 0xffffff : 0x000000;
                     fill |= (uint32_t)(128 + 128 * sinf(pulse * 8)) << 24;
+
                     DrawIcon(drawList, pin_ul, 
                         ImVec2{ pin_ul.x + GraphPinLayout::k_width * g_canvas.scale, pin_ul.y + GraphPinLayout::k_height * g_canvas.scale },
                         icon_type, false, color, fill);
 
+                    // Only draw text if we can likely see it
                     if (g_canvas.scale > 0.5f)
                     {
-                        float font_size = 16 * g_canvas.scale;
+                        float font_size = style_padding_y * g_canvas.scale;
                         ImVec2 label_pos = pin_ul;
+
+                        label_pos.y += 2;
+
                         label_pos.x += 20 * g_canvas.scale;
-                        drawList->AddText(io.FontDefault, font_size, label_pos, text_color,
+                        drawList->AddText(NULL, font_size, label_pos, text_color,
                             pin_it.shortName.c_str(), pin_it.shortName.c_str() + pin_it.shortName.length());
 
                         if (has_value)
                         {
                             label_pos.x += 50 * g_canvas.scale;
-                            drawList->AddText(io.FontDefault, font_size, label_pos, text_color,
+                            drawList->AddText(NULL, font_size, label_pos, text_color,
                                 pin_it.value_as_string.c_str(), pin_it.value_as_string.c_str() + pin_it.value_as_string.length());
                         }
                     }
@@ -1761,7 +1529,7 @@ namespace noodle {
         // finish
 
         drawList->ChannelsMerge();
-        EndChild();
+        ImGui::EndChild();
 
         if (config.show_debug)
         {
