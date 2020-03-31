@@ -2,12 +2,15 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <entt/entt.hpp>
-#include <algorithm>
 #include <LabSound/LabSound.h>
 #include <LabSound/core/AudioNode.h>
 
 #include "LabSoundInterface.h"
 #include "nfd.h"
+
+#include <algorithm>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace lab {
 namespace noodle {
@@ -17,8 +20,53 @@ namespace noodle {
     using std::shared_ptr;
     using std::string;
     using std::unique_ptr;
+    using std::unordered_map;
+    using std::unordered_set;
     using std::vector;
     using namespace ImGui;
+
+    string unique_name(string name)
+    {
+        static unordered_map<string, int> bases;
+        static unordered_set<string> names;
+
+        size_t pos = name.rfind("-");
+        string base;
+
+        // no dash, or leading dash, it's not a uniqued name
+        if (pos == string::npos || pos == 0)
+        {
+            base = name;
+            name += "-1";
+        }
+        else 
+            base = name.substr(0, pos);
+
+        // if base isn't already known, remember it, and return name
+        auto i = bases.find(base);
+        if (i == bases.end())
+        {
+            bases[base] = 1;
+            names.insert(name);
+            return name;
+        }
+
+        int id = i->second;
+        string candidate = base + "-" + std::to_string(id);
+        while (names.find(candidate) != names.end())
+        {
+            ++id;
+            candidate = base + "-" + std::to_string(id);
+        }
+        bases[base] = id;
+        names.insert(candidate);
+        return candidate;
+    }
+
+    struct Name
+    {
+        string name;
+    };
 
     struct Canvas
     {
@@ -205,6 +253,7 @@ namespace noodle {
                 work.type = lab::Sound::WorkType::CreateRuntimeContext;
                 g_edit.device_node = work.eval();
                 registry.assign<GraphNodeLayout>(g_edit.device_node, GraphNodeLayout{ canvas_pos });
+                registry.assign<Name>(g_edit.device_node, unique_name("Device"));
                 break;
             }
             case WorkType::CreateNode:
@@ -214,6 +263,7 @@ namespace noodle {
                 work.name = name;
                 entt::entity new_node = work.eval();
                 registry.assign<GraphNodeLayout>(new_node, GraphNodeLayout{ canvas_pos });
+                registry.assign<Name>(new_node, unique_name(name));
                 break;
             }
             case WorkType::SetParam:
@@ -1620,8 +1670,9 @@ namespace noodle {
                     label_pos.x += 20;
                 }
 
+                Name& name = registry.get<Name>(entity);
                 drawList->AddText(io.FontDefault, font_size, label_pos, text_color, 
-                                  node->name(), node->name() + strlen(node->name()));
+                                  name.name.c_str(), name.name.c_str() + name.name.size());
             }
 
             if (registry.any<vector<entt::entity>>(entity))
