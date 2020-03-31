@@ -1,4 +1,6 @@
 
+#include "lab_noodle.h"
+
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <entt/entt.hpp>
@@ -1267,8 +1269,25 @@ namespace noodle {
 
 
 
-    bool run_noodles(bool show_profiler, bool show_debug)
+    bool run_noodles(RunConfig& config)
     {
+        // if the Command is to delete everything, do it first.
+        if (config.command == Command::Open)
+        {
+            const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_OPEN, "*.ls", ".", "*.*");
+            if (file)
+            {
+            }
+        }
+        if (config.command == Command::Save || (/* file ready to save && */ config.command == Command::New))
+        {
+            // offer to save
+        }
+        if (config.command == Command::New)
+        {
+            // delete everything
+        }
+
         ImGui::BeginChild("###Noodles");
         struct RunWork
         {
@@ -1635,7 +1654,7 @@ namespace noodle {
             drawList->AddRectFilled(ul_ws, lr_ws, ImColor(10, 20, 30, 128), rounding);
             drawList->AddRect(ul_ws, lr_ws, ImColor(255, g_hover.node_id == entity ? 255 : 0, 0, 255), rounding, 15, 2);
 
-            if (show_profiler)
+            if (config.show_profiler)
             {
                 ImVec2 p1{ ul_ws.x, lr_ws.y };
                 ImVec2 p2{ lr_ws.x, lr_ws.y + g_canvas.scale * 16 };
@@ -1744,7 +1763,7 @@ namespace noodle {
         drawList->ChannelsMerge();
         EndChild();
 
-        if (show_debug)
+        if (config.show_debug)
         {
             ImGui::Begin("Debug Information");
             ImGui::TextUnformatted("Mouse");

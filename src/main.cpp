@@ -8,6 +8,8 @@
 #include "sokol_gfx_imgui.h"
 #include "IconsFontaudio.h"
 
+#include "lab_noodle.h"
+
 #include <string>
 #include <vector>
 #include <fstream>
@@ -170,15 +172,28 @@ void frame()
 
     ImGui::PushFont(g_cousine);
 
-    imgui_fixed_window_begin("GraphToy", 0, 20, width, height);
+    imgui_fixed_window_begin("GraphToy", 0.f, 20.f, static_cast<float>(width), static_cast<float>(height));
 
+    static lab::noodle::RunConfig config;
     static bool show_demo = false;
-    static bool show_debug = false;
-    static bool show_profiler = false;
+
+    config.command = lab::noodle::Command::None;
     if (ImGui::BeginMainMenuBar())
     {
         if (ImGui::BeginMenu(" " ICON_FAD_HEADPHONES " File")) 
         {
+            bool save = false;
+            bool new_file = false;
+            bool load = false;
+            ImGui::MenuItem("New", 0, &new_file);
+            if (save)
+                config.command = lab::noodle::Command::New;
+            ImGui::MenuItem("Open", 0, &load);
+            if (load)
+                config.command = lab::noodle::Command::Open;
+            ImGui::MenuItem("Save", 0, &save);
+            if (save)
+                config.command = lab::noodle::Command::Save;
             ImGui::MenuItem("Quit", 0, &quit);
             if (quit)
                 sapp_request_quit();
@@ -186,15 +201,15 @@ void frame()
         }
         if (ImGui::BeginMenu("Debug"))
         {
-            ImGui::Checkbox("Show Profiler", &show_profiler);
-            ImGui::Checkbox("Show Graph Canvas values", &show_debug);
+            ImGui::Checkbox("Show Profiler", &config.show_profiler);
+            ImGui::Checkbox("Show Graph Canvas values", &config.show_debug);
             ImGui::Checkbox("Show ImGui demo", &show_demo);
             ImGui::EndMenu();
         }
         ImGui::EndMainMenuBar();
     }
 
-    lab::noodle::run_noodles(show_profiler, show_debug);
+    lab::noodle::run_noodles(config);
 
     imgui_fixed_window_end();
 

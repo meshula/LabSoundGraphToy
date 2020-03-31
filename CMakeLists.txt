@@ -16,6 +16,7 @@ endif()
 set(PLAYGROUND_SRC
     src/main.cpp
     src/lab_noodle.cpp
+    src/lab_noodle.h
     src/LabSoundInterface.cpp
     src/LabSoundInterface.h
     src/ImguiFontCousineRegular.cpp
