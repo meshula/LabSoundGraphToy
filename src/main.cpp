@@ -112,7 +112,7 @@ void frame()
 
     ImGui::PushFont(g_cousine);
 
-    imgui_fixed_window_begin("GraphToy", 0, 20, width, height);
+    imgui_fixed_window_begin("GraphToyCanvas", 0, 20, width, height);
 
     static bool show_demo = false;
     static bool show_debug = false;
@@ -179,7 +179,7 @@ sapp_desc sokol_main(int argc, char* argv[])
     desc.width = 1200;
     desc.height = 1000;
     desc.gl_force_gles2 = true;
-    desc.window_title = "LabSound Graph Toy";
+    desc.window_title = "LabSound GraphToy";
     desc.ios_keyboard_resizes_canvas = false;
     return desc;
 }

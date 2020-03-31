@@ -528,7 +528,7 @@ namespace noodle {
         lab::Sound::Connection& conn = reg.get<lab::Sound::Connection>(connection);
 
         ImGui::OpenPopup("Connection");
-        if (ImGui::BeginPopupModal("Connection", nullptr, ImGuiWindowFlags_NoCollapse))
+        if (ImGui::BeginPopupModal("Connection", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize))
         {
             if (ImGui::Button("Delete"))
             {
@@ -561,9 +561,12 @@ namespace noodle {
         char buff[256];
         sprintf(buff, "%s Node", node_it->name());
         ImGui::OpenPopup(buff);
-        if (ImGui::BeginPopupModal(buff, nullptr, ImGuiWindowFlags_NoCollapse))
+
+        if (ImGui::BeginPopupModal(buff, nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize))
         {
-            if (ImGui::Button("Delete"))
+            ImGui::Dummy({256, style_padding_y});
+
+            if (ImGui::Button("Delete", {ImGui::GetWindowContentRegionWidth(), 24}))
             {
                 Work work(provider);
                 work.type = WorkType::DeleteNode;
@@ -571,10 +574,12 @@ namespace noodle {
                 g_pending_work.emplace_back(work);
                 g_edit.node = entt::null;
             }
-
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel"))
+            if (ImGui::Button("Cancel", {ImGui::GetWindowContentRegionWidth(), 24}))
+            {
                 g_edit.node = entt::null;
+            }
+
+            ImGui::Dummy({256, style_padding_y});
 
             ImGui::EndPopup();
         }
@@ -1078,7 +1083,9 @@ namespace noodle {
                 g_mouse.dragging = false;
             }
             else
+            {
                 update_hovers(_provider);
+            }
         }
 
         entt::registry& registry = _provider.registry();
