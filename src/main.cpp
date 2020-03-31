@@ -6,12 +6,8 @@
 #include "imgui.h"
 #include "sokol_imgui.h"
 #include "sokol_gfx_imgui.h"
-#include "IconsFontaudio.h"
 
-#include <string>
-#include <vector>
-#include <fstream>
-#include <iostream>
+#include "lab_imgui_ext.hpp"
 
 static uint64_t last_time = 0;
 static sg_pass_action pass_action;
@@ -24,62 +20,6 @@ static bool quit = false;
 ImFont * g_roboto = nullptr;
 ImFont * g_cousine = nullptr;
 ImFont * g_audio_icon = nullptr;
-
-// gui::imgui_fixed_window_begin("asset-browser", { { 0, 0 },{ width, height } });
-
-inline void imgui_fixed_window_begin(const char * name, float min_x, float min_y, float max_x, float max_y)
-{
-    ImGui::SetNextWindowPos({min_x, min_y});
-    ImGui::SetNextWindowSize({max_x - min_x, max_y - min_y});
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(0, 0));
-    bool result = ImGui::Begin(name, NULL, ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
-    ImGui::TextColored({ 1,1,1,1 }, name);
-    assert(result);
-}
-
-inline void imgui_fixed_window_end()
-{
-    ImGui::End();
-    ImGui::PopStyleVar(2);
-}
-
-namespace imgui_fonts
-{
-    unsigned int getCousineRegularCompressedSize();
-    const unsigned int * getCousineRegularCompressedData();
-}
-
-inline std::vector<uint8_t> read_file_binary(const std::string & pathToFile)
-{
-    std::ifstream file(pathToFile, std::ios::binary);
-    std::vector<uint8_t> fileBufferBytes;
-
-    if (file.is_open())
-    {
-        file.seekg(0, std::ios::end);
-        size_t sizeBytes = file.tellg();
-        file.seekg(0, std::ios::beg);
-        fileBufferBytes.resize(sizeBytes);
-        if (file.read((char*)fileBufferBytes.data(), sizeBytes)) return fileBufferBytes;
-    }
-    else throw std::runtime_error("could not open binary ifstream to path " + pathToFile);
-    return fileBufferBytes;
-}
-
-std::vector<uint8_t> s_audioIconFontBuffer;
-void append_audio_icon_font(const std::vector<uint8_t> & buffer)
-{
-    ImGuiIO & io = ImGui::GetIO();
-    s_audioIconFontBuffer = buffer;
-    static const ImWchar icons_ranges[] = { ICON_MIN_FAD, ICON_MAX_FAD, 0 };
-    ImFontConfig icons_config; 
-    icons_config.MergeMode = true; 
-    icons_config.PixelSnapH = true;
-    icons_config.FontDataOwnedByAtlas = false;
-    g_audio_icon = io.Fonts->AddFontFromMemoryTTF((void *)s_audioIconFontBuffer.data(), (int)s_audioIconFontBuffer.size(), 16.f, &icons_config, icons_ranges);
-    IM_ASSERT(g_audio_icon != NULL);
-}
 
 namespace lab { namespace noodle {
     bool run_noodles(bool show_profiler, bool show_debug);
@@ -123,7 +63,7 @@ void init(void) {
     assert(g_cousine != nullptr);
 
     const auto font_audio_ttf = read_file_binary("../resources/fontaudio.ttf");
-    append_audio_icon_font(font_audio_ttf);
+    g_audio_icon = append_audio_icon_font(font_audio_ttf);
 
     // Upload new font texture atlas
     unsigned char* font_pixels;
@@ -150,6 +90,8 @@ void init(void) {
     style.ScrollbarRounding = 0.f;
     style.GrabRounding = 0.f;
     style.TabRounding = 0.f;
+    style.CurveTessellationTol = 0.01f;
+    style.AntiAliasedFill = true;
 }
 
 void frame()
@@ -162,11 +104,11 @@ void frame()
 
     sg_begin_default_pass(&pass_action, width, height);
 
-    simgui_new_frame(width, height, delta_time);
-
     ImGuiIO& io = ImGui::GetIO();
     ImGui::SetNextWindowPos({ 0,0 });
     ImGui::SetNextWindowSize(io.DisplaySize);
+
+    simgui_new_frame(width, height, delta_time);
 
     ImGui::PushFont(g_cousine);
 
@@ -177,7 +119,7 @@ void frame()
     static bool show_profiler = false;
     if (ImGui::BeginMainMenuBar())
     {
-        if (ImGui::BeginMenu(" " ICON_FAD_HEADPHONES " File")) 
+        if (ImGui::BeginMenu("File")) 
         {
             ImGui::MenuItem("Quit", 0, &quit);
             if (quit)

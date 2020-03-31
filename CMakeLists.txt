@@ -20,6 +20,7 @@ set(PLAYGROUND_SRC
     src/LabSoundInterface.h
     src/ImguiFontCousineRegular.cpp
 	src/IconsFontaudio.h
+	src/lab_imgui_ext.hpp
 )
 
 if(APPLE)
