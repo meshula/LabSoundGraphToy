@@ -1,5 +1,5 @@
-#include <entt/entt.hpp>
-#include <algorithm>
+
+#include "lab_noodle.h"
 
 #include <LabSound/LabSound.h>
 #include <LabSound/core/AudioNode.h>
@@ -8,6 +8,10 @@
 #include "lab_imgui_ext.hpp"
 
 #include "nfd.h"
+
+#include <algorithm>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace lab {
 namespace noodle {
@@ -32,6 +36,49 @@ namespace noodle {
     static constexpr float node_border_radius = 4.f;
     static constexpr float style_padding_y = 16.f;    
     static constexpr float style_padding_x = 12.f;
+
+    std::string unique_name(std::string name)
+    {
+        static std::unordered_map<std::string, int> bases;
+        static std::unordered_set<std::string> names;
+
+        size_t pos = name.rfind("-");
+        std::string base;
+
+        // no dash, or leading dash, it's not a uniqued name
+        if (pos == std::string::npos || pos == 0)
+        {
+            base = name;
+            name += "-1";
+        }
+        else 
+            base = name.substr(0, pos);
+
+        // if base isn't already known, remember it, and return name
+        auto i = bases.find(base);
+        if (i == bases.end())
+        {
+            bases[base] = 1;
+            names.insert(name);
+            return name;
+        }
+
+        int id = i->second;
+        std::string candidate = base + "-" + std::to_string(id);
+        while (names.find(candidate) != names.end())
+        {
+            ++id;
+            candidate = base + "-" + std::to_string(id);
+        }
+        bases[base] = id;
+        names.insert(candidate);
+        return candidate;
+    }
+
+    struct Name
+    {
+        std::string name;
+    };
 
     struct Canvas
     {
@@ -214,6 +261,7 @@ namespace noodle {
                 work.type = lab::Sound::WorkType::CreateRuntimeContext;
                 g_edit.device_node = work.eval();
                 registry.assign<GraphNodeLayout>(g_edit.device_node, GraphNodeLayout{ canvas_pos });
+                registry.assign<Name>(g_edit.device_node, unique_name("Device"));
                 break;
             }
             case WorkType::CreateNode:
@@ -223,6 +271,7 @@ namespace noodle {
                 work.name = name;
                 entt::entity new_node = work.eval();
                 registry.assign<GraphNodeLayout>(new_node, GraphNodeLayout{ canvas_pos });
+                registry.assign<Name>(new_node, unique_name(name));
                 break;
             }
             case WorkType::SetParam:
@@ -970,8 +1019,25 @@ namespace noodle {
 
 
 
-    bool run_noodles(bool show_profiler, bool show_debug)
+    bool run_noodles(RunConfig& config)
     {
+        // if the Command is to delete everything, do it first.
+        if (config.command == Command::Open)
+        {
+            const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_OPEN, "*.ls", ".", "*.*");
+            if (file)
+            {
+            }
+        }
+        if (config.command == Command::Save || (/* file ready to save && */ config.command == Command::New))
+        {
+            // offer to save
+        }
+        if (config.command == Command::New)
+        {
+            // delete everything
+        }
+
         ImGui::BeginChild("###Noodles");
         struct RunWork
         {
@@ -1343,7 +1409,7 @@ namespace noodle {
             drawList->AddRectFilled(ul_ws, lr_ws, node_background_fill, node_border_radius);
             drawList->AddRect(ul_ws, lr_ws, (g_hover.node_id == entity) ? node_outline_hovered : node_outline_neutral, node_border_radius, 15, 2);
 
-            if (show_profiler)
+            if (config.show_profiler)
             {
                 ImVec2 p1{ ul_ws.x, lr_ws.y };
                 ImVec2 p2{ lr_ws.x, lr_ws.y + g_canvas.scale * style_padding_y };
@@ -1383,8 +1449,10 @@ namespace noodle {
                 }
 
                 // Name
+                Name& name = registry.get<Name>(entity);
                 label_pos.x += 5;
-                drawList->AddText(NULL, label_font_size, label_pos, text_color, node->name(), node->name() + strlen(node->name()));
+                drawList->AddText(io.FontDefault, font_size, label_pos, text_color, 
+                                  name.name.c_str(), name.name.c_str() + name.name.size());
             }
 
             ///////////////////////////////////////////
@@ -1463,7 +1531,7 @@ namespace noodle {
         drawList->ChannelsMerge();
         ImGui::EndChild();
 
-        if (show_debug)
+        if (config.show_debug)
         {
             ImGui::Begin("Debug Information");
             ImGui::TextUnformatted("Mouse");
