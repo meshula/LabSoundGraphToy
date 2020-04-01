@@ -75,11 +75,6 @@ namespace noodle {
         return candidate;
     }
 
-    struct Name
-    {
-        std::string name;
-    };
-
     struct Canvas
     {
         ImVec2 window_origin_offset_ws = { 0, 0 };
@@ -258,8 +253,10 @@ namespace noodle {
             case WorkType::CreateRuntimeContext:
             {
                 lab::Sound::Work work;
+                /// @todo create the entity here, not in the eval, architecturally lab_noodle is responsible
                 work.type = lab::Sound::WorkType::CreateRuntimeContext;
                 g_edit.device_node = work.eval();
+                registry.assign<Node>(g_edit.device_node, Node{});
                 registry.assign<GraphNodeLayout>(g_edit.device_node, GraphNodeLayout{ canvas_pos });
                 registry.assign<Name>(g_edit.device_node, unique_name("Device"));
                 break;
@@ -267,9 +264,11 @@ namespace noodle {
             case WorkType::CreateNode:
             {
                 lab::Sound::Work work;
+                /// @todo create the entity here, not in the eval, architecturally lab_noodle is responsible
                 work.type = lab::Sound::WorkType::CreateNode;
                 work.name = name;
                 entt::entity new_node = work.eval();
+                registry.assign<Node>(new_node, Node{});
                 registry.assign<GraphNodeLayout>(new_node, GraphNodeLayout{ canvas_pos });
                 registry.assign<Name>(new_node, unique_name(name));
                 break;
@@ -426,10 +425,9 @@ namespace noodle {
         if (!registry.valid(pin.node_id))
             return;
 
-        lab::Sound::AudioNode& node = registry.get<lab::Sound::AudioNode>(pin.node_id);
-
+        Name& name = registry.get<Name>(pin.node_id);
         char buff[256];
-        sprintf(buff, "%s:%s", node.name.c_str(), pin.name.c_str());
+        sprintf(buff, "%s:%s", name.name.c_str(), name.name.c_str());
 
         ImGui::OpenPopup(buff);
         if (ImGui::BeginPopupModal(buff, nullptr, ImGuiWindowFlags_NoCollapse))
@@ -567,14 +565,14 @@ namespace noodle {
             g_edit.connection = entt::null;
             return;
         }
-        if (!reg.any<lab::Sound::Connection>(connection))
+        if (!reg.any<lab::noodle::Connection>(connection))
         {
             printf("No GraphConnection for %d", connection);
             g_edit.connection = entt::null;
             return;
         }
 
-        lab::Sound::Connection& conn = reg.get<lab::Sound::Connection>(connection);
+        lab::noodle::Connection& conn = reg.get<lab::noodle::Connection>(connection);
 
         ImGui::OpenPopup("Connection");
         if (ImGui::BeginPopupModal("Connection", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize))
@@ -942,7 +940,7 @@ namespace noodle {
             }
 
             // test all nodes
-            for (const entt::entity entity : registry.view<lab::Sound::AudioNode>())
+            for (const entt::entity entity : registry.view<lab::noodle::Node>())
             {
                 GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(entity);
                 ImVec2 ul = gnl.pos_cs;
@@ -993,9 +991,9 @@ namespace noodle {
             if (g_hover.node_id == entt::null)
             {
                 // no node or node furniture hovered, check connections
-                for (const auto entity : registry.view<lab::Sound::Connection>())
+                for (const auto entity : registry.view<lab::noodle::Connection>())
                 {
-                    lab::Sound::Connection& connection = registry.get<lab::Sound::Connection>(entity);
+                    lab::noodle::Connection& connection = registry.get<lab::noodle::Connection>(entity);
                     entt::entity from_pin = connection.pin_from;
                     entt::entity to_pin = connection.pin_to;
                     if (!registry.valid(from_pin) || !registry.valid(to_pin))
@@ -1356,9 +1354,9 @@ namespace noodle {
 
         drawList->ChannelsSetCurrent(ChannelNodes);
 
-        for (const auto entity : registry.view<lab::Sound::Connection>())
+        for (const auto entity : registry.view<lab::noodle::Connection>())
         {
-            lab::Sound::Connection& i = registry.get<lab::Sound::Connection>(entity);
+            lab::noodle::Connection& i = registry.get<lab::noodle::Connection>(entity);
             entt::entity from_pin = i.pin_from;
             entt::entity to_pin = i.pin_to;
             lab::Sound::AudioPin& from_it = registry.get<lab::Sound::AudioPin>(from_pin);
@@ -1401,7 +1399,7 @@ namespace noodle {
 
         g_total_profile_duration = dev_node ? dev_node->graphTime.microseconds.count() : 0;
 
-        for (auto entity : registry.view<lab::Sound::AudioNode>())
+        for (auto entity : registry.view<lab::noodle::Node>())
         {
             std::shared_ptr<lab::AudioNode> node = registry.get<std::shared_ptr<lab::AudioNode>>(entity);
             if (!node)

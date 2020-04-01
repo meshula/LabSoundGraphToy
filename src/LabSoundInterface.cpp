@@ -236,7 +236,6 @@ namespace lab { namespace Sound {
             g_audio_context = lab::MakeRealtimeAudioContext(defaultAudioDeviceConfigurations.second, defaultAudioDeviceConfigurations.first);
             entt::entity id = registry.create();
             registry.assign<shared_ptr<lab::AudioNode>>(id, g_audio_context->device());
-            registry.assign<lab::Sound::AudioNode>(id, lab::Sound::AudioNode{ "Device" });
             CreateEntities(g_audio_context->device(), id);
             printf("CreateRuntimeContext %d\n", id);
             return id;
@@ -246,7 +245,6 @@ namespace lab { namespace Sound {
             shared_ptr<lab::AudioNode> node = NodeFactory(name);
             entt::entity id = registry.create();
             registry.assign<shared_ptr<lab::AudioNode>>(id, node);
-            registry.assign<lab::Sound::AudioNode>(id, lab::Sound::AudioNode{ name });
             CreateEntities(node, id);
             printf("CreateNode %s %d\n", name.c_str(), id);
             return id;
@@ -335,6 +333,9 @@ namespace lab { namespace Sound {
             g_audio_context->connect(in, out, 0, 0);
             printf("ConnectBusOutToBusIn %d %d\n", input_node_id, output_node_id);
 
+
+            //// @TODO this plumbing belongs in lab_noodle as it is audio-agnostic
+
             entt::entity pin_from = entt::null;
             entt::entity pin_to = entt::null;
             auto view = registry.view<AudioPin>();
@@ -351,11 +352,13 @@ namespace lab { namespace Sound {
             }
 
             entt::entity connection_id = registry.create();
-            registry.assign<Connection>(connection_id, Connection{
+            registry.assign<noodle::Connection>(connection_id, noodle::Connection{
                 connection_id,
                 pin_from, output_node_id,
                 pin_to, input_node_id
                 });
+
+            /// @end plumbing
 
             return connection_id;
         }
@@ -375,6 +378,8 @@ namespace lab { namespace Sound {
             g_audio_context->connectParam(pin.param, out, 0);
             printf("ConnectBusOutToParamIn %d %d\n", pin_id, output_node_id);
 
+            //// @TODO this plumbing belongs in lab_noodle as it is audio-agnostic
+
             entt::entity pin_from = entt::null;
             auto view = registry.view<AudioPin>();
             for (auto entity : view) {
@@ -386,11 +391,13 @@ namespace lab { namespace Sound {
             }
 
             entt::entity connection_id = registry.create();
-            registry.assign<Connection>(connection_id, Connection{
+            registry.assign<noodle::Connection>(connection_id, noodle::Connection{
                 connection_id,
                 pin_from, output_node_id,
                 pin_id, pin.node_id
                 });
+
+            // end plumbing
 
             return connection_id;
         }
@@ -399,7 +406,7 @@ namespace lab { namespace Sound {
             if (!registry.valid(connection_id))
                 return entt::null;
 
-            Connection& conn = registry.get<Connection>(connection_id);
+            noodle::Connection& conn = registry.get<noodle::Connection>(connection_id);
             entt::entity input_node_id = conn.node_to;
             entt::entity output_node_id = conn.node_from;
             entt::entity input_pin = conn.pin_to;
@@ -426,7 +433,9 @@ namespace lab { namespace Sound {
                 }
             }
 
+            //// @TODO this plumbing belongs in lab_noodle as it is audio-agnostic
             registry.destroy(connection_id);
+            /// @TODO end
             return entt::null;
         }
         case WorkType::DeleteNode:
@@ -468,10 +477,11 @@ namespace lab { namespace Sound {
                 }
             }
 
+            //// @TODO this plumbing belongs in lab_noodle as it is audio-agnostic
             // remove connections
-            for (const auto entity : registry.view<Connection>())
+            for (const auto entity : registry.view<noodle::Connection>())
             {
-                Connection& conn = registry.get<Connection>(entity);
+                noodle::Connection& conn = registry.get<noodle::Connection>(entity);
                 if (entity != entt::null && (conn.node_from == output_node_id || conn.node_to == output_node_id ||
                                               conn.node_from == input_node_id  || conn.node_to == input_node_id))
                     registry.destroy(entity);
@@ -481,6 +491,8 @@ namespace lab { namespace Sound {
                 registry.destroy(input_node_id);
             if (output_node_id != entt::null)
                 registry.destroy(output_node_id);
+
+            /// @TODO end plumbing
 
             return entt::null;
         }

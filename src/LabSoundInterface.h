@@ -1,6 +1,17 @@
 #ifndef LABSOUNDINTERFACE_H
 #define LABSOUNDINTERFACE_H
 
+/*
+    LabSoundInterface provides a concrete bridge from a
+    lab::noodle schematic to the LabSound audio engine.
+
+    Ultimately, lab_noodle.cpp will not link to this file, instead
+    main will create a LabSoundProvider as an abstract interface to the
+    noodle engine.
+*/
+
+#include "lab_noodle.h"
+
 #include <entt/entt.hpp>
 #include <memory>
 #include <string>
@@ -29,22 +40,6 @@ struct AudioPin
     std::string value_as_string;
 };
 
-//--------------------------------------------------------------
-
-struct AudioNode
-{
-    std::string name;
-};
-
-//--------------------------------------------------------------
-struct Connection
-{
-    entt::entity id;
-    entt::entity pin_from;
-    entt::entity node_from;
-    entt::entity pin_to;
-    entt::entity node_to;
-};
 
 //--------------------------------------------------------------
 // LabSound Work - everything the lab sound interfaces can do
