@@ -867,6 +867,18 @@ namespace noodle {
     }
 
 
+    void noodle_bezier(ImVec2 & p0, ImVec2 & p1, ImVec2 & p2, ImVec2 & p3)
+    {
+        if (p0.x > p3.x)
+            std::swap(p0, p3);
+
+        ImVec2 pd = p0 - p3;
+        float wiggle = std::min(fabsf(pd.x), std::min(64.f, sqrtf(pd.x * pd.x + pd.y * pd.y)) * g_canvas.scale);
+        p1 = { p0.x + wiggle, p0.y };
+        p2 = { p3.x - wiggle, p3.y };
+    }
+
+
     void update_hovers(lab::Sound::Provider& provider)
     {
         entt::registry& registry = provider.registry();
@@ -996,16 +1008,9 @@ namespace noodle {
 
                     ImVec2 p0 = from_pos;
                     ImVec2 p3 = to_pos;
-                    if (p0.x > p3.x)
-                        std::swap(p0, p3);
-
-                    ImVec2 pd = p0 - p3;
-                    float wiggle = std::min(fabsf(pd.x), std::min(64.f, sqrtf(pd.x * pd.x + pd.y * pd.y)) * g_canvas.scale);
-                    ImVec2 p1 = { p0.x + wiggle, p0.y };
-                    ImVec2 p2 = { p3.x - wiggle, p3.y };
-
+                    ImVec2 p1, p2;
+                    noodle_bezier(p0, p1, p2, p3);
                     ImVec2 test = g_mouse.mouse_ws + g_canvas.window_origin_offset_ws;
-                    //printf("p0(%01.f, %0.1f) p3(%0.1f, %0.1f) m(%01.f, %01.f)\n", p0.x, p0.y, p3.x, p3.y, test.x, test.y);
                     ImVec2 closest = ImBezierClosestPointCasteljau(p0, p1, p2, p3, test, 10);
                     
                     ImVec2 delta = test - closest;
@@ -1366,13 +1371,8 @@ namespace noodle {
 
             ImVec2 p0 = from_pos;
             ImVec2 p3 = to_pos;
-            if (p0.x > p3.x)
-                std::swap(p0, p3);
-
-            ImVec2 pd = p0 - p3;
-            float wiggle = std::min(fabsf(pd.x), std::min(64.f, sqrtf(pd.x * pd.x + pd.y * pd.y)) * g_canvas.scale);
-            ImVec2 p1 = { p0.x + wiggle, p0.y };
-            ImVec2 p2 = { p3.x - wiggle, p3.y };
+            ImVec2 p1, p2;
+            noodle_bezier(p0, p1, p2, p3);
             ImU32 color = entity == g_hover.connection_id ? noodle_bezier_hovered : noodle_bezier_neutral;
             drawList->AddBezierCurve(p0, p1, p2, p3, color, 2.f);
         }
@@ -1382,13 +1382,8 @@ namespace noodle {
             GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(g_hover.originating_pin_id);
             ImVec2 p0 = from_gpl.ul_ws(g_canvas) + ImVec2(style_padding_y, style_padding_x) * g_canvas.scale;
             ImVec2 p3 = g_mouse.mouse_ws + g_canvas.window_origin_offset_ws;
-            if (p0.x > p3.x)
-                std::swap(p0, p3);
-
-            ImVec2 pd = p0 - p3;
-            float wiggle = std::min(fabsf(pd.x), std::min(64.f, sqrtf(pd.x * pd.x + pd.y * pd.y)) * g_canvas.scale);
-            ImVec2 p1 = { p0.x + wiggle, p0.y };
-            ImVec2 p2 = { p3.x - wiggle, p3.y };
+            ImVec2 p1, p2;
+            noodle_bezier(p0, p1, p2, p3);
             drawList->AddBezierCurve(p0, p1, p2, p3, noodle_bezier_neutral, 2.f);
         }
 
