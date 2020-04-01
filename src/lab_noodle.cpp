@@ -1180,8 +1180,15 @@ namespace noodle {
                 // check if a valid connection is requested
                 lab::Sound::AudioPin::Kind to_kind = to_pin.kind;
                 lab::Sound::AudioPin::Kind from_kind = from_pin.kind;
-                if (to_kind == lab::Sound::AudioPin::Kind::Setting || to_kind == lab::Sound::AudioPin::Kind::BusOut ||
-                    from_kind == lab::Sound::AudioPin::Kind::BusIn || from_kind == lab::Sound::AudioPin::Kind::Param || from_kind == lab::Sound::AudioPin::Kind::Setting)
+
+                bool valid = ! (to_kind == lab::Sound::AudioPin::Kind::Setting || to_kind == lab::Sound::AudioPin::Kind::BusOut ||
+                                from_kind == lab::Sound::AudioPin::Kind::BusIn || from_kind == lab::Sound::AudioPin::Kind::Param ||
+                                from_kind == lab::Sound::AudioPin::Kind::Setting);
+
+                // disallow connecting a node to itself
+                valid &= from_pin.node_id != to_pin.node_id;
+
+                if (!valid)
                 {
                     printf("invalid connection request\n");
                 }
