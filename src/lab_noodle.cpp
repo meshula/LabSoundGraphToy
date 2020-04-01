@@ -19,7 +19,7 @@ namespace noodle {
     using namespace ImGui;
 
     static const ImColor node_background_fill = ImColor(10, 20, 30, 128);
-    static const ImColor node_outline_hovered = ImColor(231, 76, 60); 
+    static const ImColor node_outline_hovered = ImColor(231, 92, 60); 
     static const ImColor node_outline_neutral = ImColor(192, 57, 43);
 
     static const ImColor icon_pin_flow = ImColor(241, 196, 15);
@@ -32,6 +32,8 @@ namespace noodle {
 
     static const ImColor noodle_bezier_hovered = ImColor(241, 196, 15, 255);
     static const ImColor noodle_bezier_neutral = ImColor(189, 195, 199, 255);
+
+    static const ImColor text_highlighted = ImColor(231, 92, 60);
 
     static constexpr float node_border_radius = 4.f;
     static constexpr float style_padding_y = 16.f;    
@@ -421,26 +423,31 @@ namespace noodle {
         if (!registry.valid(pin_id))
             return;
 
-        lab::Sound::AudioPin& pin = registry.get<lab::Sound::AudioPin>(pin_id);
+        Pin& pin = registry.get<Pin>(pin_id);
         if (!registry.valid(pin.node_id))
             return;
 
+        lab::Sound::AudioPin a_pin = registry.get<lab::Sound::AudioPin>(pin_id);
+
         Name& name = registry.get<Name>(pin.node_id);
+        Name& pin_name = registry.get<Name>(pin_id);
         char buff[256];
-        sprintf(buff, "%s:%s", name.name.c_str(), name.name.c_str());
+        sprintf(buff, "%s:%s", name.name.c_str(), pin_name.name.c_str());
 
         ImGui::OpenPopup(buff);
         if (ImGui::BeginPopupModal(buff, nullptr, ImGuiWindowFlags_NoCollapse))
         {
+            ImGui::TextUnformatted(pin_name.name.c_str());
+            ImGui::Separator();
 
             bool accept = false;
             char const* const* names = nullptr;
 
             lab::AudioSetting::Type type = lab::AudioSetting::Type::None;
-            if (pin.kind == lab::Sound::AudioPin::Kind::Setting)
-                type = pin.setting->type();
+            if (pin.kind == Pin::Kind::Setting)
+                type = a_pin.setting->type();
 
-            if (pin.kind == lab::Sound::AudioPin::Kind::Param || type == lab::AudioSetting::Type::Float)
+            if (pin.kind == Pin::Kind::Param || type == lab::AudioSetting::Type::Float)
             {
                 if (ImGui::InputFloat("###EditPinParamFloat", &g_edit.pin_float,
                     0, 0, 5,
@@ -467,7 +474,7 @@ namespace noodle {
             }
             else if (type == lab::AudioSetting::Type::Enumeration)
             {
-                names = pin.setting->enums();
+                names = a_pin.setting->enums();
                 int enum_idx = g_edit.pin_int;
                 if (ImGui::BeginMenu(names[enum_idx]))
                 {
@@ -513,7 +520,7 @@ namespace noodle {
                 work.setting_pin = pin_id;
                 buff[0] = '\0'; // clear the string
 
-                if (pin.kind == lab::Sound::AudioPin::Kind::Param)
+                if (pin.kind == Pin::Kind::Param)
                 {
                     sprintf(buff, "%f", g_edit.pin_float);
                     work.type = WorkType::SetParam;
@@ -779,9 +786,11 @@ namespace noodle {
                     if (!registry.valid(entity))
                         continue;
 
-                    lab::Sound::AudioPin& pin = registry.get<lab::Sound::AudioPin>(entity);
+                    Pin pin = registry.get<Pin>(entity);
                     if (!registry.valid(pin.node_id))
                         continue;
+
+                    lab::Sound::AudioPin& a_pin = registry.get<lab::Sound::AudioPin>(entity);
 
                     // lazily create the layouts on demand.
                     if (!registry.any<GraphPinLayout>(entity))
@@ -792,16 +801,16 @@ namespace noodle {
 
                     switch (pin.kind)
                     {
-                    case lab::Sound::AudioPin::Kind::BusIn:
+                    case Pin::Kind::BusIn:
                         gnl.in_height += 1;
                         break;
-                    case lab::Sound::AudioPin::Kind::BusOut:
+                    case Pin::Kind::BusOut:
                         gnl.out_height += 1;
                         break;
-                    case lab::Sound::AudioPin::Kind::Param:
+                    case Pin::Kind::Param:
                         gnl.in_height += 1;
                         break;
-                    case lab::Sound::AudioPin::Kind::Setting:
+                    case Pin::Kind::Setting:
                         gnl.mid_height += 1;
                         break;
                     }
@@ -830,7 +839,7 @@ namespace noodle {
                     if (!registry.valid(entity))
                         continue;
 
-                    lab::Sound::AudioPin& pin = registry.get<lab::Sound::AudioPin>(entity);
+                    Pin& pin = registry.get<Pin>(entity);
                     if (!registry.valid(pin.node_id))
                         continue;
 
@@ -838,22 +847,22 @@ namespace noodle {
 
                     switch (pin.kind)
                     {
-                    case lab::Sound::AudioPin::Kind::BusIn:
+                    case Pin::Kind::BusIn:
                         pnl.column_number = 0;
                         pnl.pos_y_cs = style_padding_y + GraphPinLayout::k_height * static_cast<float>(gnl.in_height);
                         gnl.in_height += 1;
                         break;
-                    case lab::Sound::AudioPin::Kind::BusOut:
+                    case Pin::Kind::BusOut:
                         pnl.column_number = static_cast<float>(gnl.column_count);
                         pnl.pos_y_cs = style_padding_y + GraphPinLayout::k_height * static_cast<float>(gnl.out_height);
                         gnl.out_height += 1;
                         break;
-                    case lab::Sound::AudioPin::Kind::Param:
+                    case Pin::Kind::Param:
                         pnl.column_number = 0;
                         pnl.pos_y_cs = style_padding_y + GraphPinLayout::k_height * static_cast<float>(gnl.in_height);
                         gnl.in_height += 1;
                         break;
-                    case lab::Sound::AudioPin::Kind::Setting:
+                    case Pin::Kind::Setting:
                         pnl.column_number = 1;
                         pnl.pos_y_cs = style_padding_y + GraphPinLayout::k_height * static_cast<float>(gnl.mid_height);
                         gnl.mid_height += 1;
@@ -911,8 +920,8 @@ namespace noodle {
                 GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity);
                 if (pnl.pin_contains_cs_point(g_canvas, mouse_x_cs, mouse_y_cs))
                 {
-                    lab::Sound::AudioPin& pin = registry.get<lab::Sound::AudioPin>(entity);
-                    if (pin.kind == lab::Sound::AudioPin::Kind::Setting)
+                    Pin& pin = registry.get<Pin>(entity);
+                    if (pin.kind == Pin::Kind::Setting)
                     {
                         g_hover.pin_id = entt::null;
                     }
@@ -925,8 +934,8 @@ namespace noodle {
                 }
                 else if (pnl.label_contains_cs_point(g_canvas, mouse_x_cs, mouse_y_cs))
                 {
-                    lab::Sound::AudioPin& pin = registry.get<lab::Sound::AudioPin>(entity);
-                    if (pin.kind == lab::Sound::AudioPin::Kind::Setting || pin.kind == lab::Sound::AudioPin::Kind::Param)
+                    Pin& pin = registry.get<Pin>(entity);
+                    if (pin.kind == Pin::Kind::Setting || pin.kind == Pin::Kind::Param)
                     {
                         g_hover.pin_id = entt::null;
                         g_hover.pin_label_id = entity;
@@ -1169,24 +1178,24 @@ namespace noodle {
                 GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(g_hover.originating_pin_id);
                 GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(g_hover.pin_id);
 
-                lab::Sound::AudioPin from_pin = registry.get<lab::Sound::AudioPin>(g_hover.originating_pin_id);
-                lab::Sound::AudioPin to_pin = registry.get<lab::Sound::AudioPin>(g_hover.pin_id);
+                Pin from_pin = registry.get<Pin>(g_hover.originating_pin_id);
+                Pin to_pin = registry.get<Pin>(g_hover.pin_id);
 
                 /// @TODO this logic can be duplicated into hover to turn the wire red for disallowed connections
                 // ensure to is the connection destination
-                if (from_pin.kind == lab::Sound::AudioPin::Kind::BusIn || from_pin.kind == lab::Sound::AudioPin::Kind::Param)
+                if (from_pin.kind == Pin::Kind::BusIn || from_pin.kind == Pin::Kind::Param)
                 {
                     std::swap(to_pin, from_pin);
                     std::swap(g_hover.originating_pin_id, g_hover.pin_id);
                 }
 
                 // check if a valid connection is requested
-                lab::Sound::AudioPin::Kind to_kind = to_pin.kind;
-                lab::Sound::AudioPin::Kind from_kind = from_pin.kind;
+                Pin::Kind to_kind = to_pin.kind;
+                Pin::Kind from_kind = from_pin.kind;
 
-                bool valid = ! (to_kind == lab::Sound::AudioPin::Kind::Setting || to_kind == lab::Sound::AudioPin::Kind::BusOut ||
-                                from_kind == lab::Sound::AudioPin::Kind::BusIn || from_kind == lab::Sound::AudioPin::Kind::Param ||
-                                from_kind == lab::Sound::AudioPin::Kind::Setting);
+                bool valid = ! (to_kind == Pin::Kind::Setting || to_kind == Pin::Kind::BusOut ||
+                                from_kind == Pin::Kind::BusIn || from_kind == Pin::Kind::Param ||
+                                from_kind == Pin::Kind::Setting);
 
                 // disallow connecting a node to itself
                 valid &= from_pin.node_id != to_pin.node_id;
@@ -1197,7 +1206,7 @@ namespace noodle {
                 }
                 else
                 {
-                    if (to_kind == lab::Sound::AudioPin::Kind::BusIn)
+                    if (to_kind == Pin::Kind::BusIn)
                     {
                         Work work(_provider);
                         work.type = WorkType::ConnectBusOutToBusIn;
@@ -1205,7 +1214,7 @@ namespace noodle {
                         work.output_node = from_pin.node_id;
                         g_pending_work.emplace_back(work);
                     }
-                    else if (to_kind == lab::Sound::AudioPin::Kind::Param)
+                    else if (to_kind == Pin::Kind::Param)
                     {
                         Work work(_provider);
                         work.type = WorkType::ConnectBusOutToParamIn;
@@ -1263,25 +1272,26 @@ namespace noodle {
                 {
                     // set mode to edit the value of the hovered pin
                     g_edit.pin = g_hover.pin_label_id;
-                    lab::Sound::AudioPin& pin = registry.get<lab::Sound::AudioPin>(g_edit.pin);
-                    if (pin.kind == lab::Sound::AudioPin::Kind::Param)
+                    Pin& pin = registry.get<Pin>(g_edit.pin);
+                    lab::Sound::AudioPin& a_pin = registry.get<lab::Sound::AudioPin>(g_edit.pin);
+                    if (pin.kind == Pin::Kind::Param)
                     {
-                        g_edit.pin_float = pin.param->value();
+                        g_edit.pin_float = a_pin.param->value();
                     }
-                    else if (pin.kind == lab::Sound::AudioPin::Kind::Setting)
+                    else if (pin.kind == Pin::Kind::Setting)
                     {
-                        auto type = pin.setting->type();
+                        auto type = a_pin.setting->type();
                         if (type == lab::AudioSetting::Type::Float)
                         {
-                            g_edit.pin_float = pin.setting->valueFloat();
+                            g_edit.pin_float = a_pin.setting->valueFloat();
                         }
                         else if (type == lab::AudioSetting::Type::Integer || type == lab::AudioSetting::Type::Enumeration)
                         {
-                            g_edit.pin_int = pin.setting->valueUint32();
+                            g_edit.pin_int = a_pin.setting->valueUint32();
                         }
                         else if (type == lab::AudioSetting::Type::Bool)
                         {
-                            g_edit.pin_bool = pin.setting->valueBool();
+                            g_edit.pin_bool = a_pin.setting->valueBool();
                         }
                     }
                 }
@@ -1346,7 +1356,9 @@ namespace noodle {
             pulse -= 6.28f;
 
         uint32_t text_color = 0xffffff;
+        uint32_t text_color_highlighted = 0x00ffff;
         text_color |= (uint32_t)(255 * 2 * (g_canvas.scale - 0.5f)) << 24;
+        text_color_highlighted |= (uint32_t)(255 * 2 * (g_canvas.scale - 0.5f)) << 24;
 
         ///////////////////////////////////////////
         //   Noodles Bezier Lines Curves Pulled  //
@@ -1449,22 +1461,27 @@ namespace noodle {
                 if (node->isScheduledNode())
                 {
                     auto label = std::string(ICON_FAD_PLAY);
-                    drawList->AddText(NULL, label_font_size, label_pos, text_color, label.c_str(), label.c_str() + label.length());
+                    drawList->AddText(NULL, label_font_size, label_pos, 
+                        (g_hover.play && entity == g_hover.node_id) ? text_color_highlighted : text_color,
+                        label.c_str(), label.c_str() + label.length());
                     label_pos.x += 20;
                 }
 
                 if (node->_scheduler._onStart)
                 {
                     auto label = std::string(ICON_FAD_HARDCLIP);
-                    drawList->AddText(NULL, label_font_size, label_pos, text_color, label.c_str(), label.c_str() + label.length());
+                    drawList->AddText(NULL, label_font_size, label_pos, 
+                        (g_hover.bang && entity == g_hover.node_id) ? text_color_highlighted : text_color,
+                        label.c_str(), label.c_str() + label.length());
                     label_pos.x += 20;
                 }
 
                 // Name
                 Name& name = registry.get<Name>(entity);
                 label_pos.x += 5;
-                drawList->AddText(io.FontDefault, label_font_size, label_pos, text_color, 
-                                  name.name.c_str(), name.name.c_str() + name.name.size());
+                drawList->AddText(io.FontDefault, label_font_size, label_pos,
+                    (g_hover.node_menu && entity == g_hover.node_id) ? text_color_highlighted : text_color,
+                    name.name.c_str(), name.name.c_str() + name.name.size());
             }
 
             ///////////////////////////////////////////
@@ -1477,28 +1494,28 @@ namespace noodle {
 
                 for (entt::entity j : pins)
                 {
-                    lab::Sound::AudioPin& pin_it = registry.get<lab::Sound::AudioPin>(j);
+                    Pin& pin_it = registry.get<Pin>(j);
 
                     IconType icon_type;
                     bool has_value = false;
                     uint32_t color;
                     switch (pin_it.kind)
                     {
-                    case lab::Sound::AudioPin::Kind::BusIn:
+                    case Pin::Kind::BusIn:
                         icon_type = IconType::Flow;
                         color = icon_pin_flow;
                         break;
-                    case lab::Sound::AudioPin::Kind::Param:
+                    case Pin::Kind::Param:
                         icon_type = IconType::Flow;
                         has_value = true;
                         color = icon_pin_param;
                         break;
-                    case lab::Sound::AudioPin::Kind::Setting:
+                    case Pin::Kind::Setting:
                         icon_type = IconType::Grid;
                         has_value = true;
                         color = icon_pin_setting;
                         break;
-                    case lab::Sound::AudioPin::Kind::BusOut:
+                    case Pin::Kind::BusOut:
                         icon_type = IconType::Flow;
                         color = icon_pin_bus_out;
                         break;

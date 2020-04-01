@@ -25,21 +25,13 @@ namespace lab { namespace Sound {
 
 //--------------------------------------------------------------
 // AudioPins are created for every created node
-
+// There is one noodle pin for every AudioPin
+/// @TODO don't expose this
 struct AudioPin
 {
-    enum class Kind { Setting, Param, BusIn, BusOut };
-    Kind kind;
-
-    std::string name, shortName;
-    entt::entity pin_id;
-    entt::entity node_id;
     std::shared_ptr<lab::AudioSetting> setting;
     std::shared_ptr<lab::AudioParam> param;
-
-    std::string value_as_string;
 };
-
 
 //--------------------------------------------------------------
 // LabSound Work - everything the lab sound interfaces can do

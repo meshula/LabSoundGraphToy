@@ -11,6 +11,7 @@ namespace lab { namespace Sound {
     using std::string;
     using std::vector;
 
+
     std::unique_ptr<lab::AudioContext> g_audio_context;
 
     std::unique_ptr<entt::registry> g_ls_registry;
@@ -136,11 +137,13 @@ namespace lab { namespace Sound {
         {
             entt::entity pin_id = registry.create();
             pins.push_back(pin_id);
-            registry.assign<AudioPin>(pin_id, AudioPin{
-                AudioPin::Kind::BusIn,
-                "", "",
+            registry.assign<noodle::Name>(pin_id, "");
+            registry.assign<noodle::Pin>(pin_id, noodle::Pin{
+                noodle::Pin::Kind::BusIn,
+                "",
                 pin_id, audio_node_id,
-                shared_ptr<AudioSetting>(),
+                });
+            registry.assign<AudioPin>(pin_id, AudioPin{
                 });
         }
 
@@ -151,11 +154,13 @@ namespace lab { namespace Sound {
         {
             entt::entity pin_id = registry.create();
             pins.push_back(pin_id);
-            registry.assign<AudioPin>(pin_id, AudioPin{
-                AudioPin::Kind::BusOut,
-                "", "",
+            registry.assign<noodle::Name>(pin_id, "");
+            registry.assign<noodle::Pin>(pin_id, noodle::Pin{
+                noodle::Pin::Kind::BusOut,
+                "",
                 pin_id, audio_node_id,
-                shared_ptr<AudioSetting>(),
+                });
+            registry.assign<AudioPin>(pin_id, AudioPin{
                 });
         }
 
@@ -191,10 +196,13 @@ namespace lab { namespace Sound {
             entt::entity pin_id = registry.create();
             pins.push_back(pin_id);
             registry.assign<AudioPin>(pin_id, AudioPin{
-                AudioPin::Kind::Setting,
-                names[i], shortNames[i],
+                settings[i]
+                });
+            registry.assign<noodle::Name>(pin_id, names[i]);
+            registry.assign<noodle::Pin>(pin_id, noodle::Pin{
+                noodle::Pin::Kind::Setting,
+                shortNames[i],
                 pin_id, audio_node_id,
-                settings[i], shared_ptr<lab::AudioParam>(),
                 buff
                 });
         }
@@ -212,13 +220,16 @@ namespace lab { namespace Sound {
             entt::entity pin_id = registry.create();
             pins.push_back(pin_id);
             registry.assign<AudioPin>(pin_id, AudioPin{
-                AudioPin::Kind::Param,
-                names[i], shortNames[i],
-                pin_id, audio_node_id,
                 shared_ptr<AudioSetting>(),
                 params[i],
+                });
+            registry.assign<noodle::Name>(pin_id, names[i]);
+            registry.assign<noodle::Pin>(pin_id, noodle::Pin{
+                noodle::Pin::Kind::Param,
+                shortNames[i],
+                pin_id, audio_node_id,
                 buff
-            });
+                });
         }
 
         registry.assign<vector<entt::entity>>(audio_node_id, pins);
@@ -253,10 +264,11 @@ namespace lab { namespace Sound {
         {
             if (pin_id != entt::null && registry.valid(pin_id))
             {
-                AudioPin& pin = registry.get<AudioPin>(pin_id);
-                if (pin.kind == AudioPin::Kind::Param && pin.param)
+                noodle::Pin& pin = registry.get<noodle::Pin>(pin_id);
+                AudioPin& a_pin = registry.get<AudioPin>(pin_id);
+                if (pin.kind == noodle::Pin::Kind::Param && a_pin.param)
                 {
-                    pin.param->setValue(float_value);
+                    a_pin.param->setValue(float_value);
                     printf("SetParam(%f) %d\n", float_value, pin_id);
                     return pin_id;
                 }
@@ -267,10 +279,11 @@ namespace lab { namespace Sound {
         {
             if (pin_id != entt::null)
             {
-                AudioPin& pin = registry.get<AudioPin>(pin_id);
-                if (pin.kind == AudioPin::Kind::Setting && pin.setting)
+                noodle::Pin& pin = registry.get<noodle::Pin>(pin_id);
+                AudioPin& a_pin = registry.get<AudioPin>(pin_id);
+                if (pin.kind == noodle::Pin::Kind::Setting && a_pin.setting)
                 {
-                    pin.setting->setFloat(float_value);
+                    a_pin.setting->setFloat(float_value);
                     printf("SetFloatSetting(%f) %d\n", float_value, pin_id);
                     return pin_id;
                 }
@@ -281,10 +294,11 @@ namespace lab { namespace Sound {
         {
             if (pin_id != entt::null)
             {
-                AudioPin& pin = registry.get<AudioPin>(pin_id);
-                if (pin.kind == AudioPin::Kind::Setting && pin.setting)
+                noodle::Pin& pin = registry.get<noodle::Pin>(pin_id);
+                AudioPin& a_pin = registry.get<AudioPin>(pin_id);
+                if (pin.kind == noodle::Pin::Kind::Setting && a_pin.setting)
                 {
-                    pin.setting->setUint32(int_value);
+                    a_pin.setting->setUint32(int_value);
                     printf("SetIntSetting(%d) %d\n", int_value, pin_id);
                     return pin_id;
                 }
@@ -295,10 +309,11 @@ namespace lab { namespace Sound {
         {
             if (pin_id != entt::null)
             {
-                AudioPin& pin = registry.get<AudioPin>(pin_id);
-                if (pin.kind == AudioPin::Kind::Setting && pin.setting)
+                noodle::Pin& pin = registry.get<noodle::Pin>(pin_id);
+                AudioPin& a_pin = registry.get<AudioPin>(pin_id);
+                if (pin.kind == noodle::Pin::Kind::Setting && a_pin.setting)
                 {
-                    pin.setting->setBool(bool_value);
+                    a_pin.setting->setBool(bool_value);
                     printf("SetBoolSetting(%s) %d\n", bool_value ? "true" : "false", pin_id);
                     return pin_id;
                 }
@@ -309,11 +324,12 @@ namespace lab { namespace Sound {
         {
             if (pin_id != entt::null && name.length() > 0)
             {
-                AudioPin& pin = registry.get<AudioPin>(pin_id);
-                if (pin.kind == AudioPin::Kind::Setting && pin.setting)
+                noodle::Pin& pin = registry.get<noodle::Pin>(pin_id);
+                AudioPin& a_pin = registry.get<AudioPin>(pin_id);
+                if (pin.kind == noodle::Pin::Kind::Setting && a_pin.setting)
                 {
                     auto soundClip = lab::MakeBusFromFile(name.c_str(), false);
-                    pin.setting->setBus(soundClip.get());
+                    a_pin.setting->setBus(soundClip.get());
                     printf("SetBusSetting %d %s\n", pin_id, name.c_str());
                     return pin_id;
                 }
@@ -333,19 +349,18 @@ namespace lab { namespace Sound {
             g_audio_context->connect(in, out, 0, 0);
             printf("ConnectBusOutToBusIn %d %d\n", input_node_id, output_node_id);
 
-
             //// @TODO this plumbing belongs in lab_noodle as it is audio-agnostic
 
             entt::entity pin_from = entt::null;
             entt::entity pin_to = entt::null;
-            auto view = registry.view<AudioPin>();
+            auto view = registry.view<noodle::Pin>();
             for (auto entity : view) {
-                AudioPin& pin = view.get<AudioPin>(entity);
-                if (pin.node_id == output_node_id && pin.kind == AudioPin::Kind::BusOut)
+                noodle::Pin& pin = view.get<noodle::Pin>(entity);
+                if (pin.node_id == output_node_id && pin.kind == noodle::Pin::Kind::BusOut)
                 {
                     pin_from = pin.pin_id;
                 }
-                if (pin.node_id == input_node_id && pin.kind == AudioPin::Kind::BusIn)
+                if (pin.node_id == input_node_id && pin.kind == noodle::Pin::Kind::BusIn)
                 {
                     pin_to = pin.pin_id;
                 }
@@ -367,24 +382,25 @@ namespace lab { namespace Sound {
             if (!registry.valid(pin_id) || !registry.valid(output_node_id))
                 return entt::null;
 
-            AudioPin& pin = registry.get<AudioPin>(pin_id);
-            if (!registry.valid(pin.node_id) || !pin.param)
+            AudioPin& a_pin = registry.get<AudioPin>(pin_id);
+            noodle::Pin& pin = registry.get<noodle::Pin>(pin_id);
+            if (!registry.valid(pin.node_id) || !a_pin.param)
                 return entt::null;
 
             shared_ptr<lab::AudioNode> out = registry.get<shared_ptr<lab::AudioNode>>(output_node_id);
             if (!out)
                 return entt::null;
 
-            g_audio_context->connectParam(pin.param, out, 0);
+            g_audio_context->connectParam(a_pin.param, out, 0);
             printf("ConnectBusOutToParamIn %d %d\n", pin_id, output_node_id);
 
             //// @TODO this plumbing belongs in lab_noodle as it is audio-agnostic
 
             entt::entity pin_from = entt::null;
-            auto view = registry.view<AudioPin>();
+            auto view = registry.view<noodle::Pin>();
             for (auto entity : view) {
-                AudioPin& pin = view.get<AudioPin>(entity);
-                if (pin.node_id == output_node_id && pin.kind == AudioPin::Kind::BusOut)
+                noodle::Pin& pin = view.get<noodle::Pin>(entity);
+                if (pin.node_id == output_node_id && pin.kind == noodle::Pin::Kind::BusOut)
                 {
                     pin_from = pin.pin_id;
                 }
@@ -418,16 +434,17 @@ namespace lab { namespace Sound {
                 shared_ptr<lab::AudioNode> output_node = registry.get<shared_ptr<lab::AudioNode>>(output_node_id);
                 if (input_node && output_node)
                 {
-                    AudioPin& in_pin = registry.get<AudioPin>(input_pin);
-                    AudioPin& out_pin = registry.get<AudioPin>(output_pin);
-                    if ((in_pin.kind == AudioPin::Kind::BusIn) && (out_pin.kind == AudioPin::Kind::BusOut))
+                    AudioPin& a_in_pin = registry.get<AudioPin>(input_pin);
+                    noodle::Pin& in_pin = registry.get<noodle::Pin>(input_pin);
+                    noodle::Pin& out_pin = registry.get<noodle::Pin>(output_pin);
+                    if ((in_pin.kind == noodle::Pin::Kind::BusIn) && (out_pin.kind == noodle::Pin::Kind::BusOut))
                     {
                         g_audio_context->disconnect(input_node, output_node, 0, 0);
                         printf("DisconnectInFromOut (bus from bus) %d %d\n", input_node_id, output_node_id);
                     }
-                    else if ((in_pin.kind == AudioPin::Kind::Param) && (out_pin.kind == AudioPin::Kind::BusOut))
+                    else if ((in_pin.kind == noodle::Pin::Kind::Param) && (out_pin.kind == noodle::Pin::Kind::BusOut))
                     {
-                        g_audio_context->disconnectParam(in_pin.param, output_node, 0);
+                        g_audio_context->disconnectParam(a_in_pin.param, output_node, 0);
                         printf("DisconnectInFromOut (param from bus) %d %d\n", input_node_id, output_node_id);
                     }
                 }
@@ -451,10 +468,11 @@ namespace lab { namespace Sound {
                 in_node = registry.get<shared_ptr<lab::AudioNode>>(input_node_id);
                 g_audio_context->disconnect(in_node);
 
+                /// @TODO this bit should be managed in lab_noodle
                 // delete all the node's pins
-                for (const auto entity : registry.view<AudioPin>())
+                for (const auto entity : registry.view<noodle::Pin>())
                 {
-                    AudioPin& pin = registry.get<AudioPin>(entity);
+                    noodle::Pin& pin = registry.get<noodle::Pin>(entity);
                     if (pin.node_id == entity)
                         registry.destroy(entity);
                 }
@@ -468,10 +486,11 @@ namespace lab { namespace Sound {
                 in_node = registry.get<shared_ptr<lab::AudioNode>>(output_node_id);
                 g_audio_context->disconnect(in_node);
 
+                /// @TODO this bit should be managed in lab_noodle
                 // delete all the node's pins
-                for (const auto entity : registry.view<AudioPin>())
+                for (const auto entity : registry.view<noodle::Pin>())
                 {
-                    AudioPin& pin = registry.get<AudioPin>(entity);
+                    noodle::Pin& pin = registry.get<noodle::Pin>(entity);
                     if (pin.node_id == entity)
                         registry.destroy(entity);
                 }
