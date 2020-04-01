@@ -996,8 +996,11 @@ namespace noodle {
 
                     ImVec2 p0 = from_pos;
                     ImVec2 p3 = to_pos;
+                    if (p0.x > p3.x)
+                        std::swap(p0, p3);
+
                     ImVec2 pd = p0 - p3;
-                    float wiggle = std::min(64.f, sqrtf(pd.x * pd.x + pd.y * pd.y)) * g_canvas.scale;
+                    float wiggle = std::min(fabsf(pd.x), std::min(64.f, sqrtf(pd.x * pd.x + pd.y * pd.y)) * g_canvas.scale);
                     ImVec2 p1 = { p0.x + wiggle, p0.y };
                     ImVec2 p2 = { p3.x - wiggle, p3.y };
 
@@ -1356,11 +1359,13 @@ namespace noodle {
 
             ImVec2 p0 = from_pos;
             ImVec2 p3 = to_pos;
+            if (p0.x > p3.x)
+                std::swap(p0, p3);
+
             ImVec2 pd = p0 - p3;
-            float wiggle = std::min(64.f, sqrtf(pd.x * pd.x + pd.y * pd.y)) * g_canvas.scale;
+            float wiggle = std::min(fabsf(pd.x), std::min(64.f, sqrtf(pd.x * pd.x + pd.y * pd.y)) * g_canvas.scale);
             ImVec2 p1 = { p0.x + wiggle, p0.y };
             ImVec2 p2 = { p3.x - wiggle, p3.y };
-
             ImU32 color = entity == g_hover.connection_id ? noodle_bezier_hovered : noodle_bezier_neutral;
             drawList->AddBezierCurve(p0, p1, p2, p3, color, 2.f);
         }
@@ -1370,8 +1375,11 @@ namespace noodle {
             GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(g_hover.originating_pin_id);
             ImVec2 p0 = from_gpl.ul_ws(g_canvas) + ImVec2(style_padding_y, style_padding_x) * g_canvas.scale;
             ImVec2 p3 = g_mouse.mouse_ws + g_canvas.window_origin_offset_ws;
+            if (p0.x > p3.x)
+                std::swap(p0, p3);
+
             ImVec2 pd = p0 - p3;
-            float wiggle = std::min(64.f, sqrtf(pd.x * pd.x + pd.y * pd.y)) * g_canvas.scale;
+            float wiggle = std::min(fabsf(pd.x), std::min(64.f, sqrtf(pd.x * pd.x + pd.y * pd.y)) * g_canvas.scale);
             ImVec2 p1 = { p0.x + wiggle, p0.y };
             ImVec2 p2 = { p3.x - wiggle, p3.y };
             drawList->AddBezierCurve(p0, p1, p2, p3, noodle_bezier_neutral, 2.f);
@@ -1382,6 +1390,10 @@ namespace noodle {
         ///////////////////////////////////////
 
         std::shared_ptr<lab::AudioNode> dev_node;
+
+        if (!registry.valid(g_edit.device_node))
+            g_edit.device_node = entt::null;
+
         if (g_edit.device_node != entt::null)
             dev_node = registry.get<std::shared_ptr<lab::AudioNode>>(g_edit.device_node);
 
@@ -1451,7 +1463,7 @@ namespace noodle {
                 // Name
                 Name& name = registry.get<Name>(entity);
                 label_pos.x += 5;
-                drawList->AddText(io.FontDefault, font_size, label_pos, text_color, 
+                drawList->AddText(io.FontDefault, label_font_size, label_pos, text_color, 
                                   name.name.c_str(), name.name.c_str() + name.name.size());
             }
 
