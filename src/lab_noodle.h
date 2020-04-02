@@ -8,6 +8,8 @@
 
 namespace lab { namespace noodle {
 
+    struct vec2 { float x, y; };
+
     //--------------------------------------------------------------------------
     // Schematic
     //
@@ -31,7 +33,8 @@ namespace lab { namespace noodle {
     /// @TODO hook it up
     struct NodeRender
     {
-        std::function<void(entt::entity)> render;
+        // entity, ul_ws, lr_ws, scale, drawlist (typically ImGui::DrawList)
+        std::function<void(entt::entity, vec2, vec2, float, void*)> render;
     };
 
     // every entity may have a name

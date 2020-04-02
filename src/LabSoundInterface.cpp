@@ -1,5 +1,6 @@
 
 #include "LabSoundInterface.h"
+#include "lab_imgui_ext.hpp"
 
 #include <LabSound/LabSound.h>
 
@@ -70,12 +71,7 @@ namespace lab { namespace Sound {
     {
         AudioContext& ac = *g_audio_context.get();
         if (n == "ADSR") return std::make_shared<lab::ADSRNode>(ac);
-        if (n == "Analyser")
-        {
-            shared_ptr<lab::AudioNode> node = std::make_shared<lab::AnalyserNode>(ac);
-            g_audio_context->addAutomaticPullNode(node);
-            return node;
-        }
+        if (n == "Analyser") return std::make_shared<lab::AnalyserNode>(ac);
         //if (n == "AudioBasicProcessor") return std::make_shared<lab::AudioBasicProcessorNode>(ac);
         //if (n == "AudioHardwareSource") return std::make_shared<lab::ADSRNode>(ac);
         if (n == "BiquadFilter") return std::make_shared<lab::BiquadFilterNode>(ac);
@@ -115,6 +111,39 @@ namespace lab { namespace Sound {
 
 
 
+
+    static constexpr float node_border_radius = 4.f;
+    void DrawSpectrum(entt::entity id, ImVec2 ul_ws, ImVec2 lr_ws, float scale, ImDrawList* drawList)
+    {
+        entt::registry& reg = *g_ls_registry.get();
+        std::shared_ptr<lab::AudioNode> audio_node = reg.get<std::shared_ptr<lab::AudioNode>>(id);
+        ul_ws.x += 5 * scale; ul_ws.y += 5 * scale;
+        lr_ws.x = ul_ws.x + (lr_ws.x - ul_ws.x) * 0.5f;
+        lr_ws.y -= 5 * scale;
+        drawList->AddRect(ul_ws, lr_ws, ImColor(255, 128, 0, 255), node_border_radius, 15, 2);
+
+        int left = static_cast<int>(ul_ws.x + 2 * scale);
+        int right = static_cast<int>(lr_ws.x - 2 * scale);
+        int pixel_width = right - left;
+        lab::AnalyserNode* node = dynamic_cast<lab::AnalyserNode*>(audio_node.get());
+        static std::vector<uint8_t> bins;
+        if (bins.size() != pixel_width)
+            bins.resize(pixel_width);
+
+        // fetch the byte frequency data because it is normalized vs the analyser's min/maxDecibels.
+        node->getByteFrequencyData(bins, true);
+
+        float base = lr_ws.y - 2 * scale;
+        float height = lr_ws.y - ul_ws.y - 4 * scale;
+        drawList->PathClear();
+        for (int x = 0; x < pixel_width; ++x)
+        {
+            drawList->PathLineTo(ImVec2(x + float(left), base - height * bins[x] / 255.0f));
+        }
+        drawList->PathStroke(ImColor(255, 255, 0, 255), false, 2);
+    }
+
+
     void CreateEntities(shared_ptr<lab::AudioNode> audio_node, entt::entity audio_node_id)
     {
         if (!audio_node)
@@ -125,9 +154,13 @@ namespace lab { namespace Sound {
         vector<entt::entity> pins;
 
         ContextRenderLock r(g_audio_context.get(), "LabSoundGraphToy_init");
-        if (nullptr != dynamic_cast<RealtimeAnalyser*>(audio_node.get()))
+        if (nullptr != dynamic_cast<lab::AnalyserNode*>(audio_node.get()))
         {
             g_audio_context->addAutomaticPullNode(audio_node);
+            registry.assign<noodle::NodeRender>(audio_node_id, noodle::NodeRender{
+                [](entt::entity id, noodle::vec2 ul_ws, noodle::vec2 lr_ws, float scale, void* drawList) {
+                    DrawSpectrum(id, {ul_ws.x, ul_ws.y}, {lr_ws.x, lr_ws.y}, scale, reinterpret_cast<ImDrawList*>(drawList));
+                } });
         }
 
         //---------- inputs

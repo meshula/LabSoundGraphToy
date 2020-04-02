@@ -643,36 +643,6 @@ namespace noodle {
 
 
 
-    void DrawSpectrum(lab::Sound::Provider& provider, std::shared_ptr<lab::AudioNode> audio_node, ImVec2 ul_ws, ImVec2 lr_ws, float scale, ImDrawList* drawList)
-    {
-        ul_ws.x += 5 * scale; ul_ws.y += 5 * scale;
-        lr_ws.x = ul_ws.x + (lr_ws.x - ul_ws.x) * 0.5f;
-        lr_ws.y -= 5 * scale;
-        drawList->AddRect(ul_ws, lr_ws, ImColor(255, 128, 0, 255), node_border_radius, 15, 2);
-
-        int left = static_cast<int>(ul_ws.x + 2 * scale);
-        int right = static_cast<int>(lr_ws.x - 2 * scale);
-        int pixel_width = right - left;
-        lab::AnalyserNode* node = dynamic_cast<lab::AnalyserNode*>(audio_node.get());
-        static std::vector<uint8_t> bins;
-        if (bins.size() != pixel_width)
-            bins.resize(pixel_width);
-
-        // fetch the byte frequency data because it is normalized vs the analyser's min/maxDecibels.
-        node->getByteFrequencyData(bins, true);
-
-        float base = lr_ws.y - 2 * scale;
-        float height = lr_ws.y - ul_ws.y - 4 * scale;
-        drawList->PathClear();
-        for (int x = 0; x < pixel_width; ++x)
-        {
-            drawList->PathLineTo(ImVec2(x + float(left), base - height * bins[x] / 255.0f));
-        }
-        drawList->PathStroke(ImColor(255, 255, 0, 255), false, 2);
-    }
-
-
-
 
 
     // GraphEditor stuff
@@ -1442,9 +1412,11 @@ namespace noodle {
                 drawList->AddRectFilled(p1, p2, ImColor(255, 255, 255, 128));
             }
 
-            if (!strncmp(node->name(), "Analyser", 8))
+            if (registry.any<NodeRender>(entity))
             {
-                DrawSpectrum(_provider, node, ul_ws, lr_ws, g_canvas.scale, drawList);
+                NodeRender& render = registry.get<NodeRender>(entity);
+                if (render.render)
+                    render.render(entity, { ul_ws.x, ul_ws.y }, { lr_ws.x, lr_ws.y }, g_canvas.scale, drawList);
             }
 
             ///////////////////////////////////////////
