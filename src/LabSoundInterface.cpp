@@ -606,6 +606,10 @@ namespace lab { namespace Sound {
         return Registry();
     }
 
+    char const* const* Provider::node_names() const
+    {
+        return lab::AudioNodeNames();
+    }
 
 }} // lab::Sound
 

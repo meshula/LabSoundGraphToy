@@ -71,6 +71,7 @@ public:
     entt::entity Create(char const* const name);
     std::vector<entt::entity>& pins(entt::entity audio_node_id) const;
     entt::registry& registry() const;
+    char const* const* node_names() const;
 };
 
 }} // lab::Sound

@@ -32,6 +32,7 @@ namespace noodle {
 
     static const ImColor noodle_bezier_hovered = ImColor(241, 196, 15, 255);
     static const ImColor noodle_bezier_neutral = ImColor(189, 195, 199, 255);
+    static const ImColor noodle_bezier_cancel = ImColor(189, 50, 15, 255);
 
     static const ImColor text_highlighted = ImColor(231, 92, 60);
 
@@ -195,6 +196,7 @@ namespace noodle {
             node_menu = false;
             bang = false;
             play = false;
+            valid_connection = true;
         }
 
         entt::entity node_id = entt::null;
@@ -205,6 +207,7 @@ namespace noodle {
         bool node_menu = false;
         bool bang = false;
         bool play = false;
+        bool valid_connection = true;
     } 
     g_hover;
 
@@ -391,7 +394,7 @@ namespace noodle {
             if (result)
             {
                 std::string pressed = "";
-                char const* const* nodes = lab::AudioNodeNames();
+                char const* const* nodes = provider.node_names();
                 for (; *nodes != nullptr; ++nodes)
                 {
                     std::string n(*nodes);
@@ -546,7 +549,9 @@ namespace noodle {
                 }
                 else if (type == lab::AudioSetting::Type::Enumeration)
                 {
-                    sprintf(buff, "%s", names[g_edit.pin_int]);
+                    if (names)
+                        sprintf(buff, "%s", names[g_edit.pin_int]);
+
                     work.type = WorkType::SetIntSetting;
                     work.int_value = g_edit.pin_int;
                 }
@@ -667,7 +672,6 @@ namespace noodle {
         float y = (edit_rect.Max.y + edit_rect.Min.y) * 0.5f - 64;
         Work work(provider);
         work.type = WorkType::CreateRuntimeContext;
-        work.name = "AudioDestination";
         work.canvas_pos = ImVec2{ edit_rect.Max.x - 300, y };
         g_pending_work.push_back(work);
     }
@@ -759,8 +763,6 @@ namespace noodle {
                     Pin pin = registry.get<Pin>(entity);
                     if (!registry.valid(pin.node_id))
                         continue;
-
-                    lab::Sound::AudioPin& a_pin = registry.get<lab::Sound::AudioPin>(entity);
 
                     // lazily create the layouts on demand.
                     if (!registry.any<GraphPinLayout>(entity))
@@ -1073,8 +1075,8 @@ namespace noodle {
         {
             drawList->ChannelsSetCurrent(ChannelGrid);
 
-            const float grid_step_x = 96.0f * g_canvas.scale;
-            const float grid_step_y = 96.0f * g_canvas.scale;
+            const float grid_step_x = 100.0f * g_canvas.scale;
+            const float grid_step_y = 100.0f * g_canvas.scale;
             const ImVec2 grid_origin = ImGui::GetWindowPos();
             const ImVec2 grid_size = ImGui::GetWindowSize();
 
@@ -1141,8 +1143,11 @@ namespace noodle {
 
         entt::registry& registry = _provider.registry();
 
-        if (!g_mouse.dragging && g_mouse.dragging_wire)
+        /// @TODO consolidate the redundant logic here for testing connections
+        if (g_mouse.dragging && g_mouse.dragging_wire)
         {
+            // if dragging a wire, check for disallowed connections so they wire can turn red
+            g_hover.valid_connection = true;
             if (g_hover.originating_pin_id != entt::null && g_hover.pin_id != entt::null && registry.valid(g_hover.originating_pin_id) && registry.valid(g_hover.pin_id))
             {
                 GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(g_hover.originating_pin_id);
@@ -1151,8 +1156,34 @@ namespace noodle {
                 Pin from_pin = registry.get<Pin>(g_hover.originating_pin_id);
                 Pin to_pin = registry.get<Pin>(g_hover.pin_id);
 
-                /// @TODO this logic can be duplicated into hover to turn the wire red for disallowed connections
-                // ensure to is the connection destination
+                if (from_pin.kind == Pin::Kind::BusIn || from_pin.kind == Pin::Kind::Param)
+                {
+                    std::swap(to_pin, from_pin);
+                }
+
+                // check if a valid connection is requested
+                Pin::Kind to_kind = to_pin.kind;
+                Pin::Kind from_kind = from_pin.kind;
+
+                g_hover.valid_connection = !(to_kind == Pin::Kind::Setting || to_kind == Pin::Kind::BusOut ||
+                    from_kind == Pin::Kind::BusIn || from_kind == Pin::Kind::Param ||
+                    from_kind == Pin::Kind::Setting);
+
+                // disallow connecting a node to itself
+                g_hover.valid_connection &= from_pin.node_id != to_pin.node_id;
+            }
+        }
+        else if (!g_mouse.dragging && g_mouse.dragging_wire)
+        {
+            g_hover.valid_connection = true;
+            if (g_hover.originating_pin_id != entt::null && g_hover.pin_id != entt::null && registry.valid(g_hover.originating_pin_id) && registry.valid(g_hover.pin_id))
+            {
+                GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(g_hover.originating_pin_id);
+                GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(g_hover.pin_id);
+
+                Pin from_pin = registry.get<Pin>(g_hover.originating_pin_id);
+                Pin to_pin = registry.get<Pin>(g_hover.pin_id);
+
                 if (from_pin.kind == Pin::Kind::BusIn || from_pin.kind == Pin::Kind::Param)
                 {
                     std::swap(to_pin, from_pin);
@@ -1163,14 +1194,14 @@ namespace noodle {
                 Pin::Kind to_kind = to_pin.kind;
                 Pin::Kind from_kind = from_pin.kind;
 
-                bool valid = ! (to_kind == Pin::Kind::Setting || to_kind == Pin::Kind::BusOut ||
-                                from_kind == Pin::Kind::BusIn || from_kind == Pin::Kind::Param ||
-                                from_kind == Pin::Kind::Setting);
+                g_hover.valid_connection = !(to_kind == Pin::Kind::Setting || to_kind == Pin::Kind::BusOut ||
+                    from_kind == Pin::Kind::BusIn || from_kind == Pin::Kind::Param ||
+                    from_kind == Pin::Kind::Setting);
 
                 // disallow connecting a node to itself
-                valid &= from_pin.node_id != to_pin.node_id;
+                g_hover.valid_connection &= from_pin.node_id != to_pin.node_id;
 
-                if (!valid)
+                if (!g_hover.valid_connection)
                 {
                     printf("invalid connection request\n");
                 }
@@ -1364,7 +1395,8 @@ namespace noodle {
             ImVec2 p3 = g_mouse.mouse_ws + g_canvas.window_origin_offset_ws;
             ImVec2 p1, p2;
             noodle_bezier(p0, p1, p2, p3);
-            drawList->AddBezierCurve(p0, p1, p2, p3, noodle_bezier_neutral, 2.f);
+            ImU32 color = g_hover.valid_connection ? noodle_bezier_neutral : noodle_bezier_cancel;
+            drawList->AddBezierCurve(p0, p1, p2, p3, color, 2.f);
         }
 
         ///////////////////////////////////////
