@@ -261,7 +261,7 @@ namespace noodle {
                 /// @todo create the entity here, not in the eval, architecturally lab_noodle is responsible
                 work.type = lab::Sound::WorkType::CreateRuntimeContext;
                 g_edit.device_node = work.eval();
-                registry.assign<Node>(g_edit.device_node, Node{});
+                registry.assign<Node>(g_edit.device_node, Node{ false, false });
                 registry.assign<GraphNodeLayout>(g_edit.device_node, GraphNodeLayout{ canvas_pos });
                 registry.assign<Name>(g_edit.device_node, unique_name("Device"));
                 break;
@@ -273,7 +273,11 @@ namespace noodle {
                 work.type = lab::Sound::WorkType::CreateNode;
                 work.name = name;
                 entt::entity new_node = work.eval();
-                registry.assign<Node>(new_node, Node{});
+
+                bool has_play = provider.node_has_play_controller(new_node);
+                bool has_bang = provider.node_has_bang_controller(new_node);
+
+                registry.assign<Node>(new_node, Node{ has_play, has_bang });
                 registry.assign<GraphNodeLayout>(new_node, GraphNodeLayout{ canvas_pos });
                 registry.assign<Name>(new_node, unique_name(name));
                 break;
@@ -601,16 +605,16 @@ namespace noodle {
     void EditNode(lab::Sound::Provider& provider, entt::entity node)
     {
         entt::registry& reg = provider.registry();
-        if (!reg.valid(node) || !reg.any<std::shared_ptr<lab::AudioNode>>(node))
+        if (!reg.valid(node))
         {
             g_edit.node = entt::null;
             return;
         }
 
-        std::shared_ptr<lab::AudioNode> node_it = reg.get<std::shared_ptr<lab::AudioNode>>(node);
+        Name& name = reg.get<Name>(node);
 
         char buff[256];
-        sprintf(buff, "%s Node", node_it->name());
+        sprintf(buff, "%s Node", name.name.c_str());
         ImGui::OpenPopup(buff);
 
         if (ImGui::BeginPopupModal(buff, nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize))
@@ -927,23 +931,20 @@ namespace noodle {
                         float testx = ul.x + 20;
                         bool play = false;
                         bool bang = false;
-                        std::shared_ptr<lab::AudioNode> a_node = registry.get<std::shared_ptr<lab::AudioNode>>(entity);
-                        if (!a_node)
-                            continue;
 
-                        bool scheduled = a_node->isScheduledNode();
+                        auto& node = registry.get<Node>(entity);
 
                         // in banner
-                        if (mouse_x_cs < testx && scheduled)
+                        if (mouse_x_cs < testx && node.play_controller)
                         {
                             g_hover.play = true;
                             play = true;
                         }
 
-                        if (scheduled)
+                        if (node.play_controller)
                             testx += 20;
 
-                        if (!play && mouse_x_cs < testx && a_node->_scheduler._onStart)
+                        if (!play && mouse_x_cs < testx && node.bang_controller)
                         {
                             g_hover.bang = true;
                             bang = true;

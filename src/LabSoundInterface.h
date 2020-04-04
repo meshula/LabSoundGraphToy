@@ -23,15 +23,6 @@ namespace lab {
 
 namespace lab { namespace Sound {
 
-//--------------------------------------------------------------
-// AudioPins are created for every created node
-// There is one noodle pin for every AudioPin
-/// @TODO don't expose this
-struct AudioPin
-{
-    std::shared_ptr<lab::AudioSetting> setting;
-    std::shared_ptr<lab::AudioParam> param;
-};
 
 //--------------------------------------------------------------
 // LabSound Work - everything the lab sound interfaces can do
@@ -74,6 +65,8 @@ public:
     float pin_float_value(entt::entity pin);
     int pin_int_value(entt::entity pin);
     bool pin_bool_value(entt::entity pin);
+    bool node_has_play_controller(entt::entity node);
+    bool node_has_bang_controller(entt::entity node);
 };
 
 }} // lab::Sound

@@ -12,6 +12,14 @@ namespace lab { namespace Sound {
     using std::string;
     using std::vector;
 
+    //--------------------------------------------------------------
+    // AudioPins are created for every created node
+    // There is one noodle pin for every AudioPin
+    struct AudioPin
+    {
+        std::shared_ptr<lab::AudioSetting> setting;
+        std::shared_ptr<lab::AudioParam> param;
+    };
 
     std::unique_ptr<lab::AudioContext> g_audio_context;
 
@@ -653,6 +661,18 @@ namespace lab { namespace Sound {
             return a_pin.setting->valueBool();
         else
             return 0;
+    }
+
+    bool Provider::node_has_play_controller(entt::entity node)
+    {
+        auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node);
+        return n && n->isScheduledNode();
+    }
+
+    bool Provider::node_has_bang_controller(entt::entity node)
+    {
+        auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node);
+        return n && n->_scheduler._onStart;
     }
 
 }} // lab::Sound
