@@ -173,6 +173,7 @@ namespace lab { namespace Sound {
             registry.assign<noodle::Name>(pin_id, "");
             registry.assign<noodle::Pin>(pin_id, noodle::Pin{
                 noodle::Pin::Kind::BusIn,
+                noodle::Pin::DataType::Bus,
                 "",
                 pin_id, audio_node_id,
                 });
@@ -190,6 +191,7 @@ namespace lab { namespace Sound {
             registry.assign<noodle::Name>(pin_id, "");
             registry.assign<noodle::Pin>(pin_id, noodle::Pin{
                 noodle::Pin::Kind::BusOut,
+                noodle::Pin::DataType::Bus,
                 "",
                 pin_id, audio_node_id,
                 });
@@ -206,24 +208,30 @@ namespace lab { namespace Sound {
         for (int i = 0; i < c; ++i)
         {
             char buff[64] = { '\0' };
+            char const* const* enums = nullptr;
 
+            lab::noodle::Pin::DataType dataType = lab::noodle::Pin::DataType::Float;
             lab::AudioSetting::Type type = settings[i]->type();
             if (type == lab::AudioSetting::Type::Float)
             {
+                dataType = lab::noodle::Pin::DataType::Float;
                 sprintf(buff, "%f", settings[i]->valueFloat());
             }
             else if (type == lab::AudioSetting::Type::Integer)
             {
+                dataType = lab::noodle::Pin::DataType::Integer;
                 sprintf(buff, "%d", settings[i]->valueUint32());
             }
             else if (type == lab::AudioSetting::Type::Bool)
             {
+                dataType = lab::noodle::Pin::DataType::Bool;
                 sprintf(buff, "%s", settings[i]->valueBool() ? "1" : "0");
             }
             else if (type == lab::AudioSetting::Type::Enumeration)
             {
-                char const* const* names = settings[i]->enums();
-                sprintf(buff, "%s", names[settings[i]->valueUint32()]);
+                dataType = lab::noodle::Pin::DataType::Enumeration;
+                enums = settings[i]->enums();
+                sprintf(buff, "%s", enums[settings[i]->valueUint32()]);
             }
 
             entt::entity pin_id = registry.create();
@@ -234,9 +242,11 @@ namespace lab { namespace Sound {
             registry.assign<noodle::Name>(pin_id, names[i]);
             registry.assign<noodle::Pin>(pin_id, noodle::Pin{
                 noodle::Pin::Kind::Setting,
+                dataType,
                 shortNames[i],
                 pin_id, audio_node_id,
-                buff
+                buff,
+                enums
                 });
         }
 
@@ -259,6 +269,7 @@ namespace lab { namespace Sound {
             registry.assign<noodle::Name>(pin_id, names[i]);
             registry.assign<noodle::Pin>(pin_id, noodle::Pin{
                 noodle::Pin::Kind::Param,
+                noodle::Pin::DataType::Float,
                 shortNames[i],
                 pin_id, audio_node_id,
                 buff
@@ -609,6 +620,39 @@ namespace lab { namespace Sound {
     char const* const* Provider::node_names() const
     {
         return lab::AudioNodeNames();
+    }
+
+    float Provider::pin_float_value(entt::entity pin)
+    {
+        lab::Sound::AudioPin& a_pin = registry().get<lab::Sound::AudioPin>(pin);
+        if (a_pin.param)
+            return a_pin.param->value();
+        else if (a_pin.setting)
+            return a_pin.setting->valueFloat();
+        else
+            return 0.f;
+    }
+
+    int Provider::pin_int_value(entt::entity pin)
+    {
+        lab::Sound::AudioPin& a_pin = registry().get<lab::Sound::AudioPin>(pin);
+        if (a_pin.param)
+            return static_cast<int>(a_pin.param->value());
+        else if (a_pin.setting)
+            return a_pin.setting->valueUint32();
+        else
+            return 0;
+    }
+
+    bool Provider::pin_bool_value(entt::entity pin)
+    {
+        lab::Sound::AudioPin& a_pin = registry().get<lab::Sound::AudioPin>(pin);
+        if (a_pin.param)
+            return a_pin.param->value() != 0.f;
+        else if (a_pin.setting)
+            return a_pin.setting->valueBool();
+        else
+            return 0;
     }
 
 }} // lab::Sound

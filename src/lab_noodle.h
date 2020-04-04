@@ -30,14 +30,16 @@ namespace lab { namespace noodle {
     // Some nodes may have overridden draw methods, such as the LabSound 
     // AnalyserNode. If such exists, the associated NodeRender will have a 
     // functor to call.
-    /// @TODO hook it up
+    /// @TODO add a render delegate, so that a void* doesn't have to be passed
+    /// where a DrawList would go
     struct NodeRender
     {
         // entity, ul_ws, lr_ws, scale, drawlist (typically ImGui::DrawList)
         std::function<void(entt::entity, vec2, vec2, float, void*)> render;
     };
 
-    // every entity may have a name
+    // every entity may have a name, Pins, Nodes, are typical. A scenegraph
+    // might name connections as well, with terms such as "is parent of".
     struct Name
     {
         std::string name;
@@ -52,36 +54,37 @@ namespace lab { namespace noodle {
     // Busses can connect to paramaters to drive them.
     struct Pin
     {
+        Pin() = default;
+        ~Pin() = default;
         enum class Kind { Setting, Param, BusIn, BusOut };
-        Kind kind;
+        enum class DataType { None, Bus, Bool, Integer, Enumeration, Float, String };
+        Kind         kind = Kind::Setting;
+        DataType     dataType = DataType::None;
         std::string  shortName;
-        entt::entity pin_id;
-        entt::entity node_id;
+        entt::entity pin_id = entt::null;
+        entt::entity node_id = entt::null;
         std::string  value_as_string;
+        char const* const* names = nullptr; // if an DataType is Enumeration, they'll be here
     };
 
-    // PinSetter, if it exists, is a mechanism by which a pin can 
-    // accept a value in the form of a string. This is how lab_noodle
-    // will no longer need to know about LabSound specifically
-    // ditto for PinGetter
+    // PinEdit, if it exists, is a mechanism by which a pin can 
+    // accept a value in the form of a string, or get a value as a string.
+    // A custom edit routine could go here as well, as for the renderer.
     /// @TODO hook them up
-    struct PinSetter
+    struct PinEdit
     {
         std::function<void(entt::entity, std::string)> set;
-    };
-    struct PinGetter
-    {
         std::function<std::string(entt::entity)> get;
     };
-
+ 
     // Schematic nodes may be connected from a pin on one node to a pin on another
     struct Connection
     {
-        entt::entity id;
-        entt::entity pin_from;
-        entt::entity node_from;
-        entt::entity pin_to;
-        entt::entity node_to;
+        entt::entity id = entt::null;
+        entt::entity pin_from = entt::null;
+        entt::entity node_from = entt::null;
+        entt::entity pin_to = entt::null;
+        entt::entity node_to = entt::null;
     };
 
     //--------------------------------------------------------------------------

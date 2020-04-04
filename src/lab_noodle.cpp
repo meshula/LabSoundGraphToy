@@ -430,8 +430,6 @@ namespace noodle {
         if (!registry.valid(pin.node_id))
             return;
 
-        lab::Sound::AudioPin a_pin = registry.get<lab::Sound::AudioPin>(pin_id);
-
         Name& name = registry.get<Name>(pin.node_id);
         Name& pin_name = registry.get<Name>(pin_id);
         char buff[256];
@@ -444,13 +442,8 @@ namespace noodle {
             ImGui::Separator();
 
             bool accept = false;
-            char const* const* names = nullptr;
 
-            lab::AudioSetting::Type type = lab::AudioSetting::Type::None;
-            if (pin.kind == Pin::Kind::Setting)
-                type = a_pin.setting->type();
-
-            if (pin.kind == Pin::Kind::Param || type == lab::AudioSetting::Type::Float)
+            if (pin.dataType == Pin::DataType::Float)
             {
                 if (ImGui::InputFloat("###EditPinParamFloat", &g_edit.pin_float,
                     0, 0, 5,
@@ -459,7 +452,7 @@ namespace noodle {
                     accept = true;
                 }
             }
-            else if (type == lab::AudioSetting::Type::Integer)
+            else if (pin.dataType == Pin::DataType::Integer)
             {
                 if (ImGui::InputInt("###EditPinParamInt", &g_edit.pin_int,
                     0, 0,
@@ -468,23 +461,22 @@ namespace noodle {
                     accept = true;
                 }
             }
-            else if (type == lab::AudioSetting::Type::Bool)
+            else if (pin.dataType == Pin::DataType::Bool)
             {
                 if (ImGui::Checkbox("###EditPinParamBool", &g_edit.pin_bool))
                 {
                     accept = true;
                 }
             }
-            else if (type == lab::AudioSetting::Type::Enumeration)
+            else if (pin.dataType == Pin::DataType::Enumeration)
             {
-                names = a_pin.setting->enums();
                 int enum_idx = g_edit.pin_int;
-                if (ImGui::BeginMenu(names[enum_idx]))
+                if (ImGui::BeginMenu(pin.names[enum_idx]))
                 {
                     std::string pressed = "";
                     enum_idx = 0;
                     int clicked = -1;
-                    for (char const* const* names_p = names; *names_p != nullptr; ++names_p, ++enum_idx)
+                    for (char const* const* names_p = pin.names; *names_p != nullptr; ++names_p, ++enum_idx)
                     {
                         if (ImGui::MenuItem(*names_p))
                         {
@@ -499,7 +491,7 @@ namespace noodle {
                     }
                 }
             }
-            else if (type == lab::AudioSetting::Type::Bus)
+            else if (pin.dataType == Pin::DataType::Bus)
             {
                 if (ImGui::Button("Load Audio File..."))
                 {
@@ -516,7 +508,7 @@ namespace noodle {
                 }
             }
 
-            if ((type != lab::AudioSetting::Type::Bus) && (accept || ImGui::Button("OK")))
+            if ((pin.dataType != Pin::DataType::Bus) && (accept || ImGui::Button("OK")))
             {
                 Work work(provider);
                 work.param_pin = pin_id;
@@ -529,28 +521,28 @@ namespace noodle {
                     work.type = WorkType::SetParam;
                     work.float_value = g_edit.pin_float;
                 }
-                else if (type == lab::AudioSetting::Type::Float)
+                else if (pin.dataType == Pin::DataType::Float)
                 {
                     sprintf(buff, "%f", g_edit.pin_float);
                     work.type = WorkType::SetFloatSetting;
                     work.float_value = g_edit.pin_float;
                 }
-                else if (type == lab::AudioSetting::Type::Integer)
+                else if (pin.dataType == Pin::DataType::Integer)
                 {
                     sprintf(buff, "%d", g_edit.pin_int);
                     work.type = WorkType::SetIntSetting;
                     work.int_value = g_edit.pin_int;
                 }
-                else if (type == lab::AudioSetting::Type::Bool)
+                else if (pin.dataType == Pin::DataType::Bool)
                 {
                     sprintf(buff, "%s", g_edit.pin_bool ? "True" : "False");
                     work.type = WorkType::SetBoolSetting;
                     work.bool_value = g_edit.pin_bool;
                 }
-                else if (type == lab::AudioSetting::Type::Enumeration)
+                else if (pin.dataType == Pin::DataType::Enumeration)
                 {
-                    if (names)
-                        sprintf(buff, "%s", names[g_edit.pin_int]);
+                    if (pin.names)
+                        sprintf(buff, "%s", pin.names[g_edit.pin_int]);
 
                     work.type = WorkType::SetIntSetting;
                     work.int_value = g_edit.pin_int;
@@ -1274,26 +1266,17 @@ namespace noodle {
                     // set mode to edit the value of the hovered pin
                     g_edit.pin = g_hover.pin_label_id;
                     Pin& pin = registry.get<Pin>(g_edit.pin);
-                    lab::Sound::AudioPin& a_pin = registry.get<lab::Sound::AudioPin>(g_edit.pin);
-                    if (pin.kind == Pin::Kind::Param)
+                    if (pin.dataType == Pin::DataType::Float)
                     {
-                        g_edit.pin_float = a_pin.param->value();
+                        g_edit.pin_float = _provider.pin_float_value(g_edit.pin);
                     }
-                    else if (pin.kind == Pin::Kind::Setting)
+                    else if (pin.dataType == Pin::DataType::Integer || pin.dataType == Pin::DataType::Enumeration)
                     {
-                        auto type = a_pin.setting->type();
-                        if (type == lab::AudioSetting::Type::Float)
-                        {
-                            g_edit.pin_float = a_pin.setting->valueFloat();
-                        }
-                        else if (type == lab::AudioSetting::Type::Integer || type == lab::AudioSetting::Type::Enumeration)
-                        {
-                            g_edit.pin_int = a_pin.setting->valueUint32();
-                        }
-                        else if (type == lab::AudioSetting::Type::Bool)
-                        {
-                            g_edit.pin_bool = a_pin.setting->valueBool();
-                        }
+                        g_edit.pin_int = _provider.pin_int_value(g_edit.pin);
+                    }
+                    if (pin.dataType == Pin::DataType::Bool)
+                    {
+                        g_edit.pin_bool = _provider.pin_bool_value(g_edit.pin);
                     }
                 }
                 else

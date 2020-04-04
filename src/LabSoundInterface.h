@@ -47,16 +47,14 @@ enum class WorkType
 
 struct Work
 {
-    Work()
-        : input_node_id(entt::null), output_node_id(entt::null), pin_id(entt::null) {}
-
+    Work() = default;
     ~Work() = default;
 
     WorkType type = WorkType::Nop;
-    entt::entity input_node_id;
-    entt::entity output_node_id;
-    entt::entity pin_id;
-    entt::entity connection_id;
+    entt::entity input_node_id = entt::null;
+    entt::entity output_node_id = entt::null;
+    entt::entity pin_id = entt::null;
+    entt::entity connection_id = entt::null;
     std::string name;
     float float_value = 0.f;
     int int_value = 0;
@@ -72,6 +70,10 @@ public:
     std::vector<entt::entity>& pins(entt::entity audio_node_id) const;
     entt::registry& registry() const;
     char const* const* node_names() const;
+
+    float pin_float_value(entt::entity pin);
+    int pin_int_value(entt::entity pin);
+    bool pin_bool_value(entt::entity pin);
 };
 
 }} // lab::Sound
