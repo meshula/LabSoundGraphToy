@@ -873,7 +873,7 @@ namespace noodle {
             float mouse_y_cs = g_mouse.mouse_cs.y;
 
             // check all pins
-            for (const auto entity : registry.view<lab::Sound::AudioPin>())
+            for (const auto entity : registry.view<lab::noodle::Pin>())
             {
                 if (!registry.valid(entity))
                 {
@@ -1355,8 +1355,6 @@ namespace noodle {
             lab::noodle::Connection& i = registry.get<lab::noodle::Connection>(entity);
             entt::entity from_pin = i.pin_from;
             entt::entity to_pin = i.pin_to;
-            lab::Sound::AudioPin& from_it = registry.get<lab::Sound::AudioPin>(from_pin);
-            lab::Sound::AudioPin& to_it = registry.get<lab::Sound::AudioPin>(to_pin);
 
             GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(from_pin);
             GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(to_pin);
