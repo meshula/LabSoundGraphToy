@@ -67,6 +67,8 @@ public:
     bool pin_bool_value(entt::entity pin);
     bool node_has_play_controller(entt::entity node);
     bool node_has_bang_controller(entt::entity node);
+    float get_timing_ms(entt::entity node);
+    float get_self_timing_ms(entt::entity node);
 };
 
 }} // lab::Sound

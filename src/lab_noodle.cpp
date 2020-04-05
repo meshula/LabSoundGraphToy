@@ -1385,26 +1385,14 @@ namespace noodle {
         //   Node Body / Drawing / Profiler  //
         ///////////////////////////////////////
 
-        std::shared_ptr<lab::AudioNode> dev_node;
-
         if (!registry.valid(g_edit.device_node))
             g_edit.device_node = entt::null;
 
-        if (g_edit.device_node != entt::null)
-            dev_node = registry.get<std::shared_ptr<lab::AudioNode>>(g_edit.device_node);
-
-        g_total_profile_duration = dev_node ? dev_node->graphTime.microseconds.count() : 0;
+        g_total_profile_duration = _provider.get_timing_ms(g_edit.device_node);
 
         for (auto entity : registry.view<lab::noodle::Node>())
         {
-            std::shared_ptr<lab::AudioNode> node = registry.get<std::shared_ptr<lab::AudioNode>>(entity);
-            if (!node)
-            {
-                /// @TODO dead pointer, add this entity to an entity reaping list
-                continue;
-            }
-
-            float node_profile_duration = node->totalTime.microseconds.count() - node->graphTime.microseconds.count();
+            float node_profile_duration = _provider.get_self_timing_ms(entity);
             node_profile_duration = std::abs(node_profile_duration); /// @TODO, the destination node doesn't yet have a totalTime, so abs is a hack in the nonce
 
             GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(entity);
@@ -1442,9 +1430,11 @@ namespace noodle {
                 const float label_font_size = style_padding_y * g_canvas.scale;
                 ImVec2 label_pos = ul_ws;
                 label_pos.y -= 20 * g_canvas.scale;
+                
+                auto& node = registry.get<Node>(entity);
 
                 // UI elements
-                if (node->isScheduledNode())
+                if (node.play_controller)
                 {
                     auto label = std::string(ICON_FAD_PLAY);
                     drawList->AddText(NULL, label_font_size, label_pos, 
@@ -1453,7 +1443,7 @@ namespace noodle {
                     label_pos.x += 20;
                 }
 
-                if (node->_scheduler._onStart)
+                if (node.bang_controller)
                 {
                     auto label = std::string(ICON_FAD_HARDCLIP);
                     drawList->AddText(NULL, label_font_size, label_pos, 

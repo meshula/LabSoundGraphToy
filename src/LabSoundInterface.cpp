@@ -675,5 +675,28 @@ namespace lab { namespace Sound {
         return n && n->_scheduler._onStart;
     }
 
+    float Provider::get_timing_ms(entt::entity node)
+    {
+        if (!registry().valid(node))
+            return 0;
+
+        auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node);
+        if (!n)
+            return 0;
+        return n->graphTime.microseconds.count();
+    }
+
+    float Provider::get_self_timing_ms(entt::entity node)
+    {
+        if (!registry().valid(node))
+            return 0;
+
+        auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node);
+        if (!n)
+            return 0;
+
+        return n->totalTime.microseconds.count() - n->graphTime.microseconds.count();
+    }
+
 }} // lab::Sound
 
