@@ -250,17 +250,12 @@ namespace noodle {
         void eval()
         {
             entt::registry& registry = provider.registry();
-
-            lab::Sound::Work work;
-
             switch (type)
             {
             case WorkType::CreateRuntimeContext:
             {
-                lab::Sound::Work work;
                 /// @todo create the entity here, not in the eval, architecturally lab_noodle is responsible
-                work.type = lab::Sound::WorkType::CreateRuntimeContext;
-                g_edit.device_node = work.eval();
+                g_edit.device_node = provider.create_runtime_context();
                 registry.assign<Node>(g_edit.device_node, Node{ false, false });
                 registry.assign<GraphNodeLayout>(g_edit.device_node, GraphNodeLayout{ canvas_pos });
                 registry.assign<Name>(g_edit.device_node, unique_name("Device"));
@@ -268,11 +263,8 @@ namespace noodle {
             }
             case WorkType::CreateNode:
             {
-                lab::Sound::Work work;
                 /// @todo create the entity here, not in the eval, architecturally lab_noodle is responsible
-                work.type = lab::Sound::WorkType::CreateNode;
-                work.name = name;
-                entt::entity new_node = work.eval();
+                entt::entity new_node = provider.node_create(name);
 
                 bool has_play = provider.node_has_play_controller(new_node);
                 bool has_bang = provider.node_has_bang_controller(new_node);
@@ -284,98 +276,57 @@ namespace noodle {
             }
             case WorkType::SetParam:
             {
-                lab::Sound::Work work;
-                work.type = lab::Sound::WorkType::SetParam;
-                work.pin_id = param_pin;
-                work.float_value = float_value;
-                work.eval();
+                provider.pin_set_float_value(param_pin, float_value);
                 break;
             }
             case WorkType::SetFloatSetting:
             {
-                lab::Sound::Work work;
-                work.type = lab::Sound::WorkType::SetFloatSetting;
-                work.pin_id = setting_pin;
-                work.float_value = float_value;
-                work.eval();
+                provider.pin_set_float_value(setting_pin, float_value);
                 break;
             }
             case WorkType::SetIntSetting:
             {
-                lab::Sound::Work work;
-                work.type = lab::Sound::WorkType::SetIntSetting;
-                work.pin_id = setting_pin;
-                work.int_value = int_value;
-                work.eval();
+                provider.pin_set_int_value(setting_pin, int_value);
                 break;
             }
             case WorkType::SetBoolSetting:
             {
-                lab::Sound::Work work;
-                work.type = lab::Sound::WorkType::SetBoolSetting;
-                work.pin_id = setting_pin;
-                work.bool_value = bool_value;
-                work.eval();
+                provider.pin_set_int_value(setting_pin, bool_value);
                 break;
             }
             case WorkType::SetBusSetting:
             {
-                lab::Sound::Work work;
-                work.type = lab::Sound::WorkType::SetBusSetting;
-                work.name = name;
-                work.pin_id = setting_pin;
-                work.eval();
+                provider.pin_set_bus_from_file(setting_pin, name);
                 break;
             }
             case WorkType::ConnectBusOutToBusIn:
             {
-                lab::Sound::Work work;
-                work.type = lab::Sound::WorkType::ConnectBusOutToBusIn;
-                work.input_node_id = input_node;
-                work.output_node_id = output_node;
-                work.eval();
+                provider.connect_bus_out_to_bus_in(output_node, input_node);
                 break;
             }
             case WorkType::ConnectBusOutToParamIn:
             {
-                lab::Sound::Work work;
-                work.type = lab::Sound::WorkType::ConnectBusOutToParamIn;
-                work.pin_id = param_pin;
-                work.output_node_id = output_node;
-                work.eval();
+                provider.connect_bus_out_to_param_in(output_node, param_pin);
                 break;
             }
             case WorkType::DisconnectInFromOut:
             {
-                lab::Sound::Work work;
-                work.type = lab::Sound::WorkType::DisconnectInFromOut;
-                work.connection_id = connection_id;
-                work.eval();
+                provider.disconnect(connection_id);
                 break;
             }
             case WorkType::DeleteNode:
             {
-                lab::Sound::Work work;
-                work.type = lab::Sound::WorkType::DeleteNode;
-                work.input_node_id = input_node;
-                work.output_node_id = output_node;
-                work.eval();
+                provider.node_delete(input_node);
                 break;
             }
             case WorkType::Start:
             {
-                lab::Sound::Work work;
-                work.type = lab::Sound::WorkType::Start;
-                work.input_node_id = input_node;
-                work.eval();
+                provider.node_start_stop(input_node, 0.f);
                 break;
             }
             case WorkType::Bang:
             {
-                lab::Sound::Work work;
-                work.type = lab::Sound::WorkType::Bang;
-                work.input_node_id = input_node;
-                work.eval();
+                provider.node_bang(input_node);
                 break;
             }
             }
@@ -1388,11 +1339,11 @@ namespace noodle {
         if (!registry.valid(g_edit.device_node))
             g_edit.device_node = entt::null;
 
-        g_total_profile_duration = _provider.get_timing_ms(g_edit.device_node);
+        g_total_profile_duration = _provider.node_get_timing_ms(g_edit.device_node);
 
         for (auto entity : registry.view<lab::noodle::Node>())
         {
-            float node_profile_duration = _provider.get_self_timing_ms(entity);
+            float node_profile_duration = _provider.node_get_self_timing_ms(entity);
             node_profile_duration = std::abs(node_profile_duration); /// @TODO, the destination node doesn't yet have a totalTime, so abs is a hack in the nonce
 
             GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(entity);

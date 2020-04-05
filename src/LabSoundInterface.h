@@ -16,59 +16,46 @@
 #include <memory>
 #include <string>
 
-namespace lab {
-    class AudioParam;
-    class AudioSetting;
-}
 
 namespace lab { namespace Sound {
 
 
 //--------------------------------------------------------------
-// LabSound Work - everything the lab sound interfaces can do
-
-enum class WorkType
-{
-    Nop, CreateRuntimeContext, CreateNode, DeleteNode, SetParam,
-    SetFloatSetting, SetIntSetting, SetBoolSetting, SetBusSetting,
-    ConnectBusOutToBusIn, ConnectBusOutToParamIn,
-    DisconnectInFromOut,
-    Start, Bang,
-};
-
-struct Work
-{
-    Work() = default;
-    ~Work() = default;
-
-    WorkType type = WorkType::Nop;
-    entt::entity input_node_id = entt::null;
-    entt::entity output_node_id = entt::null;
-    entt::entity pin_id = entt::null;
-    entt::entity connection_id = entt::null;
-    std::string name;
-    float float_value = 0.f;
-    int int_value = 0;
-    bool bool_value = false;
-
-    entt::entity eval();
-};
 
 class Provider
 {
 public:
-    entt::entity Create(char const* const name);
-    std::vector<entt::entity>& pins(entt::entity audio_node_id) const;
     entt::registry& registry() const;
-    char const* const* node_names() const;
 
+    entt::entity create_runtime_context();
+
+    // node creation and deletion
+    char const* const* node_names() const;
+    entt::entity node_create(const std::string& name);
+    void node_delete(entt::entity node);
+
+    // node access
+    bool  node_has_play_controller(entt::entity node);
+    bool  node_has_bang_controller(entt::entity node);
+    float node_get_timing_ms(entt::entity node);
+    float node_get_self_timing_ms(entt::entity node);
+    void  node_start_stop(entt::entity node, float when);
+    void  node_bang(entt::entity node);
+
+    // pins
+    std::vector<entt::entity>& pins(entt::entity audio_node_id) const;
+    void  pin_set_float_value(entt::entity pin, float);
     float pin_float_value(entt::entity pin);
-    int pin_int_value(entt::entity pin);
-    bool pin_bool_value(entt::entity pin);
-    bool node_has_play_controller(entt::entity node);
-    bool node_has_bang_controller(entt::entity node);
-    float get_timing_ms(entt::entity node);
-    float get_self_timing_ms(entt::entity node);
+    void  pin_set_int_value(entt::entity pin, int);
+    int   pin_int_value(entt::entity pin);
+    void  pin_set_bool_value(entt::entity pin, bool);
+    bool  pin_bool_value(entt::entity pin);
+    void  pin_set_bus_from_file(entt::entity pin, const std::string& path);
+
+    // connections
+    entt::entity connect_bus_out_to_bus_in(entt::entity node_out_id, entt::entity node_in_id);
+    entt::entity connect_bus_out_to_param_in(entt::entity output_node_id, entt::entity pin_id);
+    void disconnect(entt::entity connection_id);
 };
 
 }} // lab::Sound
