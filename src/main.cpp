@@ -8,6 +8,7 @@
 #include "sokol_gfx_imgui.h"
 
 #include "lab_imgui_ext.hpp"
+#include "LabSoundInterface.h"
 #include "lab_noodle.h"
 
 #include <string>
@@ -26,10 +27,6 @@ static bool quit = false;
 ImFont * g_roboto = nullptr;
 ImFont * g_cousine = nullptr;
 ImFont * g_audio_icon = nullptr;
-
-namespace lab { namespace noodle {
-    bool run_noodles(bool show_profiler, bool show_debug);
-} }
 
 void init(void) {
     // setup sokol-gfx, sokol-time and sokol-imgui
@@ -120,7 +117,8 @@ void frame()
 
     imgui_fixed_window_begin("GraphToyCanvas", 0.f, 20.f, static_cast<float>(width), static_cast<float>(height));
 
-    static lab::noodle::RunConfig config;
+    static LabSoundProvider provider;
+    static lab::noodle::RunConfig config { provider };
     static bool show_demo = false;
 
     config.command = lab::noodle::Command::None;
