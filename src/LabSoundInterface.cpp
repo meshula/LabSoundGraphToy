@@ -240,6 +240,11 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, entt::entity audio_no
             enums = settings[i]->enums();
             sprintf(buff, "%s", enums[settings[i]->valueUint32()]);
         }
+        else if (type == lab::AudioSetting::Type::Bus)
+        {
+            dataType = lab::noodle::Pin::DataType::Bus;
+            strcpy(buff, "...");
+        }
 
         entt::entity pin_id = registry.create();
         pins.push_back(pin_id);

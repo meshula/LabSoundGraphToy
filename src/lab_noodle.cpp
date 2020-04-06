@@ -218,6 +218,8 @@ namespace noodle {
         ConnectBusOutToBusIn, ConnectBusOutToParamIn,
         DisconnectInFromOut,
         Start, Bang,
+
+        Save
     };
 
     struct Work
@@ -252,6 +254,11 @@ namespace noodle {
             entt::registry& registry = provider.registry();
             switch (type)
             {
+            case WorkType::Save:
+            {
+                printf("Saving\n");
+                break;
+            }
             case WorkType::CreateRuntimeContext:
             {
                 /// @todo create the entity here, not in the eval, architecturally lab_noodle is responsible
@@ -459,6 +466,18 @@ namespace noodle {
                         work.type = WorkType::SetBusSetting;
                         g_pending_work.emplace_back(work);
                         g_edit.pin = entt::null;
+
+                        std::string path(file);
+                        size_t o = path.rfind('/');
+                        if (o != std::string::npos)
+                            path = path.substr(++o);
+                        else
+                        {
+                            o = path.rfind('\\');
+                            if (o != std::string::npos)
+                                path = path.substr(++o);
+                        }
+                        pin.value_as_string = path;
                     }
                 }
             }
@@ -967,6 +986,14 @@ namespace noodle {
         }
         if (config.command == Command::Save || (/* file ready to save && */ config.command == Command::New))
         {
+            const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_SAVE, "*.ls", ".", "*.*");
+            if (file)
+            {
+                Work work(config.provider);
+                work.type = WorkType::Save;
+                work.name.assign(file);
+                g_pending_work.push_back(work);
+            }
             // offer to save
         }
         if (config.command == Command::New)
@@ -1352,7 +1379,7 @@ namespace noodle {
             node_profile_duration = std::abs(node_profile_duration); /// @TODO, the destination node doesn't yet have a totalTime, so abs is a hack in the nonce
 
             Name& name = registry.get<Name>(entity);
-            profiler_data[profile_idx].color = legit::colors[((profile_idx + 4 * profile_idx) & 0xf)];
+            profiler_data[profile_idx].color = legit::colors[((profile_idx + 4 * profile_idx) & 0xf)]; // shuffle the colors so like colors are not together
             profiler_data[profile_idx].name = name.name;
             profiler_data[profile_idx].startTime = (profile_idx > 0) ? profiler_data[profile_idx - 1].endTime : 0;
             profiler_data[profile_idx].endTime = profiler_data[profile_idx].startTime + config.provider.node_get_self_timing(g_edit.device_node);
