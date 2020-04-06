@@ -1352,7 +1352,7 @@ namespace noodle {
             node_profile_duration = std::abs(node_profile_duration); /// @TODO, the destination node doesn't yet have a totalTime, so abs is a hack in the nonce
 
             Name& name = registry.get<Name>(entity);
-            profiler_data[profile_idx].color = legit::colors[profile_idx & 0xf];
+            profiler_data[profile_idx].color = legit::colors[((profile_idx + 4 * profile_idx) & 0xf)];
             profiler_data[profile_idx].name = name.name;
             profiler_data[profile_idx].startTime = (profile_idx > 0) ? profiler_data[profile_idx - 1].endTime : 0;
             profiler_data[profile_idx].endTime = profiler_data[profile_idx].startTime + config.provider.node_get_self_timing(g_edit.device_node);
