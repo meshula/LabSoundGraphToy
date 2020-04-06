@@ -6,6 +6,8 @@
 
 #include "LabSoundInterface.h"
 #include "lab_imgui_ext.hpp"
+#include "legit_profiler.hpp"
+
 
 #include "nfd.h"
 
@@ -950,6 +952,11 @@ namespace noodle {
 
     bool run_noodles(RunConfig& config)
     {
+        static legit::ProfilerGraph profiler_graph(100);
+        static std::vector<legit::ProfilerTask> profiler_data(1000);
+        int profile_idx = 0;
+        double profile_now = 0;
+
         // if the Command is to delete everything, do it first.
         if (config.command == Command::Open)
         {
@@ -999,14 +1006,14 @@ namespace noodle {
         // Create a canvas
 
         float height = edit_rect.Max.y - edit_rect.Min.y;
-                        //- ImGui::GetTextLineHeightWithSpacing()   // space for the time bar
-                        //- ImGui::GetTextLineHeightWithSpacing();  // space for horizontal scroller
+        //- ImGui::GetTextLineHeightWithSpacing()   // space for the time bar
+        //- ImGui::GetTextLineHeightWithSpacing();  // space for horizontal scroller
 
         bool rv = ImGui::BeginChild(g_id_main_window, ImVec2(0, height), false,
-                        ImGuiWindowFlags_NoBringToFrontOnFocus |
-                        ImGuiWindowFlags_NoMove |
-                        ImGuiWindowFlags_NoScrollbar |
-                        ImGuiWindowFlags_NoScrollWithMouse);
+            ImGuiWindowFlags_NoBringToFrontOnFocus |
+            ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoScrollbar |
+            ImGuiWindowFlags_NoScrollWithMouse);
 
         //---------------------------------------------------------------------
         // draw the grid on the canvas
@@ -1337,12 +1344,19 @@ namespace noodle {
         if (!registry.valid(g_edit.device_node))
             g_edit.device_node = entt::null;
 
-        g_total_profile_duration = config.provider.node_get_timing_ms(g_edit.device_node);
+        g_total_profile_duration = config.provider.node_get_timing(g_edit.device_node);
 
         for (auto entity : registry.view<lab::noodle::Node>())
         {
-            float node_profile_duration = config.provider.node_get_self_timing_ms(entity);
+            float node_profile_duration = config.provider.node_get_self_timing(entity);
             node_profile_duration = std::abs(node_profile_duration); /// @TODO, the destination node doesn't yet have a totalTime, so abs is a hack in the nonce
+
+            Name& name = registry.get<Name>(entity);
+            profiler_data[profile_idx].color = legit::colors[profile_idx & 0xf];
+            profiler_data[profile_idx].name = name.name;
+            profiler_data[profile_idx].startTime = (profile_idx > 0) ? profiler_data[profile_idx - 1].endTime : 0;
+            profiler_data[profile_idx].endTime = profiler_data[profile_idx].startTime + config.provider.node_get_self_timing(g_edit.device_node);
+            ++profile_idx;
 
             GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(entity);
             ImVec2 ul_ws = gnl.pos_cs;
@@ -1379,14 +1393,14 @@ namespace noodle {
                 const float label_font_size = style_padding_y * g_canvas.scale;
                 ImVec2 label_pos = ul_ws;
                 label_pos.y -= 20 * g_canvas.scale;
-                
+
                 auto& node = registry.get<Node>(entity);
 
                 // UI elements
                 if (node.play_controller)
                 {
                     auto label = std::string(ICON_FAD_PLAY);
-                    drawList->AddText(NULL, label_font_size, label_pos, 
+                    drawList->AddText(NULL, label_font_size, label_pos,
                         (g_hover.play && entity == g_hover.node_id) ? text_color_highlighted : text_color,
                         label.c_str(), label.c_str() + label.length());
                     label_pos.x += 20;
@@ -1395,7 +1409,7 @@ namespace noodle {
                 if (node.bang_controller)
                 {
                     auto label = std::string(ICON_FAD_HARDCLIP);
-                    drawList->AddText(NULL, label_font_size, label_pos, 
+                    drawList->AddText(NULL, label_font_size, label_pos,
                         (g_hover.bang && entity == g_hover.node_id) ? text_color_highlighted : text_color,
                         label.c_str(), label.c_str() + label.length());
                     label_pos.x += 20;
@@ -1415,7 +1429,7 @@ namespace noodle {
 
             if (registry.any<std::vector<entt::entity>>(entity))
             {
-                std::vector<entt::entity> & pins = config.provider.pins(entity);
+                std::vector<entt::entity>& pins = config.provider.pins(entity);
 
                 for (entt::entity j : pins)
                 {
@@ -1451,7 +1465,7 @@ namespace noodle {
                     uint32_t fill = (j == g_hover.pin_id || j == g_hover.originating_pin_id) ? 0xffffff : 0x000000;
                     fill |= (uint32_t)(128 + 128 * sinf(pulse * 8)) << 24;
 
-                    DrawIcon(drawList, pin_ul, 
+                    DrawIcon(drawList, pin_ul,
                         ImVec2{ pin_ul.x + GraphPinLayout::k_width * g_canvas.scale, pin_ul.y + GraphPinLayout::k_height * g_canvas.scale },
                         icon_type, false, color, fill);
 
@@ -1489,8 +1503,8 @@ namespace noodle {
         {
             ImGui::Begin("Debug Information");
             ImGui::TextUnformatted("Mouse");
-            ImGui::Text("canvas    pos (%d, %d)", (int) g_mouse.mouse_cs.x, (int) g_mouse.mouse_cs.y);
-            ImGui::Text("drawlist  pos (%d, %d)", (int) g_mouse.mouse_ws.x, (int) g_mouse.mouse_ws.y);
+            ImGui::Text("canvas    pos (%d, %d)", (int)g_mouse.mouse_cs.x, (int)g_mouse.mouse_cs.y);
+            ImGui::Text("drawlist  pos (%d, %d)", (int)g_mouse.mouse_ws.x, (int)g_mouse.mouse_ws.y);
             ImGui::Text("LMB %s%s%s", g_mouse.click_initiated ? "*" : "-", g_mouse.dragging ? "*" : "-", g_mouse.click_ended ? "*" : "-");
             ImGui::Text("canvas interaction: %s", g_mouse.interacting_with_canvas ? "*" : ".");
             ImGui::Text("wire dragging: %s", g_mouse.dragging_wire ? "*" : ".");
@@ -1498,9 +1512,9 @@ namespace noodle {
             ImGui::Separator();
             ImGui::TextUnformatted("Canvas");
             ImVec2 off = g_canvas.window_origin_offset_ws;
-            ImGui::Text("canvas window offset (%d, %d)", (int) off.x, (int) off.y);
+            ImGui::Text("canvas window offset (%d, %d)", (int)off.x, (int)off.y);
             off = g_canvas.origin_offset_ws;
-            ImGui::Text("canvas origin offset (%d, %d)", (int) off.x, (int) off.y);
+            ImGui::Text("canvas origin offset (%d, %d)", (int)off.x, (int)off.y);
 
             ImGui::Separator();
             ImGui::TextUnformatted("Hover");
@@ -1515,8 +1529,16 @@ namespace noodle {
             ImGui::TextUnformatted("Edit");
             ImGui::Text("edit connection: %d", g_edit.connection);
             ImGui::Separator();
-            ImGui::Text("quantum time: %f uS", g_total_profile_duration);
+            ImGui::Text("quantum time: %f uS", g_total_profile_duration * 1e6f);
 
+            ImGui::End();
+        }
+
+        if (config.show_profiler)
+        {
+            ImGui::Begin("Profiler");
+            profiler_graph.LoadFrameData(&profiler_data[0], profile_idx);
+            profiler_graph.RenderTimings(400, 300, 200, 0.000005f, 0);// std::max(0, profile_idx - 100));
             ImGui::End();
         }
 

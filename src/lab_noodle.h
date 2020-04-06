@@ -26,8 +26,8 @@ namespace lab { namespace noodle {
         // node access
         virtual bool  node_has_play_controller(entt::entity node) = 0;
         virtual bool  node_has_bang_controller(entt::entity node) = 0;
-        virtual float node_get_timing_ms(entt::entity node) = 0;
-        virtual float node_get_self_timing_ms(entt::entity node) = 0;
+        virtual float node_get_timing(entt::entity node) = 0;
+        virtual float node_get_self_timing(entt::entity node) = 0;
         virtual void  node_start_stop(entt::entity node, float when) = 0;
         virtual void  node_bang(entt::entity node) = 0;
 

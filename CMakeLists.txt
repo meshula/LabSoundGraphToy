@@ -15,14 +15,15 @@ endif()
 
 set(PLAYGROUND_SRC
     src/main.cpp
+    src/lab_imgui_ext.cpp
+    src/lab_imgui_ext.hpp
     src/lab_noodle.cpp
     src/lab_noodle.h
+    src/legit_profiler.hpp
+    src/IconsFontaudio.h
+    src/ImguiFontCousineRegular.cpp
     src/LabSoundInterface.cpp
     src/LabSoundInterface.h
-    src/ImguiFontCousineRegular.cpp
-	src/IconsFontaudio.h
-    src/lab_imgui_ext.cpp
-	src/lab_imgui_ext.hpp
 )
 
 if(APPLE)

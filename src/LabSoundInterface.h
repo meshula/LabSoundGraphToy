@@ -32,8 +32,8 @@ public:
     // node access
     virtual bool  node_has_play_controller(entt::entity node) override;
     virtual bool  node_has_bang_controller(entt::entity node) override;
-    virtual float node_get_timing_ms(entt::entity node) override;
-    virtual float node_get_self_timing_ms(entt::entity node) override;
+    virtual float node_get_timing(entt::entity node) override;      // in seconds
+    virtual float node_get_self_timing(entt::entity node) override; // in seconds
     virtual void  node_start_stop(entt::entity node, float when) override;
     virtual void  node_bang(entt::entity node) override;
 

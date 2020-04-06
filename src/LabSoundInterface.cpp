@@ -638,7 +638,7 @@ bool LabSoundProvider::node_has_bang_controller(entt::entity node)
     return n && n->_scheduler._onStart;
 }
 
-float LabSoundProvider::node_get_timing_ms(entt::entity node)
+float LabSoundProvider::node_get_timing(entt::entity node)
 {
     if (!registry().valid(node))
         return 0;
@@ -646,10 +646,10 @@ float LabSoundProvider::node_get_timing_ms(entt::entity node)
     auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node);
     if (!n)
         return 0;
-    return n->graphTime.microseconds.count();
+    return n->graphTime.microseconds.count() * 1.e-6f;
 }
 
-float LabSoundProvider::node_get_self_timing_ms(entt::entity node)
+float LabSoundProvider::node_get_self_timing(entt::entity node)
 {
     if (!registry().valid(node))
         return 0;
@@ -658,7 +658,7 @@ float LabSoundProvider::node_get_self_timing_ms(entt::entity node)
     if (!n)
         return 0;
 
-    return n->totalTime.microseconds.count() - n->graphTime.microseconds.count();
+    return (n->totalTime.microseconds.count() - n->graphTime.microseconds.count()) * 1.e-6f;
 }
 
 
