@@ -8,7 +8,6 @@
 #include "lab_imgui_ext.hpp"
 #include "legit_profiler.hpp"
 
-
 #include "nfd.h"
 
 #include <algorithm>
@@ -96,9 +95,9 @@ namespace noodle {
     struct GraphNodeLayout 
     {
         static const float k_column_width;
-        ImVec2 pos_cs = { 0,0 }, lr_cs = { 0,0 };
         int in_height = 0, mid_height = 0, out_height = 0;
         int column_count = 1;
+        ImVec2 lr_cs = { 0,0 };
     };
     const float GraphNodeLayout::k_column_width = 180.f;
 
@@ -218,8 +217,6 @@ namespace noodle {
         ConnectBusOutToBusIn, ConnectBusOutToParamIn,
         DisconnectInFromOut,
         Start, Bang,
-
-        Save
     };
 
     struct Work
@@ -254,17 +251,13 @@ namespace noodle {
             entt::registry& registry = provider.registry();
             switch (type)
             {
-            case WorkType::Save:
-            {
-                printf("Saving\n");
-                break;
-            }
             case WorkType::CreateRuntimeContext:
             {
                 /// @todo create the entity here, not in the eval, architecturally lab_noodle is responsible
                 g_edit.device_node = provider.create_runtime_context();
-                registry.assign<Node>(g_edit.device_node, Node{ false, false });
-                registry.assign<GraphNodeLayout>(g_edit.device_node, GraphNodeLayout{ canvas_pos });
+                registry.assign<Node>(g_edit.device_node, Node{ false, false, "Device" });
+                registry.assign<GraphNodeLayout>(g_edit.device_node, GraphNodeLayout{ });
+                registry.assign<UI>(g_edit.device_node, UI{ canvas_pos.x, canvas_pos.y });
                 registry.assign<Name>(g_edit.device_node, unique_name("Device"));
                 break;
             }
@@ -276,8 +269,9 @@ namespace noodle {
                 bool has_play = provider.node_has_play_controller(new_node);
                 bool has_bang = provider.node_has_bang_controller(new_node);
 
-                registry.assign<Node>(new_node, Node{ has_play, has_bang });
-                registry.assign<GraphNodeLayout>(new_node, GraphNodeLayout{ canvas_pos });
+                registry.assign<Node>(new_node, Node{ has_play, has_bang, name });
+                registry.assign<GraphNodeLayout>(new_node, GraphNodeLayout{ });
+                registry.assign<UI>(new_node, UI{ canvas_pos.x, canvas_pos.y });
                 registry.assign<Name>(new_node, unique_name(name));
                 break;
             }
@@ -717,6 +711,9 @@ namespace noodle {
             gnl.out_height = 0;
             gnl.column_count = 1;
 
+            UI& ui = registry.get<UI>(node_entity);
+            ImVec2 node_pos = ImVec2{ ui.canvas_x, ui.canvas_y };
+
             // calculate column heights
             if (registry.any<std::vector<entt::entity>>(node_entity))
             {
@@ -735,7 +732,7 @@ namespace noodle {
                         registry.assign<GraphPinLayout>(entity, GraphPinLayout{});
 
                     GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity);
-                    pnl.node_origin_cs = gnl.pos_cs;
+                    pnl.node_origin_cs = node_pos;
 
                     switch (pin.kind)
                     {
@@ -762,7 +759,7 @@ namespace noodle {
                 height = gnl.out_height;
 
             float width = GraphNodeLayout::k_column_width * gnl.column_count;
-            gnl.lr_cs = gnl.pos_cs + ImVec2{ width, GraphPinLayout::k_height * (1.5f + (float)height) };
+            gnl.lr_cs = node_pos + ImVec2{ width, GraphPinLayout::k_height * (1.5f + (float)height) };
 
             gnl.in_height = 0;
             gnl.mid_height = 0;
@@ -890,7 +887,8 @@ namespace noodle {
             for (const entt::entity entity : registry.view<lab::noodle::Node>())
             {
                 GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(entity);
-                ImVec2 ul = gnl.pos_cs;
+                UI& ui = registry.get<UI>(entity);
+                ImVec2 ul = ImVec2{ ui.canvas_x, ui.canvas_y };
                 ImVec2 lr = gnl.lr_cs;
                 if (mouse_x_cs >= ul.x && mouse_x_cs <= (lr.x + GraphPinLayout::k_width) && mouse_y_cs >= (ul.y - 20) && mouse_y_cs <= lr.y)
                 {
@@ -975,31 +973,6 @@ namespace noodle {
         static std::vector<legit::ProfilerTask> profiler_data(1000);
         int profile_idx = 0;
         double profile_now = 0;
-
-        // if the Command is to delete everything, do it first.
-        if (config.command == Command::Open)
-        {
-            const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_OPEN, "*.ls", ".", "*.*");
-            if (file)
-            {
-            }
-        }
-        if (config.command == Command::Save || (/* file ready to save && */ config.command == Command::New))
-        {
-            const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_SAVE, "*.ls", ".", "*.*");
-            if (file)
-            {
-                Work work(config.provider);
-                work.type = WorkType::Save;
-                work.name.assign(file);
-                g_pending_work.push_back(work);
-            }
-            // offer to save
-        }
-        if (config.command == Command::New)
-        {
-            // delete everything
-        }
 
         ImGui::BeginChild("###Noodles");
         struct RunWork
@@ -1268,8 +1241,8 @@ namespace noodle {
                     g_mouse.dragging_wire = false;
                     g_mouse.dragging_node = true;
 
-                    GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(g_hover.node_id);
-                    g_mouse.node_initial_pos_cs = gnl.pos_cs;
+                    UI& ui = registry.get<UI>(g_hover.node_id);
+                    g_mouse.node_initial_pos_cs = ImVec2{ ui.canvas_x, ui.canvas_y };
                 }
             }
 
@@ -1277,10 +1250,13 @@ namespace noodle {
             {
                 ImVec2 delta = g_mouse.mouse_cs - g_mouse.canvas_clickpos_cs;
 
+                UI& ui = registry.get<UI>(g_hover.node_id);
                 GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(g_hover.node_id);
-                ImVec2 sz = gnl.lr_cs - gnl.pos_cs;
-                gnl.pos_cs = g_mouse.node_initial_pos_cs + delta;
-                gnl.lr_cs = gnl.pos_cs + sz;
+                ImVec2 sz = gnl.lr_cs - ImVec2{ ui.canvas_x, ui.canvas_y };
+                ImVec2 new_pos = g_mouse.node_initial_pos_cs + delta;
+                ui.canvas_x = new_pos.x;
+                ui.canvas_y = new_pos.y;
+                gnl.lr_cs = new_pos + sz;
 
                 /// @TODO force the color to be highlighting
             }
@@ -1386,7 +1362,8 @@ namespace noodle {
             ++profile_idx;
 
             GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(entity);
-            ImVec2 ul_ws = gnl.pos_cs;
+            UI& ui = registry.get<UI>(entity);
+            ImVec2 ul_ws = ImVec2{ ui.canvas_x, ui.canvas_y };
             ImVec2 lr_ws = gnl.lr_cs;
             ul_ws = g_canvas.window_origin_offset_ws + ul_ws * g_canvas.scale + g_canvas.origin_offset_ws;
             lr_ws = g_canvas.window_origin_offset_ws + lr_ws * g_canvas.scale + g_canvas.origin_offset_ws;

@@ -51,6 +51,9 @@ public:
     virtual entt::entity connect_bus_out_to_bus_in(entt::entity node_out_id, entt::entity node_in_id) override;
     virtual entt::entity connect_bus_out_to_param_in(entt::entity output_node_id, entt::entity pin_id) override;
     virtual void disconnect(entt::entity connection_id) override;
+
+    // loading and saving
+    void save(const std::string& path);
 };
 
 #endif

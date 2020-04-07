@@ -11,6 +11,8 @@
 #include "LabSoundInterface.h"
 #include "lab_noodle.h"
 
+#include "nfd.h"
+
 #include <string>
 #include <vector>
 #include <fstream>
@@ -99,6 +101,8 @@ void init(void) {
 
 void frame()
 {
+    using lab::noodle::Command;
+
     const int width = sapp_width();
     const int height = sapp_height();
     const float w = (float)sapp_width();
@@ -121,7 +125,7 @@ void frame()
     static lab::noodle::RunConfig config { provider };
     static bool show_demo = false;
 
-    config.command = lab::noodle::Command::None;
+    config.command = Command::None;
     if (ImGui::BeginMainMenuBar())
     {
         if (ImGui::BeginMenu("File")) 
@@ -131,13 +135,13 @@ void frame()
             bool load = false;
             ImGui::MenuItem("New", 0, &new_file);
             if (save)
-                config.command = lab::noodle::Command::New;
+                config.command = Command::New;
             ImGui::MenuItem("Open", 0, &load);
             if (load)
-                config.command = lab::noodle::Command::Open;
+                config.command = Command::Open;
             ImGui::MenuItem("Save", 0, &save);
             if (save)
-                config.command = lab::noodle::Command::Save;
+                config.command = Command::Save;
             ImGui::MenuItem("Quit", 0, &quit);
             if (quit)
                 sapp_request_quit();
@@ -153,6 +157,29 @@ void frame()
         ImGui::EndMainMenuBar();
     }
 
+    switch (config.command)
+    {
+    case Command::New:
+    case Command::Save:
+    {
+        const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_SAVE, "*.ls", ".", "*.*");
+        if (file)
+        {
+            provider.save(file);
+        }
+        break;
+    }
+    case Command::Open:
+    {
+        const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_OPEN, "*.ls", ".", "*.*");
+        if (file)
+        {
+        }
+        break;
+    }
+    }
+
+    config.command = Command::None;
     lab::noodle::run_noodles(config);
 
     imgui_fixed_window_end();

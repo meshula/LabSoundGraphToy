@@ -666,4 +666,93 @@ float LabSoundProvider::node_get_self_timing(entt::entity node)
     return (n->totalTime.microseconds.count() - n->graphTime.microseconds.count()) * 1.e-6f;
 }
 
+void LabSoundProvider::save(const std::string& path)
+{
+    /// @TODO this is a prototype file format, meant to debug actually writing valuable data
+    /// The format could be something else entirely, this routine should be treated more
+    /// like a prototype template that can be duplicated for a new format.
 
+    // Note: this code uses \n because std::endl has other behaviors
+    using lab::noodle::Name;
+    using lab::noodle::Pin;
+    using lab::noodle::UI;
+    entt::registry& reg = registry();
+    std::ofstream file(path, std::ios::binary);
+    file << "#!ls\n";
+    file << "# " << path << "\n";
+    for (auto node_entity : reg.view<lab::noodle::Node>())
+    {
+        if (!reg.valid(node_entity))
+            continue;
+
+        lab::noodle::Node& node = reg.get<lab::noodle::Node>(node_entity);
+        lab::noodle::Name& name = reg.get<lab::noodle::Name>(node_entity);
+        file << "node: "<< node.kind << " name: " << name.name << "\n";
+
+        if (reg.any<UI>(node_entity))
+        {
+            UI& ui = reg.get<UI>(node_entity);
+            file << " pos: " << ui.canvas_x << " " << ui.canvas_y << "\n";
+        }
+
+        std::vector<entt::entity>& pins = reg.get<std::vector<entt::entity>>(node_entity);
+        for (const entt::entity entity : pins)
+        {
+            if (!reg.valid(entity))
+                continue;
+
+            Pin pin = reg.get<Pin>(entity);
+            if (!reg.valid(pin.node_id))
+                continue;
+
+            Name& name = reg.get<Name>(entity);
+            switch (pin.kind)
+            {
+            case Pin::Kind::BusIn:
+            case Pin::Kind::BusOut:
+                break;
+
+            case Pin::Kind::Param:
+                file << " param: " << name.name << " " << pin.value_as_string << "\n";
+                break;
+            case Pin::Kind::Setting:
+                file << " setting: " << name.name << " ";
+                switch (pin.dataType)
+                {
+                case Pin::DataType::None: file << "None "; break;
+                case Pin::DataType::Bus: file << "Bus "; break;
+                case Pin::DataType::Bool: file << "Bool "; break;
+                case Pin::DataType::Integer: file << "Integer "; break;
+                case Pin::DataType::Enumeration: file << "Enumeration "; break;
+                case Pin::DataType::Float: file << "Float "; break;
+                case Pin::DataType::String: file << "String "; break;
+                }
+                file << pin.value_as_string << "\n";
+                break;
+            }
+        }
+    }
+
+    /// @TODO note that the pins are not named correctly, there's a bug in the code
+    /// above where the names are not assigned appropriately
+
+    for (const auto entity : reg.view<lab::noodle::Connection>())
+    {
+        lab::noodle::Connection& connection = reg.get<lab::noodle::Connection>(entity);
+        entt::entity from_pin = connection.pin_from;
+        entt::entity to_pin = connection.pin_to;
+        if (!reg.valid(from_pin) || !reg.valid(to_pin))
+            continue;
+
+        using lab::noodle::Name;
+        Name& from_pin_name = reg.get<Name>(from_pin);
+        Name& to_pin_name = reg.get<Name>(from_pin);
+        Name& from_node_name = reg.get<Name>(connection.node_from);
+        Name& to_node_name = reg.get<Name>(connection.node_to);
+
+        file << " + " << from_node_name.name << ":" << from_pin_name.name <<
+                " -> " << to_node_name.name << ":" << to_node_name.name << "\n";
+    }
+
+    file.flush();
+}
