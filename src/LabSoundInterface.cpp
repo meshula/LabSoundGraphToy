@@ -678,7 +678,7 @@ void LabSoundProvider::save(const std::string& path)
     using lab::noodle::UI;
     entt::registry& reg = registry();
     std::ofstream file(path, std::ios::binary);
-    file << "#!ls\n";
+    file << "#!LabSoundGraphToy\n";
     file << "# " << path << "\n";
     for (auto node_entity : reg.view<lab::noodle::Node>())
     {
@@ -732,9 +732,6 @@ void LabSoundProvider::save(const std::string& path)
             }
         }
     }
-
-    /// @TODO note that the pins are not named correctly, there's a bug in the code
-    /// above where the names are not assigned appropriately
 
     for (const auto entity : reg.view<lab::noodle::Connection>())
     {
