@@ -122,10 +122,10 @@ void frame()
     imgui_fixed_window_begin("GraphToyCanvas", 0.f, 20.f, static_cast<float>(width), static_cast<float>(height));
 
     static LabSoundProvider provider;
-    static lab::noodle::RunConfig config { provider };
+    static lab::noodle::Context config(provider);
     static bool show_demo = false;
 
-    config.command = Command::None;
+    Command command = Command::None;
     if (ImGui::BeginMainMenuBar())
     {
         if (ImGui::BeginMenu("File")) 
@@ -135,13 +135,13 @@ void frame()
             bool load = false;
             ImGui::MenuItem("New", 0, &new_file);
             if (save)
-                config.command = Command::New;
+                command = Command::New;
             ImGui::MenuItem("Open", 0, &load);
             if (load)
-                config.command = Command::Open;
+                command = Command::Open;
             ImGui::MenuItem("Save", 0, &save);
             if (save)
-                config.command = Command::Save;
+                command = Command::Save;
             ImGui::MenuItem("Quit", 0, &quit);
             if (quit)
                 sapp_request_quit();
@@ -157,7 +157,7 @@ void frame()
         ImGui::EndMainMenuBar();
     }
 
-    switch (config.command)
+    switch (command)
     {
     case Command::New:
     case Command::Save:
@@ -165,7 +165,7 @@ void frame()
         const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_SAVE, "*.ls", ".", "*.*");
         if (file)
         {
-            provider.save(file);
+            config.save(file);
         }
         break;
     }
@@ -179,8 +179,7 @@ void frame()
     }
     }
 
-    config.command = Command::None;
-    lab::noodle::run_noodles(config);
+    config.run();
 
     imgui_fixed_window_end();
 

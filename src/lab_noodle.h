@@ -147,15 +147,24 @@ namespace lab { namespace noodle {
         Save
     };
 
-    struct RunConfig
+    struct Context
     {
+        Context() = delete;
+        explicit Context(Provider&);
+        ~Context();
+
         Provider& provider;
         bool show_profiler = false;
         bool show_debug = false;
-        Command command = Command::None;
+      
+        bool run();
+        void save(const std::string& path);
+
+    private:
+        struct State;
+        State* _s;
     };
 
-    bool run_noodles(RunConfig&);
 } }
 
 #endif
