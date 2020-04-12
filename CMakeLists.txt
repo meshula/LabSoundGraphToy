@@ -195,9 +195,8 @@ target_link_libraries(LabSoundGraphToy
     ${PLATFORM_LIBS}
     imgui
     Lab::Sound
-    tinyfiledialogs
+    Boxer
     sokol)
-target_link_libraries(LabSoundGraphToy <INTERFACE|PUBLIC|PRIVATE> Boxer)
 
 #-------------------------------------------------------------------------------
 # Installer

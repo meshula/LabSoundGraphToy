@@ -135,7 +135,7 @@ void frame()
             bool new_file = false;
             bool load = false;
             ImGui::MenuItem("New", 0, &new_file);
-            if (save)
+            if (new_file)
                 command = Command::New;
             ImGui::MenuItem("Open", 0, &load);
             if (load)
@@ -145,7 +145,28 @@ void frame()
                 command = Command::Save;
             ImGui::MenuItem("Quit", 0, &quit);
             if (quit)
-                sapp_request_quit();
+            {
+                if (config.needs_saving())
+                {
+                    // pop open an alert
+                    boxer::Selection sel = boxer::show("Save unsaved work?", "Quit", boxer::Style::Warning, boxer::Buttons::YesNo);
+                    if (sel == boxer::Selection::Yes)
+                    {
+                        const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_SAVE, "*.ls", ".", "*.*");
+                        if (file)
+                        {
+                            config.save(file);
+                        }
+                    }
+                    else
+                    {
+                        boxer::Selection sel = boxer::show("Not saving, confirm Quit?", "Quit", boxer::Style::Warning, boxer::Buttons::YesNo);
+                        quit = sel == boxer::Selection::Yes;
+                    }
+                }
+                if (quit)
+                    sapp_request_quit();
+            }
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Debug"))
@@ -166,8 +187,8 @@ void frame()
         if (config.needs_saving())
         {
             // pop open an alert
-            boxer::Selection sel = boxer::show("There is unsaved work", "Save?", boxer::Style::Warning, boxer::Buttons::YesNo);
-            perform_new = boxer::Selection::Yes;
+            boxer::Selection sel = boxer::show("Save unsaved work?", "New", boxer::Style::Warning, boxer::Buttons::YesNo);
+            perform_new = sel == boxer::Selection::Yes;
             if (perform_new)
             {
                 const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_SAVE, "*.ls", ".", "*.*");
@@ -193,16 +214,22 @@ void frame()
     case Command::Open:
     {
         bool perform_open = true;
-        if (platform_alert("Save work in progress?"))
+        if (config.needs_saving())
         {
-            const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_OPEN, "*.ls", ".", "*.*");
-            if (file)
+            // pop open an alert
+            boxer::Selection sel = boxer::show("Save unsaved work?", "Open", boxer::Style::Warning, boxer::Buttons::YesNo);
+            if (sel == boxer::Selection::Yes)
             {
-            }
-            else
-            {
-                // the wanted to save first, but cancelled, so cancel the open
-                perform_open = false;
+                const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_SAVE, "*.ls", ".", "*.*");
+                if (file)
+                {
+                    config.save(file);
+                }
+                else
+                {
+                    // the wanted to save first, but cancelled, so cancel the open
+                    perform_open = false;
+                }
             }
         }
         if (perform_open)

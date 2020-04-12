@@ -158,7 +158,16 @@ namespace lab { namespace noodle {
         bool show_debug = false;
       
         bool run();
+
+        // save and load do their work irrepsective of dirty state.
+        // check needs_saving to determine if the user should be presented
+        // with a save as dialog, or if save should not be called.
+        // the Context is not responsible for the document on disk, only reading and writing,
+        // so path is not tracked.
+        bool needs_saving() const;
         void save(const std::string& path);
+        void load(const std::string& path);
+        void clear_all();
 
     private:
         struct State;

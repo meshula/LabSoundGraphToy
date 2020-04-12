@@ -83,7 +83,7 @@ namespace noodle {
     {
         ImVec2 window_origin_offset_ws = { 0, 0 };
         ImVec2 origin_offset_ws = { 0, 0 };
-        float scale = 1.f;
+        float  scale = 1.f;
     };
 
     //--------------------
@@ -170,15 +170,42 @@ namespace noodle {
         void edit_connection(lab::noodle::Provider& provider, entt::entity connection, std::vector<Work>& pending_work);
         void edit_node(Provider& provider, entt::entity node, std::vector<Work>& pending_work);
 
-        entt::entity _connection = entt::null;
-        entt::entity _pin = entt::null;
-        entt::entity _node = entt::null;
+        entt::entity selected_connection = entt::null;
+        entt::entity selected_pin = entt::null;
+        entt::entity selected_node = entt::null;
 
         entt::entity _device_node = entt::null;
 
-        float _pin_float = 0;
-        int   _pin_int = 0;
-        bool  _pin_bool = false;
+        float pin_float = 0;
+        int   pin_int = 0;
+        bool  pin_bool = false;
+
+        void incr_work_epoch()
+        {
+            ++_work_epoch;
+        }
+        void reset_epochs()
+        {
+            _save_epoch = 1;
+            _work_epoch = 1;
+        }
+        void clear_epochs()
+        {
+            _save_epoch = 0;
+            _work_epoch = 0;
+        }
+        void unify_epochs()
+        {
+            _save_epoch = _work_epoch;
+        }
+        bool need_saving() const
+        {
+            return _save_epoch != _work_epoch;
+        }
+
+    private:
+        int _save_epoch = 0; // zero is reserved for empty
+        int _work_epoch = 0; // zero is reserved for empty
     };
 
     struct HoverState
@@ -214,6 +241,7 @@ namespace noodle {
         ConnectBusOutToBusIn, ConnectBusOutToParamIn,
         DisconnectInFromOut,
         Start, Bang,
+        ClearScene
     };
 
     struct Work
@@ -256,6 +284,7 @@ namespace noodle {
                 registry.assign<GraphNodeLayout>(edit._device_node, GraphNodeLayout{ });
                 registry.assign<UI>(edit._device_node, UI{ canvas_pos.x, canvas_pos.y });
                 registry.assign<Name>(edit._device_node, unique_name("Device"));
+                edit.incr_work_epoch();
                 break;
             }
             case WorkType::CreateNode:
@@ -270,51 +299,61 @@ namespace noodle {
                 registry.assign<GraphNodeLayout>(new_node, GraphNodeLayout{ });
                 registry.assign<UI>(new_node, UI{ canvas_pos.x, canvas_pos.y });
                 registry.assign<Name>(new_node, unique_name(name));
+                edit.incr_work_epoch();
                 break;
             }
             case WorkType::SetParam:
             {
                 provider.pin_set_float_value(param_pin, float_value);
+                edit.incr_work_epoch();
                 break;
             }
             case WorkType::SetFloatSetting:
             {
                 provider.pin_set_float_value(setting_pin, float_value);
+                edit.incr_work_epoch();
                 break;
             }
             case WorkType::SetIntSetting:
             {
                 provider.pin_set_int_value(setting_pin, int_value);
+                edit.incr_work_epoch();
                 break;
             }
             case WorkType::SetBoolSetting:
             {
                 provider.pin_set_int_value(setting_pin, bool_value);
+                edit.incr_work_epoch();
                 break;
             }
             case WorkType::SetBusSetting:
             {
                 provider.pin_set_bus_from_file(setting_pin, name);
+                edit.incr_work_epoch();
                 break;
             }
             case WorkType::ConnectBusOutToBusIn:
             {
                 provider.connect_bus_out_to_bus_in(output_node, input_node);
+                edit.incr_work_epoch();
                 break;
             }
             case WorkType::ConnectBusOutToParamIn:
             {
                 provider.connect_bus_out_to_param_in(output_node, param_pin);
+                edit.incr_work_epoch();
                 break;
             }
             case WorkType::DisconnectInFromOut:
             {
                 provider.disconnect(connection_id);
+                edit.incr_work_epoch();
                 break;
             }
             case WorkType::DeleteNode:
             {
                 provider.node_delete(input_node);
+                edit.incr_work_epoch();
                 break;
             }
             case WorkType::Start:
@@ -327,30 +366,41 @@ namespace noodle {
                 provider.node_bang(input_node);
                 break;
             }
+            case WorkType::ClearScene:
+            {
+                edit.clear_epochs();
+            }
             }
         }
     };
 
     struct Context::State
     {
+        State() : profiler_graph(100)
+        {
+        }
+
+        ~State() = default;
+
         void init(Provider& provider);
         void update_mouse_state(Provider& provider);
         void update_hovers(Provider& provider);
         bool context_menu(Provider& provider, ImVec2 canvas_pos);
+        void run(Provider& provider, bool show_profiler, bool show_debug);
 
-        Canvas _canvas;
-        MouseState _mouse;
-        EditState _edit;
-        HoverState _hover;
-        std::vector<Work> _pending_work;
+        legit::ProfilerGraph profiler_graph;
+        Canvas canvas;
+        MouseState mouse;
+        EditState edit;
+        HoverState hover;
+        std::vector<Work> pending_work;
+        std::vector<legit::ProfilerTask> profiler_data;
 
-        float _total_profile_duration = 1; // in microseconds
-        entt::entity _ent_main_window = entt::null;
-        ImGuiID _id_main_window;
-        ImGuiID _id_main_invis;
+        float total_profile_duration = 1; // in microseconds
+        entt::entity ent_main_window = entt::null;
+        ImGuiID main_window_id;
+        ImGuiID graph_interactive_region_id;
     };
-
-
 
     bool Context::State::context_menu(Provider& provider, ImVec2 canvas_pos)
     {
@@ -381,7 +431,7 @@ namespace noodle {
                     work.type = WorkType::CreateNode;
                     work.canvas_pos = canvas_pos;
                     work.name = pressed;
-                    _pending_work.push_back(work);
+                    pending_work.push_back(work);
                 }
             }
             ImGui::PopID();
@@ -415,7 +465,7 @@ namespace noodle {
 
             if (pin.dataType == Pin::DataType::Float)
             {
-                if (ImGui::InputFloat("###EditPinParamFloat", &_pin_float,
+                if (ImGui::InputFloat("###EditPinParamFloat", &pin_float,
                     0, 0, 5,
                     ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CharsScientific))
                 {
@@ -424,7 +474,7 @@ namespace noodle {
             }
             else if (pin.dataType == Pin::DataType::Integer)
             {
-                if (ImGui::InputInt("###EditPinParamInt", &_pin_int,
+                if (ImGui::InputInt("###EditPinParamInt", &pin_int,
                     0, 0,
                     ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CharsScientific))
                 {
@@ -433,14 +483,14 @@ namespace noodle {
             }
             else if (pin.dataType == Pin::DataType::Bool)
             {
-                if (ImGui::Checkbox("###EditPinParamBool", &_pin_bool))
+                if (ImGui::Checkbox("###EditPinParamBool", &pin_bool))
                 {
                     accept = true;
                 }
             }
             else if (pin.dataType == Pin::DataType::Enumeration)
             {
-                int enum_idx = _pin_int;
+                int enum_idx = pin_int;
                 if (ImGui::BeginMenu(pin.names[enum_idx]))
                 {
                     std::string pressed = "";
@@ -456,7 +506,7 @@ namespace noodle {
                     ImGui::EndMenu();
                     if (clicked >= 0)
                     {
-                        _pin_int = clicked;
+                        pin_int = clicked;
                         accept = true;
                     }
                 }
@@ -473,7 +523,7 @@ namespace noodle {
                         work.name.assign(file);
                         work.type = WorkType::SetBusSetting;
                         pending_work.emplace_back(work);
-                        _pin = entt::null;
+                        selected_pin = entt::null;
 
                         std::string path(file);
                         size_t o = path.rfind('/');
@@ -499,45 +549,45 @@ namespace noodle {
 
                 if (pin.kind == Pin::Kind::Param)
                 {
-                    sprintf(buff, "%f", _pin_float);
+                    sprintf(buff, "%f", pin_float);
                     work.type = WorkType::SetParam;
-                    work.float_value = _pin_float;
+                    work.float_value = pin_float;
                 }
                 else if (pin.dataType == Pin::DataType::Float)
                 {
-                    sprintf(buff, "%f", _pin_float);
+                    sprintf(buff, "%f", pin_float);
                     work.type = WorkType::SetFloatSetting;
-                    work.float_value = _pin_float;
+                    work.float_value = pin_float;
                 }
                 else if (pin.dataType == Pin::DataType::Integer)
                 {
-                    sprintf(buff, "%d", _pin_int);
+                    sprintf(buff, "%d", pin_int);
                     work.type = WorkType::SetIntSetting;
-                    work.int_value = _pin_int;
+                    work.int_value = pin_int;
                 }
                 else if (pin.dataType == Pin::DataType::Bool)
                 {
-                    sprintf(buff, "%s", _pin_bool ? "True" : "False");
+                    sprintf(buff, "%s", pin_bool ? "True" : "False");
                     work.type = WorkType::SetBoolSetting;
-                    work.bool_value = _pin_bool;
+                    work.bool_value = pin_bool;
                 }
                 else if (pin.dataType == Pin::DataType::Enumeration)
                 {
                     if (pin.names)
-                        sprintf(buff, "%s", pin.names[_pin_int]);
+                        sprintf(buff, "%s", pin.names[pin_int]);
 
                     work.type = WorkType::SetIntSetting;
-                    work.int_value = _pin_int;
+                    work.int_value = pin_int;
                 }
 
                 pin.value_as_string.assign(buff);
 
                 pending_work.emplace_back(work);
-                _pin = entt::null;
+                selected_pin = entt::null;
             }
             ImGui::SameLine();
             if (ImGui::Button("Cancel"))
-                _pin = entt::null;
+                selected_pin = entt::null;
 
             ImGui::EndPopup();
         }
@@ -548,13 +598,13 @@ namespace noodle {
         entt::registry& reg = provider.registry();
         if (!reg.valid(connection))
         {
-            _connection = entt::null;
+            selected_connection = entt::null;
             return;
         }
         if (!reg.any<lab::noodle::Connection>(connection))
         {
             printf("No GraphConnection for %d", connection);
-            _connection = entt::null;
+            selected_connection = entt::null;
             return;
         }
 
@@ -569,12 +619,12 @@ namespace noodle {
                 work.type = WorkType::DisconnectInFromOut;
                 work.connection_id = connection;
                 pending_work.emplace_back(work);
-                _connection = entt::null;
+                selected_connection = entt::null;
             }
 
             ImGui::SameLine();
             if (ImGui::Button("Cancel"))
-                _connection = entt::null;
+                selected_connection = entt::null;
 
             ImGui::EndPopup();
         }
@@ -585,7 +635,7 @@ namespace noodle {
         entt::registry& reg = provider.registry();
         if (!reg.valid(node))
         {
-            _node = entt::null;
+            selected_node = entt::null;
             return;
         }
 
@@ -605,11 +655,11 @@ namespace noodle {
                 work.type = WorkType::DeleteNode;
                 work.input_node = node;
                 pending_work.emplace_back(work);
-                _node = entt::null;
+                selected_node = entt::null;
             }
             if (ImGui::Button("Cancel", {ImGui::GetWindowContentRegionWidth(), 24}))
             {
-                _node = entt::null;
+                selected_node = entt::null;
             }
 
             ImGui::Dummy({256, style_padding_y});
@@ -628,10 +678,12 @@ namespace noodle {
             return;
 
         once = false;
-        _ent_main_window = provider.registry().create();
-        _id_main_window = ImGui::GetID(&_ent_main_window);
-        _id_main_invis = ImGui::GetID(&_id_main_invis);
-        _hover.reset(entt::null);
+        ent_main_window = provider.registry().create();
+        main_window_id = ImGui::GetID(&ent_main_window);
+        graph_interactive_region_id = ImGui::GetID(&graph_interactive_region_id);
+        hover.reset(entt::null);
+
+        profiler_data.resize(1000);
 
         ImGuiWindow* win = ImGui::GetCurrentWindow();
         ImRect edit_rect = win->ContentRegionRect;
@@ -639,9 +691,8 @@ namespace noodle {
         Work work(provider);
         work.type = WorkType::CreateRuntimeContext;
         work.canvas_pos = ImVec2{ edit_rect.Max.x - 300, y };
-        _pending_work.push_back(work);
+        pending_work.push_back(work);
     }
-
 
 
     void Context::State::update_mouse_state(Provider& provider)
@@ -654,52 +705,52 @@ namespace noodle {
         ImGuiWindow* win = ImGui::GetCurrentWindow();
         ImRect edit_rect = win->ContentRegionRect;
 
-        _mouse.click_ended = false;
-        _mouse.click_initiated = false;
-        _mouse.in_canvas = false;
+        mouse.click_ended = false;
+        mouse.click_initiated = false;
+        mouse.in_canvas = false;
         if (ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem))
         {
             ImGui::SetCursorScreenPos(edit_rect.Min);
-            ImGui::PushID(_id_main_invis);
+            ImGui::PushID(graph_interactive_region_id);
             bool result = ImGui::InvisibleButton("Noodle", edit_rect.GetSize());
             ImGui::PopID();
             if (result)
             {
                 //printf("button released\n");
-                _mouse.dragging_node = false;
-                _mouse.click_ended = true;
+                mouse.dragging_node = false;
+                mouse.click_ended = true;
             }
-            _mouse.in_canvas = ImGui::IsItemHovered();
+            mouse.in_canvas = ImGui::IsItemHovered();
 
-            if (_mouse.in_canvas)
+            if (mouse.in_canvas)
             {
-                _mouse.mouse_ws = io.MousePos - ImGui::GetCurrentWindow()->Pos;
-                _mouse.mouse_cs = (_mouse.mouse_ws - _canvas.origin_offset_ws) / _canvas.scale;
+                mouse.mouse_ws = io.MousePos - ImGui::GetCurrentWindow()->Pos;
+                mouse.mouse_cs = (mouse.mouse_ws - canvas.origin_offset_ws) / canvas.scale;
 
                 if (io.MouseDown[0] && io.MouseDownOwned[0])
                 {
-                    if (!_mouse.dragging)
+                    if (!mouse.dragging)
                     {
                         //printf("button clicked\n");
-                        _mouse.click_initiated = true;
-                        _mouse.initial_click_pos_ws = io.MousePos;
-                        _mouse.canvas_clickpos_cs = _mouse.mouse_cs;
-                        _mouse.canvas_clicked_pixel_offset_ws = _canvas.origin_offset_ws;
+                        mouse.click_initiated = true;
+                        mouse.initial_click_pos_ws = io.MousePos;
+                        mouse.canvas_clickpos_cs = mouse.mouse_cs;
+                        mouse.canvas_clicked_pixel_offset_ws = canvas.origin_offset_ws;
                     }
 
-                    _mouse.dragging = true;
+                    mouse.dragging = true;
                 }
                 else
-                    _mouse.dragging = false;
+                    mouse.dragging = false;
             }
             else
-                _mouse.dragging = false;
+                mouse.dragging = false;
         }
         else
-            _mouse.dragging = false;
+            mouse.dragging = false;
 
-        if (!_mouse.dragging)
-            _hover.node_id = entt::null;
+        if (!mouse.dragging)
+            hover.node_id = entt::null;
     }
 
     void lay_out_pins(Provider& provider)
@@ -836,19 +887,19 @@ namespace noodle {
         //bool currently_hovered = _hover.node_id != entt::null;
 
         // refresh highlights if dragging a wire, or if a node is not being dragged
-        bool find_highlights = _mouse.dragging_wire || !_mouse.dragging;
+        bool find_highlights = mouse.dragging_wire || !mouse.dragging;
         
         if (find_highlights)
         {
-            _hover.bang = false;
-            _hover.play = false;
-            _hover.node_menu = false;
-            _hover.node_id = entt::null;
-            _hover.pin_id = entt::null;
-            _hover.pin_label_id = entt::null;
-            _hover.connection_id = entt::null;
-            float mouse_x_cs = _mouse.mouse_cs.x;
-            float mouse_y_cs = _mouse.mouse_cs.y;
+            hover.bang = false;
+            hover.play = false;
+            hover.node_menu = false;
+            hover.node_id = entt::null;
+            hover.pin_id = entt::null;
+            hover.pin_label_id = entt::null;
+            hover.connection_id = entt::null;
+            float mouse_x_cs = mouse.mouse_cs.x;
+            float mouse_y_cs = mouse.mouse_cs.y;
 
             // check all pins
             for (const auto entity : registry.view<lab::noodle::Pin>())
@@ -860,32 +911,32 @@ namespace noodle {
                 }
 
                 GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity);
-                if (pnl.pin_contains_cs_point(_canvas, mouse_x_cs, mouse_y_cs))
+                if (pnl.pin_contains_cs_point(canvas, mouse_x_cs, mouse_y_cs))
                 {
                     Pin& pin = registry.get<Pin>(entity);
                     if (pin.kind == Pin::Kind::Setting)
                     {
-                        _hover.pin_id = entt::null;
+                        hover.pin_id = entt::null;
                     }
                     else
                     {
-                        _hover.pin_id = entity;
-                        _hover.pin_label_id = entt::null;
-                        _hover.node_id = pin.node_id;
+                        hover.pin_id = entity;
+                        hover.pin_label_id = entt::null;
+                        hover.node_id = pin.node_id;
                     }
                 }
-                else if (pnl.label_contains_cs_point(_canvas, mouse_x_cs, mouse_y_cs))
+                else if (pnl.label_contains_cs_point(canvas, mouse_x_cs, mouse_y_cs))
                 {
                     Pin& pin = registry.get<Pin>(entity);
                     if (pin.kind == Pin::Kind::Setting || pin.kind == Pin::Kind::Param)
                     {
-                        _hover.pin_id = entt::null;
-                        _hover.pin_label_id = entity;
-                        _hover.node_id = pin.node_id;
+                        hover.pin_id = entt::null;
+                        hover.pin_label_id = entity;
+                        hover.node_id = pin.node_id;
                     }
                     else
                     {
-                        _hover.pin_label_id = entt::null;
+                        hover.pin_label_id = entt::null;
                     }
                 }
             }
@@ -912,7 +963,7 @@ namespace noodle {
                         // in banner
                         if (mouse_x_cs < testx && node.play_controller)
                         {
-                            _hover.play = true;
+                            hover.play = true;
                             play = true;
                         }
 
@@ -921,23 +972,23 @@ namespace noodle {
 
                         if (!play && mouse_x_cs < testx && node.bang_controller)
                         {
-                            _hover.bang = true;
+                            hover.bang = true;
                             bang = true;
                         }
 
                         if (!play && !bang)
                         {
-                            _hover.node_menu = true;
+                            hover.node_menu = true;
                         }
                     }
 
-                    _hover.node_id = entity;
+                    hover.node_id = entity;
                     break;
                 }
             }
 
             // test all connections
-            if (_hover.node_id == entt::null)
+            if (hover.node_id == entt::null)
             {
                 // no node or node furniture hovered, check connections
                 for (const auto entity : registry.view<lab::noodle::Connection>())
@@ -950,21 +1001,21 @@ namespace noodle {
 
                     GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(from_pin);
                     GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(to_pin);
-                    ImVec2 from_pos = from_gpl.ul_ws(_canvas) + ImVec2(style_padding_y, style_padding_x) * _canvas.scale;
-                    ImVec2 to_pos = to_gpl.ul_ws(_canvas) + ImVec2(0, style_padding_x) * _canvas.scale;
+                    ImVec2 from_pos = from_gpl.ul_ws(canvas) + ImVec2(style_padding_y, style_padding_x) * canvas.scale;
+                    ImVec2 to_pos = to_gpl.ul_ws(canvas) + ImVec2(0, style_padding_x) * canvas.scale;
 
                     ImVec2 p0 = from_pos;
                     ImVec2 p3 = to_pos;
                     ImVec2 p1, p2;
-                    noodle_bezier(p0, p1, p2, p3, _canvas.scale);
-                    ImVec2 test = _mouse.mouse_ws + _canvas.window_origin_offset_ws;
+                    noodle_bezier(p0, p1, p2, p3, canvas.scale);
+                    ImVec2 test = mouse.mouse_ws + canvas.window_origin_offset_ws;
                     ImVec2 closest = ImBezierClosestPointCasteljau(p0, p1, p2, p3, test, 10);
                     
                     ImVec2 delta = test - closest;
                     float d = delta.x * delta.x + delta.y * delta.y;
                     if (d < 100)
                     {
-                        _hover.connection_id = entity;
+                        hover.connection_id = entity;
                         break;
                     }
                 }
@@ -972,28 +1023,14 @@ namespace noodle {
         }
     }
 
-    Context::Context(Provider& p)
-        : provider(p), _s(new State)
-    {
-        _s->init(p);
-    }
 
-    Context::~Context()
+    void Context::State::run(Provider& provider, bool show_profiler, bool show_debug)
     {
-        delete _s;
-    }
-
-
-    bool Context::run()
-    {
-        static legit::ProfilerGraph profiler_graph(100);
-        static std::vector<legit::ProfilerTask> profiler_data(1000);
         int profile_idx = 0;
-        double profile_now = 0;
+
+        init(provider);
 
         ImGui::BeginChild("###Noodles");
-
-        _s->init(provider);
 
         //---------------------------------------------------------------------
         // ensure coordinate systems are initialized properly
@@ -1001,7 +1038,7 @@ namespace noodle {
         ImGuiIO& io = ImGui::GetIO();
         ImGuiWindow* win = ImGui::GetCurrentWindow();
         ImRect edit_rect = win->ContentRegionRect;
-        _s->_canvas.window_origin_offset_ws = ImGui::GetWindowPos() + ImGui::GetWindowContentRegionMin();
+        canvas.window_origin_offset_ws = ImGui::GetWindowPos() + ImGui::GetWindowContentRegionMin();
 
         //---------------------------------------------------------------------
         // ensure node sizes are up to date
@@ -1015,7 +1052,7 @@ namespace noodle {
         //- ImGui::GetTextLineHeightWithSpacing()   // space for the time bar
         //- ImGui::GetTextLineHeightWithSpacing();  // space for horizontal scroller
 
-        bool rv = ImGui::BeginChild(_s->_id_main_window, ImVec2(0, height), false,
+        bool rv = ImGui::BeginChild(main_window_id, ImVec2(0, height), false,
             ImGuiWindowFlags_NoBringToFrontOnFocus |
             ImGuiWindowFlags_NoMove |
             ImGuiWindowFlags_NoScrollbar |
@@ -1030,18 +1067,18 @@ namespace noodle {
         {
             drawList->ChannelsSetCurrent(ChannelGrid);
 
-            const float grid_step_x = 100.0f * _s->_canvas.scale;
-            const float grid_step_y = 100.0f * _s->_canvas.scale;
+            const float grid_step_x = 100.0f * canvas.scale;
+            const float grid_step_y = 100.0f * canvas.scale;
             const ImVec2 grid_origin = ImGui::GetWindowPos();
             const ImVec2 grid_size = ImGui::GetWindowSize();
 
             drawList->AddRectFilled(grid_origin, grid_origin + grid_size, grid_bg_color);
 
-            for (float x = fmodf(_s->_canvas.origin_offset_ws.x, grid_step_x); x < grid_size.x; x += grid_step_x)
+            for (float x = fmodf(canvas.origin_offset_ws.x, grid_step_x); x < grid_size.x; x += grid_step_x)
             {
                 drawList->AddLine(ImVec2(x, 0.0f) + grid_origin, ImVec2(x, grid_size.y) + grid_origin, grid_line_color);
             }
-            for (float y = fmodf(_s->_canvas.origin_offset_ws.y, grid_step_y); y < grid_size.y; y += grid_step_y)
+            for (float y = fmodf(canvas.origin_offset_ws.y, grid_step_y); y < grid_size.y; y += grid_step_y)
             {
                 drawList->AddLine(ImVec2(0.0f, y) + grid_origin, ImVec2(grid_size.x, y) + grid_origin, grid_line_color);
             }
@@ -1051,66 +1088,66 @@ namespace noodle {
         //---------------------------------------------------------------------
         // run the Imgui portion of the UI
 
-        _s->update_mouse_state(provider);
+        update_mouse_state(provider);
 
-        if (_s->_mouse.dragging || _s->_mouse.dragging_wire || _s->_mouse.dragging_node)
+        if (mouse.dragging || mouse.dragging_wire || mouse.dragging_node)
         {
-            if (_s->_mouse.dragging_wire)
-                _s->update_hovers(provider);
+            if (mouse.dragging_wire)
+                update_hovers(provider);
         }
         else
         {
-            bool imgui_business = _s->context_menu(provider, _s->_mouse.mouse_cs);
+            bool imgui_business = context_menu(provider, mouse.mouse_cs);
             if (imgui_business)
             {
-                _s->_mouse.dragging = false;
-                _s->_hover.node_id = entt::null;
-                _s->_hover.reset(entt::null);
-                _s->_edit._pin = entt::null;
+                mouse.dragging = false;
+                hover.node_id = entt::null;
+                hover.reset(entt::null);
+                edit.selected_pin = entt::null;
             }
-            else if (_s->_edit._pin != entt::null)
+            else if (edit.selected_pin != entt::null)
             {
-                ImGui::SetNextWindowPos(_s->_mouse.initial_click_pos_ws);
-                _s->_edit.edit_pin(provider, _s->_edit._pin, _s->_pending_work);
-                _s->_mouse.dragging = false;
-                _s->_hover.node_id = entt::null;
-                _s->_hover.reset(entt::null);
+                ImGui::SetNextWindowPos(mouse.initial_click_pos_ws);
+                edit.edit_pin(provider, edit.selected_pin, pending_work);
+                mouse.dragging = false;
+                hover.node_id = entt::null;
+                hover.reset(entt::null);
             }
-            else if (_s->_edit._connection != entt::null)
+            else if (edit.selected_connection != entt::null)
             {
-                ImGui::SetNextWindowPos(_s->_mouse.initial_click_pos_ws);
-                _s->_edit.edit_connection(provider, _s->_edit._connection, _s->_pending_work);
-                _s->_mouse.dragging = false;
-                _s->_hover.node_id = entt::null;
-                _s->_hover.reset(entt::null);
+                ImGui::SetNextWindowPos(mouse.initial_click_pos_ws);
+                edit.edit_connection(provider, edit.selected_connection, pending_work);
+                mouse.dragging = false;
+                hover.node_id = entt::null;
+                hover.reset(entt::null);
             }
-            else if (_s->_edit._node != entt::null)
+            else if (edit.selected_node != entt::null)
             {
-                ImGui::SetNextWindowPos(_s->_mouse.initial_click_pos_ws);
-                _s->_edit.edit_node(provider, _s->_edit._node, _s->_pending_work);
-                _s->_mouse.dragging = false;
+                ImGui::SetNextWindowPos(mouse.initial_click_pos_ws);
+                edit.edit_node(provider, edit.selected_node, pending_work);
+                mouse.dragging = false;
             }
             else
             {
-                _s->update_hovers(provider);
+                update_hovers(provider);
             }
         }
 
         entt::registry& registry = provider.registry();
 
         /// @TODO consolidate the redundant logic here for testing connections
-        if (_s->_mouse.dragging && _s->_mouse.dragging_wire)
+        if (mouse.dragging && mouse.dragging_wire)
         {
             // if dragging a wire, check for disallowed connections so they wire can turn red
-            _s->_hover.valid_connection = true;
-            if (_s->_hover.originating_pin_id != entt::null && _s->_hover.pin_id != entt::null && 
-                registry.valid(_s->_hover.originating_pin_id) && registry.valid(_s->_hover.pin_id))
+            hover.valid_connection = true;
+            if (hover.originating_pin_id != entt::null && hover.pin_id != entt::null && 
+                registry.valid(hover.originating_pin_id) && registry.valid(hover.pin_id))
             {
-                GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(_s->_hover.originating_pin_id);
-                GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(_s->_hover.pin_id);
+                GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(hover.originating_pin_id);
+                GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(hover.pin_id);
 
-                Pin from_pin = registry.get<Pin>(_s->_hover.originating_pin_id);
-                Pin to_pin = registry.get<Pin>(_s->_hover.pin_id);
+                Pin from_pin = registry.get<Pin>(hover.originating_pin_id);
+                Pin to_pin = registry.get<Pin>(hover.pin_id);
 
                 if (from_pin.kind == Pin::Kind::BusIn || from_pin.kind == Pin::Kind::Param)
                 {
@@ -1121,44 +1158,44 @@ namespace noodle {
                 Pin::Kind to_kind = to_pin.kind;
                 Pin::Kind from_kind = from_pin.kind;
 
-                _s->_hover.valid_connection = !(to_kind == Pin::Kind::Setting || to_kind == Pin::Kind::BusOut ||
+                hover.valid_connection = !(to_kind == Pin::Kind::Setting || to_kind == Pin::Kind::BusOut ||
                     from_kind == Pin::Kind::BusIn || from_kind == Pin::Kind::Param ||
                     from_kind == Pin::Kind::Setting);
 
                 // disallow connecting a node to itself
-                _s->_hover.valid_connection &= from_pin.node_id != to_pin.node_id;
+                hover.valid_connection &= from_pin.node_id != to_pin.node_id;
             }
         }
-        else if (!_s->_mouse.dragging && _s->_mouse.dragging_wire)
+        else if (!mouse.dragging && mouse.dragging_wire)
         {
-            _s->_hover.valid_connection = true;
-            if (_s->_hover.originating_pin_id != entt::null && _s->_hover.pin_id != entt::null && 
-                registry.valid(_s->_hover.originating_pin_id) && registry.valid(_s->_hover.pin_id))
+            hover.valid_connection = true;
+            if (hover.originating_pin_id != entt::null && hover.pin_id != entt::null && 
+                registry.valid(hover.originating_pin_id) && registry.valid(hover.pin_id))
             {
-                GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(_s->_hover.originating_pin_id);
-                GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(_s->_hover.pin_id);
+                GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(hover.originating_pin_id);
+                GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(hover.pin_id);
 
-                Pin from_pin = registry.get<Pin>(_s->_hover.originating_pin_id);
-                Pin to_pin = registry.get<Pin>(_s->_hover.pin_id);
+                Pin from_pin = registry.get<Pin>(hover.originating_pin_id);
+                Pin to_pin = registry.get<Pin>(hover.pin_id);
 
                 if (from_pin.kind == Pin::Kind::BusIn || from_pin.kind == Pin::Kind::Param)
                 {
                     std::swap(to_pin, from_pin);
-                    std::swap(_s->_hover.originating_pin_id, _s->_hover.pin_id);
+                    std::swap(hover.originating_pin_id, hover.pin_id);
                 }
 
                 // check if a valid connection is requested
                 Pin::Kind to_kind = to_pin.kind;
                 Pin::Kind from_kind = from_pin.kind;
 
-                _s->_hover.valid_connection = !(to_kind == Pin::Kind::Setting || to_kind == Pin::Kind::BusOut ||
+                hover.valid_connection = !(to_kind == Pin::Kind::Setting || to_kind == Pin::Kind::BusOut ||
                     from_kind == Pin::Kind::BusIn || from_kind == Pin::Kind::Param ||
                     from_kind == Pin::Kind::Setting);
 
                 // disallow connecting a node to itself
-                _s->_hover.valid_connection &= from_pin.node_id != to_pin.node_id;
+               hover.valid_connection &= from_pin.node_id != to_pin.node_id;
 
-                if (!_s->_hover.valid_connection)
+                if (!hover.valid_connection)
                 {
                     printf("invalid connection request\n");
                 }
@@ -1170,7 +1207,7 @@ namespace noodle {
                         work.type = WorkType::ConnectBusOutToBusIn;
                         work.input_node = to_pin.node_id;
                         work.output_node = from_pin.node_id;
-                        _s->_pending_work.emplace_back(work);
+                        pending_work.emplace_back(work);
                     }
                     else if (to_kind == Pin::Kind::Param)
                     {
@@ -1179,89 +1216,89 @@ namespace noodle {
                         work.input_node = to_pin.node_id;
                         work.output_node = from_pin.node_id;
                         work.param_pin = to_pin.pin_id;
-                        _s->_pending_work.emplace_back(work);
+                        pending_work.emplace_back(work);
                     }
                 }
             }
-            _s->_mouse.dragging_wire = false;
-            _s->_hover.originating_pin_id = entt::null;
+            mouse.dragging_wire = false;
+            hover.originating_pin_id = entt::null;
         }
-        else if (_s->_mouse.click_ended)
+        else if (mouse.click_ended)
         {
-            if (_s->_hover.connection_id != entt::null)
+            if (hover.connection_id != entt::null)
             {
-                _s->_edit._connection = _s->_hover.connection_id;
+                edit.selected_connection = hover.connection_id;
             }
-            else if (_s->_hover.node_menu)
+            else if (hover.node_menu)
             {
-                _s->_edit._node = _s->_hover.node_id;
+                edit.selected_node = hover.node_id;
             }
         }
 
-        _s->_mouse.interacting_with_canvas = _s->_hover.node_id == entt::null && !_s->_mouse.dragging_wire;
-        if (!_s->_mouse.interacting_with_canvas)
+        mouse.interacting_with_canvas = hover.node_id == entt::null && !mouse.dragging_wire;
+        if (!mouse.interacting_with_canvas)
         {
             // nodes and wires
-            if (_s->_mouse.click_initiated)
+            if (mouse.click_initiated)
             {
-                if (_s->_hover.bang)
+                if (hover.bang)
                 {
                     Work work(provider);
                     work.type = WorkType::Bang;
-                    work.input_node = _s->_hover.node_id;
-                    _s->_pending_work.push_back(work);
+                    work.input_node = hover.node_id;
+                    pending_work.push_back(work);
                 }
-                if (_s->_hover.play)
+                if (hover.play)
                 {
                     Work work(provider);
                     work.type = WorkType::Start;
-                    work.input_node = _s->_hover.node_id;
-                    _s->_pending_work.push_back(work);
+                    work.input_node = hover.node_id;
+                    pending_work.push_back(work);
                 }
-                if (_s->_hover.pin_id != entt::null)
+                if (hover.pin_id != entt::null)
                 {
-                    _s->_mouse.dragging_wire = true;
-                    _s->_mouse.dragging_node = false;
-                    _s->_mouse.node_initial_pos_cs = _s->_mouse.mouse_cs;
-                    if (_s->_hover.originating_pin_id == entt::null)
-                        _s->_hover.originating_pin_id = _s->_hover.pin_id;
+                    mouse.dragging_wire = true;
+                    mouse.dragging_node = false;
+                    mouse.node_initial_pos_cs = mouse.mouse_cs;
+                    if (hover.originating_pin_id == entt::null)
+                        hover.originating_pin_id = hover.pin_id;
                 }
-                else if (_s->_hover.pin_label_id != entt::null)
+                else if (hover.pin_label_id != entt::null)
                 {
                     // set mode to edit the value of the hovered pin
-                    _s->_edit._pin = _s->_hover.pin_label_id;
-                    Pin& pin = registry.get<Pin>(_s->_edit._pin);
+                    edit.selected_pin = hover.pin_label_id;
+                    Pin& pin = registry.get<Pin>(edit.selected_pin);
                     if (pin.dataType == Pin::DataType::Float)
                     {
-                        _s->_edit._pin_float = provider.pin_float_value(_s->_edit._pin);
+                        edit.pin_float = provider.pin_float_value(edit.selected_pin);
                     }
                     else if (pin.dataType == Pin::DataType::Integer || pin.dataType == Pin::DataType::Enumeration)
                     {
-                        _s->_edit._pin_int = provider.pin_int_value(_s->_edit._pin);
+                        edit.pin_int = provider.pin_int_value(edit.selected_pin);
                     }
                     if (pin.dataType == Pin::DataType::Bool)
                     {
-                        _s->_edit._pin_bool = provider.pin_bool_value(_s->_edit._pin);
+                        edit.pin_bool = provider.pin_bool_value(edit.selected_pin);
                     }
                 }
                 else
                 {
-                    _s->_mouse.dragging_wire = false;
-                    _s->_mouse.dragging_node = true;
+                    mouse.dragging_wire = false;
+                    mouse.dragging_node = true;
 
-                    UI& ui = registry.get<UI>(_s->_hover.node_id);
-                    _s->_mouse.node_initial_pos_cs = ImVec2{ ui.canvas_x, ui.canvas_y };
+                    UI& ui = registry.get<UI>(hover.node_id);
+                    mouse.node_initial_pos_cs = ImVec2{ ui.canvas_x, ui.canvas_y };
                 }
             }
 
-            if (_s->_mouse.dragging_node)
+            if (mouse.dragging_node)
             {
-                ImVec2 delta = _s->_mouse.mouse_cs - _s->_mouse.canvas_clickpos_cs;
+                ImVec2 delta = mouse.mouse_cs - mouse.canvas_clickpos_cs;
 
-                UI& ui = registry.get<UI>(_s->_hover.node_id);
-                GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(_s->_hover.node_id);
+                UI& ui = registry.get<UI>(hover.node_id);
+                GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id);
                 ImVec2 sz = gnl.lr_cs - ImVec2{ ui.canvas_x, ui.canvas_y };
-                ImVec2 new_pos = _s->_mouse.node_initial_pos_cs + delta;
+                ImVec2 new_pos = mouse.node_initial_pos_cs + delta;
                 ui.canvas_x = new_pos.x;
                 ui.canvas_y = new_pos.y;
                 gnl.lr_cs = new_pos + sz;
@@ -1272,28 +1309,28 @@ namespace noodle {
         else
         {
             // if the interaction is with the canvas itself, offset and scale the canvas
-            if (!_s->_mouse.dragging_wire)
+            if (!mouse.dragging_wire)
             {
-                if (_s->_mouse.dragging)
+                if (mouse.dragging)
                 {
                     if (fabsf(io.MouseDelta.x) > 0.f || fabsf(io.MouseDelta.y) > 0.f)
                     {
                         // pull the pivot around
-                        _s->_canvas.origin_offset_ws = _s->_mouse.canvas_clicked_pixel_offset_ws - _s->_mouse.initial_click_pos_ws + io.MousePos;
+                        canvas.origin_offset_ws = mouse.canvas_clicked_pixel_offset_ws - mouse.initial_click_pos_ws + io.MousePos;
                     }
                 }
-                else if (_s->_mouse.in_canvas)
+                else if (mouse.in_canvas)
                 {
                     if (fabsf(io.MouseWheel) > 0.f)
                     {
                         // scale using where the mouse is currently hovered as the pivot
-                        float prev_scale = _s->_canvas.scale;
-                        _s->_canvas.scale += std::copysign(0.25f, io.MouseWheel);
-                        _s->_canvas.scale = std::max(_s->_canvas.scale, 0.25f);
+                        float prev_scale = canvas.scale;
+                        canvas.scale += std::copysign(0.25f, io.MouseWheel);
+                        canvas.scale = std::max(canvas.scale, 0.25f);
 
                         // solve for off2
                         // (mouse - off1) / scale1 = (mouse - off2) / scale2 
-                        _s->_canvas.origin_offset_ws = _s->_mouse.mouse_ws - (_s->_mouse.mouse_ws - _s->_canvas.origin_offset_ws) * (_s->_canvas.scale / prev_scale);
+                        canvas.origin_offset_ws = mouse.mouse_ws - (mouse.mouse_ws - canvas.origin_offset_ws) * (canvas.scale / prev_scale);
                     }
                 }
             }
@@ -1309,8 +1346,8 @@ namespace noodle {
 
         uint32_t text_color = 0xffffff;
         uint32_t text_color_highlighted = 0x00ffff;
-        text_color |= (uint32_t)(255 * 2 * (_s->_canvas.scale - 0.5f)) << 24;
-        text_color_highlighted |= (uint32_t)(255 * 2 * (_s->_canvas.scale - 0.5f)) << 24;
+        text_color |= (uint32_t)(255 * 2 * (canvas.scale - 0.5f)) << 24;
+        text_color_highlighted |= (uint32_t)(255 * 2 * (canvas.scale - 0.5f)) << 24;
 
         ///////////////////////////////////////////
         //   Noodles Bezier Lines Curves Pulled  //
@@ -1326,25 +1363,25 @@ namespace noodle {
 
             GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(from_pin);
             GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(to_pin);
-            ImVec2 from_pos = from_gpl.ul_ws(_s->_canvas) + ImVec2(style_padding_y, style_padding_x) * _s->_canvas.scale;
-            ImVec2 to_pos = to_gpl.ul_ws(_s->_canvas) + ImVec2(0, style_padding_x) * _s->_canvas.scale;
+            ImVec2 from_pos = from_gpl.ul_ws(canvas) + ImVec2(style_padding_y, style_padding_x) * canvas.scale;
+            ImVec2 to_pos = to_gpl.ul_ws(canvas) + ImVec2(0, style_padding_x) * canvas.scale;
 
             ImVec2 p0 = from_pos;
             ImVec2 p3 = to_pos;
             ImVec2 p1, p2;
-            noodle_bezier(p0, p1, p2, p3, _s->_canvas.scale);
-            ImU32 color = entity == _s->_hover.connection_id ? noodle_bezier_hovered : noodle_bezier_neutral;
+            noodle_bezier(p0, p1, p2, p3, canvas.scale);
+            ImU32 color = entity == hover.connection_id ? noodle_bezier_hovered : noodle_bezier_neutral;
             drawList->AddBezierCurve(p0, p1, p2, p3, color, 2.f);
         }
 
-        if (_s->_mouse.dragging_wire)
+        if (mouse.dragging_wire)
         {
-            GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(_s->_hover.originating_pin_id);
-            ImVec2 p0 = from_gpl.ul_ws(_s->_canvas) + ImVec2(style_padding_y, style_padding_x) * _s->_canvas.scale;
-            ImVec2 p3 = _s->_mouse.mouse_ws + _s->_canvas.window_origin_offset_ws;
+            GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(hover.originating_pin_id);
+            ImVec2 p0 = from_gpl.ul_ws(canvas) + ImVec2(style_padding_y, style_padding_x) * canvas.scale;
+            ImVec2 p3 = mouse.mouse_ws + canvas.window_origin_offset_ws;
             ImVec2 p1, p2;
-            noodle_bezier(p0, p1, p2, p3, _s->_canvas.scale);
-            ImU32 color = _s->_hover.valid_connection ? noodle_bezier_neutral : noodle_bezier_cancel;
+            noodle_bezier(p0, p1, p2, p3, canvas.scale);
+            ImU32 color = hover.valid_connection ? noodle_bezier_neutral : noodle_bezier_cancel;
             drawList->AddBezierCurve(p0, p1, p2, p3, color, 2.f);
         }
 
@@ -1352,10 +1389,10 @@ namespace noodle {
         //   Node Body / Drawing / Profiler  //
         ///////////////////////////////////////
 
-        if (!registry.valid(_s->_edit._device_node))
-            _s->_edit._device_node = entt::null;
+        if (!registry.valid(edit._device_node))
+            edit._device_node = entt::null;
 
-        _s->_total_profile_duration = provider.node_get_timing(_s->_edit._device_node);
+        total_profile_duration = provider.node_get_timing(edit._device_node);
 
         for (auto entity : registry.view<lab::noodle::Node>())
         {
@@ -1366,26 +1403,26 @@ namespace noodle {
             profiler_data[profile_idx].color = legit::colors[((profile_idx + 4 * profile_idx) & 0xf)]; // shuffle the colors so like colors are not together
             profiler_data[profile_idx].name = name.name;
             profiler_data[profile_idx].startTime = (profile_idx > 0) ? profiler_data[profile_idx - 1].endTime : 0;
-            profiler_data[profile_idx].endTime = profiler_data[profile_idx].startTime + provider.node_get_self_timing(_s->_edit._device_node);
-            ++profile_idx;
+            profiler_data[profile_idx].endTime = profiler_data[profile_idx].startTime + provider.node_get_self_timing(edit._device_node);
+            profile_idx = (profile_idx + 1) % profiler_data.size();
 
             GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(entity);
             UI& ui = registry.get<UI>(entity);
             ImVec2 ul_ws = ImVec2{ ui.canvas_x, ui.canvas_y };
             ImVec2 lr_ws = gnl.lr_cs;
-            ul_ws = _s->_canvas.window_origin_offset_ws + ul_ws * _s->_canvas.scale + _s->_canvas.origin_offset_ws;
-            lr_ws = _s->_canvas.window_origin_offset_ws + lr_ws * _s->_canvas.scale + _s->_canvas.origin_offset_ws;
+            ul_ws = canvas.window_origin_offset_ws + ul_ws * canvas.scale + canvas.origin_offset_ws;
+            lr_ws = canvas.window_origin_offset_ws + lr_ws * canvas.scale + canvas.origin_offset_ws;
 
             // draw node
             drawList->AddRectFilled(ul_ws, lr_ws, node_background_fill, node_border_radius);
-            drawList->AddRect(ul_ws, lr_ws, (_s->_hover.node_id == entity) ? node_outline_hovered : node_outline_neutral, node_border_radius, 15, 2);
+            drawList->AddRect(ul_ws, lr_ws, (hover.node_id == entity) ? node_outline_hovered : node_outline_neutral, node_border_radius, 15, 2);
 
             if (show_profiler)
             {
                 ImVec2 p1{ ul_ws.x, lr_ws.y };
-                ImVec2 p2{ lr_ws.x, lr_ws.y + _s->_canvas.scale * style_padding_y };
+                ImVec2 p2{ lr_ws.x, lr_ws.y + canvas.scale * style_padding_y };
                 drawList->AddRect(p1, p2, ImColor(128, 255, 128, 255));
-                p2.x = p1.x + (p2.x - p1.x) * node_profile_duration / _s->_total_profile_duration;
+                p2.x = p1.x + (p2.x - p1.x) * node_profile_duration / total_profile_duration;
                 drawList->AddRectFilled(p1, p2, ImColor(255, 255, 255, 128));
             }
 
@@ -1393,18 +1430,18 @@ namespace noodle {
             {
                 NodeRender& render = registry.get<NodeRender>(entity);
                 if (render.render)
-                    render.render(entity, { ul_ws.x, ul_ws.y }, { lr_ws.x, lr_ws.y }, _s->_canvas.scale, drawList);
+                    render.render(entity, { ul_ws.x, ul_ws.y }, { lr_ws.x, lr_ws.y }, canvas.scale, drawList);
             }
 
             ///////////////////////////////////////////
             //   Node Header / Banner / Top / Menu   //
             ///////////////////////////////////////////
 
-            if (_s->_canvas.scale > 0.5f)
+            if (canvas.scale > 0.5f)
             {
-                const float label_font_size = style_padding_y * _s->_canvas.scale;
+                const float label_font_size = style_padding_y * canvas.scale;
                 ImVec2 label_pos = ul_ws;
-                label_pos.y -= 20 * _s->_canvas.scale;
+                label_pos.y -= 20 * canvas.scale;
 
                 auto& node = registry.get<Node>(entity);
 
@@ -1413,7 +1450,7 @@ namespace noodle {
                 {
                     auto label = std::string(ICON_FAD_PLAY);
                     drawList->AddText(NULL, label_font_size, label_pos,
-                        (_s->_hover.play && entity == _s->_hover.node_id) ? text_color_highlighted : text_color,
+                        (hover.play && entity == hover.node_id) ? text_color_highlighted : text_color,
                         label.c_str(), label.c_str() + label.length());
                     label_pos.x += 20;
                 }
@@ -1422,7 +1459,7 @@ namespace noodle {
                 {
                     auto label = std::string(ICON_FAD_HARDCLIP);
                     drawList->AddText(NULL, label_font_size, label_pos,
-                        (_s->_hover.bang && entity == _s->_hover.node_id) ? text_color_highlighted : text_color,
+                        (hover.bang && entity == hover.node_id) ? text_color_highlighted : text_color,
                         label.c_str(), label.c_str() + label.length());
                     label_pos.x += 20;
                 }
@@ -1431,7 +1468,7 @@ namespace noodle {
                 Name& name = registry.get<Name>(entity);
                 label_pos.x += 5;
                 drawList->AddText(io.FontDefault, label_font_size, label_pos,
-                    (_s->_hover.node_menu && entity == _s->_hover.node_id) ? text_color_highlighted : text_color,
+                    (hover.node_menu && entity == hover.node_id) ? text_color_highlighted : text_color,
                     name.name.c_str(), name.name.c_str() + name.name.size());
             }
 
@@ -1473,35 +1510,35 @@ namespace noodle {
                     }
 
                     GraphPinLayout& pin_gpl = registry.get<GraphPinLayout>(j);
-                    ImVec2 pin_ul = pin_gpl.ul_ws(_s->_canvas);
-                    uint32_t fill = (j == _s->_hover.pin_id || j == _s->_hover.originating_pin_id) ? 0xffffff : 0x000000;
+                    ImVec2 pin_ul = pin_gpl.ul_ws(canvas);
+                    uint32_t fill = (j == hover.pin_id || j == hover.originating_pin_id) ? 0xffffff : 0x000000;
                     fill |= (uint32_t)(128 + 128 * sinf(pulse * 8)) << 24;
 
                     DrawIcon(drawList, pin_ul,
-                        ImVec2{ pin_ul.x + GraphPinLayout::k_width * _s->_canvas.scale, pin_ul.y + GraphPinLayout::k_height * _s->_canvas.scale },
+                        ImVec2{ pin_ul.x + GraphPinLayout::k_width * canvas.scale, pin_ul.y + GraphPinLayout::k_height * canvas.scale },
                         icon_type, false, color, fill);
 
                     // Only draw text if we can likely see it
-                    if (_s->_canvas.scale > 0.5f)
+                    if (canvas.scale > 0.5f)
                     {
-                        float font_size = style_padding_y * _s->_canvas.scale;
+                        float font_size = style_padding_y * canvas.scale;
                         ImVec2 label_pos = pin_ul;
 
                         label_pos.y += 2;
 
-                        label_pos.x += 20 * _s->_canvas.scale;
+                        label_pos.x += 20 * canvas.scale;
                         drawList->AddText(NULL, font_size, label_pos, text_color,
                             pin_it.shortName.c_str(), pin_it.shortName.c_str() + pin_it.shortName.length());
 
                         if (has_value)
                         {
-                            label_pos.x += 50 * _s->_canvas.scale;
+                            label_pos.x += 50 * canvas.scale;
                             drawList->AddText(NULL, font_size, label_pos, text_color,
                                 pin_it.value_as_string.c_str(), pin_it.value_as_string.c_str() + pin_it.value_as_string.length());
                         }
                     }
 
-                    pin_ul.y += 20 * _s->_canvas.scale;
+                    pin_ul.y += 20 * canvas.scale;
                 }
             }
         }
@@ -1515,33 +1552,33 @@ namespace noodle {
         {
             ImGui::Begin("Debug Information");
             ImGui::TextUnformatted("Mouse");
-            ImGui::Text("canvas    pos (%d, %d)", (int)_s->_mouse.mouse_cs.x, (int)_s->_mouse.mouse_cs.y);
-            ImGui::Text("drawlist  pos (%d, %d)", (int)_s->_mouse.mouse_ws.x, (int)_s->_mouse.mouse_ws.y);
-            ImGui::Text("LMB %s%s%s", _s->_mouse.click_initiated ? "*" : "-", _s->_mouse.dragging ? "*" : "-", _s->_mouse.click_ended ? "*" : "-");
-            ImGui::Text("canvas interaction: %s", _s->_mouse.interacting_with_canvas ? "*" : ".");
-            ImGui::Text("wire dragging: %s", _s->_mouse.dragging_wire ? "*" : ".");
+            ImGui::Text("canvas    pos (%d, %d)", (int)mouse.mouse_cs.x, (int)mouse.mouse_cs.y);
+            ImGui::Text("drawlist  pos (%d, %d)", (int)mouse.mouse_ws.x, (int)mouse.mouse_ws.y);
+            ImGui::Text("LMB %s%s%s", mouse.click_initiated ? "*" : "-", mouse.dragging ? "*" : "-", mouse.click_ended ? "*" : "-");
+            ImGui::Text("canvas interaction: %s", mouse.interacting_with_canvas ? "*" : ".");
+            ImGui::Text("wire dragging: %s", mouse.dragging_wire ? "*" : ".");
 
             ImGui::Separator();
             ImGui::TextUnformatted("Canvas");
-            ImVec2 off = _s->_canvas.window_origin_offset_ws;
+            ImVec2 off = canvas.window_origin_offset_ws;
             ImGui::Text("canvas window offset (%d, %d)", (int)off.x, (int)off.y);
-            off = _s->_canvas.origin_offset_ws;
+            off = canvas.origin_offset_ws;
             ImGui::Text("canvas origin offset (%d, %d)", (int)off.x, (int)off.y);
 
             ImGui::Separator();
             ImGui::TextUnformatted("Hover");
-            ImGui::Text("node hovered: %s", _s->_hover.node_id != entt::null ? "*" : ".");
-            ImGui::Text("originating pin id: %d", _s->_hover.originating_pin_id);
-            ImGui::Text("hovered pin id: %d", _s->_hover.pin_id);
-            ImGui::Text("hovered pin label: %d", _s->_hover.pin_label_id);
-            ImGui::Text("hovered connection: %d", _s->_hover.connection_id);
-            ImGui::Text("hovered node menu: %s", _s->_hover.node_menu ? "*" : ".");
+            ImGui::Text("node hovered: %s", hover.node_id != entt::null ? "*" : ".");
+            ImGui::Text("originating pin id: %d", hover.originating_pin_id);
+            ImGui::Text("hovered pin id: %d", hover.pin_id);
+            ImGui::Text("hovered pin label: %d", hover.pin_label_id);
+            ImGui::Text("hovered connection: %d", hover.connection_id);
+            ImGui::Text("hovered node menu: %s", hover.node_menu ? "*" : ".");
 
             ImGui::Separator();
             ImGui::TextUnformatted("Edit");
-            ImGui::Text("edit connection: %d", _s->_edit._connection);
+            ImGui::Text("edit connection: %d", edit.selected_connection);
             ImGui::Separator();
-            ImGui::Text("quantum time: %f uS", _s->_total_profile_duration * 1e6f);
+            ImGui::Text("quantum time: %f uS", total_profile_duration * 1e6f);
 
             ImGui::End();
         }
@@ -1553,16 +1590,32 @@ namespace noodle {
             profiler_graph.RenderTimings(400, 300, 200, 0.000005f, 0);// std::max(0, profile_idx - 100));
             ImGui::End();
         }
-
-        for (Work& work : _s->_pending_work)
-            work.eval(_s->_edit);
-
-        _s->_pending_work.clear();
         ImGui::EndChild();
 
-        return true;
+        for (Work& work : pending_work)
+            work.eval(edit);
+
+        pending_work.clear();
     }
 
+
+    Context::Context(Provider& p)
+        : provider(p), _s(new State)
+    {
+        _s->init(p);
+    }
+
+    Context::~Context()
+    {
+        delete _s;
+    }
+
+
+    bool Context::run()
+    {
+        _s->run(provider, show_profiler, show_debug);
+        return true;
+    }
 
     void Context::save(const std::string& path)
     {
@@ -1650,6 +1703,28 @@ namespace noodle {
         }
 
         file.flush();
+        _s->edit.unify_epochs();
+    }
+
+    void Context::load(const std::string& path)
+    {
+        bool load_succeeded = true;
+        if (load_succeeded)
+        {
+            _s->edit.reset_epochs();
+        }
+    }
+
+    bool Context::needs_saving() const
+    {
+        return _s->edit.need_saving();
+    }
+
+    void Context::clear_all()
+    {
+        Work work(provider);
+        work.type = WorkType::ClearScene;
+        _s->pending_work.emplace_back(work);
     }
 
 
