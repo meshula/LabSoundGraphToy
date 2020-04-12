@@ -12,6 +12,7 @@
 #include "lab_noodle.h"
 
 #include "nfd.h"
+#include <boxer/boxer.h>
 
 #include <string>
 #include <vector>
@@ -160,6 +161,26 @@ void frame()
     switch (command)
     {
     case Command::New:
+    {
+        bool perform_new = true;
+        if (config.needs_saving())
+        {
+            // pop open an alert
+            boxer::Selection sel = boxer::show("There is unsaved work", "Save?", boxer::Style::Warning, boxer::Buttons::YesNo);
+            perform_new = boxer::Selection::Yes;
+            if (perform_new)
+            {
+                const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_SAVE, "*.ls", ".", "*.*");
+                if (file)
+                {
+                    config.save(file);
+                }
+            }
+        }
+        if (perform_new)
+            config.clear_all();
+        break;
+    }
     case Command::Save:
     {
         const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_SAVE, "*.ls", ".", "*.*");
@@ -171,9 +192,25 @@ void frame()
     }
     case Command::Open:
     {
-        const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_OPEN, "*.ls", ".", "*.*");
-        if (file)
+        bool perform_open = true;
+        if (platform_alert("Save work in progress?"))
         {
+            const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_OPEN, "*.ls", ".", "*.*");
+            if (file)
+            {
+            }
+            else
+            {
+                // the wanted to save first, but cancelled, so cancel the open
+                perform_open = false;
+            }
+        }
+        if (perform_open)
+        {
+            const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_OPEN, "*.ls", ".", "*.*");
+            if (file)
+            {
+            }
         }
         break;
     }

@@ -10,3 +10,6 @@
 [submodule "third/entt"]
 	path = third/entt
 	url = https://github.com/skypjack/entt.git
+[submodule "third/Boxer"]
+	path = third/Boxer
+	url = git@github.com:aaronmjacobs/Boxer.git
