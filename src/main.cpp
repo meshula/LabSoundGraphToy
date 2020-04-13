@@ -19,6 +19,15 @@
 #include <fstream>
 #include <iostream>
 
+enum class Command
+{
+    None,
+    New,
+    Open,
+    Save,
+    Quit
+};
+
 static uint64_t last_time = 0;
 static sg_pass_action pass_action;
 sg_imgui_t sg_imgui;
@@ -26,7 +35,6 @@ sg_imgui_t sg_imgui;
 #define MSAA_SAMPLES (8)
 
 std::string g_app_path;
-static bool quit = false;
 ImFont * g_roboto = nullptr;
 ImFont * g_cousine = nullptr;
 ImFont * g_audio_icon = nullptr;
@@ -102,8 +110,6 @@ void init(void) {
 
 void frame()
 {
-    using lab::noodle::Command;
-
     const int width = sapp_width();
     const int height = sapp_height();
     const float w = (float)sapp_width();
@@ -126,7 +132,7 @@ void frame()
     static lab::noodle::Context config(provider);
     static bool show_demo = false;
 
-    Command command = Command::None;
+    static Command command = Command::None;
     if (ImGui::BeginMainMenuBar())
     {
         if (ImGui::BeginMenu("File")) 
@@ -134,6 +140,7 @@ void frame()
             bool save = false;
             bool new_file = false;
             bool load = false;
+            bool quit = false;
             ImGui::MenuItem("New", 0, &new_file);
             if (new_file)
                 command = Command::New;
@@ -145,28 +152,7 @@ void frame()
                 command = Command::Save;
             ImGui::MenuItem("Quit", 0, &quit);
             if (quit)
-            {
-                if (config.needs_saving())
-                {
-                    // pop open an alert
-                    boxer::Selection sel = boxer::show("Save unsaved work?", "Quit", boxer::Style::Warning, boxer::Buttons::YesNo);
-                    if (sel == boxer::Selection::Yes)
-                    {
-                        const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_SAVE, "*.ls", ".", "*.*");
-                        if (file)
-                        {
-                            config.save(file);
-                        }
-                    }
-                    else
-                    {
-                        boxer::Selection sel = boxer::show("Not saving, confirm Quit?", "Quit", boxer::Style::Warning, boxer::Buttons::YesNo);
-                        quit = sel == boxer::Selection::Yes;
-                    }
-                }
-                if (quit)
-                    sapp_request_quit();
-            }
+                command = Command::Quit;
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Debug"))
@@ -181,27 +167,82 @@ void frame()
 
     switch (command)
     {
-    case Command::New:
-    {
-        bool perform_new = true;
+    case Command::Quit:
         if (config.needs_saving())
         {
-            // pop open an alert
-            boxer::Selection sel = boxer::show("Save unsaved work?", "New", boxer::Style::Warning, boxer::Buttons::YesNo);
-            perform_new = sel == boxer::Selection::Yes;
-            if (perform_new)
+            ImGui::OpenPopup("Quit");
+            if (ImGui::BeginPopupModal("Quit", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize))
             {
-                const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_SAVE, "*.ls", ".", "*.*");
-                if (file)
+                if (ImGui::Button("Save and Quit"))
                 {
-                    config.save(file);
+                    const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_SAVE, "*.ls", ".", "*.*");
+                    if (file)
+                    {
+                        config.save(file);
+                        sapp_request_quit();
+                    }
+                    command = Command::None;
                 }
+
+                if (ImGui::Button("Quit without Saving"))
+                {
+                    sapp_request_quit();
+                    command = Command::None;
+                }
+
+                if (ImGui::Button("Cancel"))
+                {
+                    command = Command::None;
+                }
+
+                ImGui::EndPopup();
             }
         }
-        if (perform_new)
-            config.clear_all();
+        else
+        {
+            sapp_request_quit();
+            command = Command::None;
+        }
         break;
-    }
+
+    case Command::New:
+        if (config.needs_saving())
+        {
+            ImGui::OpenPopup("New");
+            if (ImGui::BeginPopupModal("New", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize))
+            {
+                if (ImGui::Button("Save work in progress"))
+                {
+                    const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_SAVE, "*.ls", ".", "*.*");
+                    if (file)
+                    {
+                        config.save(file);
+                        config.clear_all();
+                    }
+                    command = Command::None;
+                }
+
+                if (ImGui::Button("Clear all"))
+                {
+                    config.clear_all();
+                    command = Command::None;
+                }
+
+                if (ImGui::Button("Cancel"))
+                {
+                    command = Command::None;
+                }
+
+                ImGui::EndPopup();
+            }
+        }
+        else
+        {
+            config.clear_all();
+            command = Command::None;
+        }
+        break;
+
     case Command::Save:
     {
         const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_SAVE, "*.ls", ".", "*.*");
@@ -209,10 +250,11 @@ void frame()
         {
             config.save(file);
         }
+        command = Command::None;
         break;
     }
+
     case Command::Open:
-    {
         bool perform_open = true;
         if (config.needs_saving())
         {
@@ -224,11 +266,13 @@ void frame()
                 if (file)
                 {
                     config.save(file);
+                    command = Command::None;
                 }
                 else
                 {
                     // the wanted to save first, but cancelled, so cancel the open
                     perform_open = false;
+                    command = Command::None;
                 }
             }
         }
@@ -238,9 +282,9 @@ void frame()
             if (file)
             {
             }
+            command = Command::None;
         }
         break;
-    }
     }
 
     config.run();

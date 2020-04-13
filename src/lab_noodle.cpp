@@ -241,7 +241,7 @@ namespace noodle {
         ConnectBusOutToBusIn, ConnectBusOutToParamIn,
         DisconnectInFromOut,
         Start, Bang,
-        ClearScene
+        ClearScene, ResetSaveWorkEpoch
     };
 
     struct Work
@@ -276,6 +276,10 @@ namespace noodle {
             entt::registry& registry = provider.registry();
             switch (type)
             {
+            case WorkType::ResetSaveWorkEpoch:
+                edit.reset_epochs();
+                break;
+
             case WorkType::CreateRuntimeContext:
             {
                 /// @todo create the entity here, not in the eval, architecturally lab_noodle is responsible
@@ -691,6 +695,8 @@ namespace noodle {
         Work work(provider);
         work.type = WorkType::CreateRuntimeContext;
         work.canvas_pos = ImVec2{ edit_rect.Max.x - 300, y };
+        pending_work.push_back(work);
+        work.type = WorkType::ResetSaveWorkEpoch; // reset so that quitting immediately doesn't prompt a save
         pending_work.push_back(work);
     }
 

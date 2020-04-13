@@ -139,13 +139,6 @@ namespace lab { namespace noodle {
     // Runtime
     //--------------------------------------------------------------------------
 
-    enum class Command
-    {
-        None,
-        New,
-        Open,
-        Save
-    };
 
     struct Context
     {
