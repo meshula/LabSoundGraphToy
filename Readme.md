@@ -27,6 +27,19 @@ cmake -G {generator} -DCMAKE_INSTALL_PREFIX={install-location} {source-location}
 {run build and install commands}
 ````
 
+## In Progress
+
+- [ ] Add a delete icon (red circle-x)
+- [ ] Replace delete dialog boxes with red-circle-x that appears when the cursor hovers in an appropriate spot
+- [ ] Add group selection
+- [ ] Make canvas recursive, with left edge ins, and right edge outs
+- [ ] Add function to turn group selection into a subgraph node
+- [ ] Add expand subgraph canvas, and collapse. Levels of recursion visible as bars with in/out wiring on left and right
+- [ ] Add breadcrumb in status bar to indicate canvas recursion level
+- [ ] Create a viable save file format
+- [ ] Load and parse a saved file
+- [ ] Implement File/New
+
 ## Credits
 
 **LabSound** [https://github.com/LabSound/LabSound](https://github.com/LabSound/LabSound)
