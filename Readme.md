@@ -35,3 +35,4 @@ cmake -G {generator} -DCMAKE_INSTALL_PREFIX={install-location} {source-location}
 
 **Sokol** [https://github.com/floooh/sokol.git](https://github.com/floooh/sokol.git)
 
+**entt** [https://github.com/skypjack/entt](https://github.com/skypjack/entt)
