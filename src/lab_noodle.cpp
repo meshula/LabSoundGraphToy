@@ -282,9 +282,9 @@ namespace noodle {
 
             case WorkType::CreateRuntimeContext:
             {
-                /// @todo create the entity here, not in the eval, architecturally lab_noodle is responsible
-                edit._device_node = provider.create_runtime_context();
-                registry.assign<Node>(edit._device_node, Node{ false, false, "Device" });
+                edit._device_node = provider.registry().create();
+                registry.assign<Node>(edit._device_node, Node("Device"));
+                provider.create_runtime_context(edit._device_node);
                 registry.assign<GraphNodeLayout>(edit._device_node, GraphNodeLayout{ });
                 registry.assign<UI>(edit._device_node, UI{ canvas_pos.x, canvas_pos.y });
                 registry.assign<Name>(edit._device_node, unique_name("Device"));
@@ -293,13 +293,9 @@ namespace noodle {
             }
             case WorkType::CreateNode:
             {
-                /// @todo create the entity here, not in the eval, architecturally lab_noodle is responsible
-                entt::entity new_node = provider.node_create(name);
-
-                bool has_play = provider.node_has_play_controller(new_node);
-                bool has_bang = provider.node_has_bang_controller(new_node);
-
-                registry.assign<Node>(new_node, Node{ has_play, has_bang, name });
+                entt::entity new_node = provider.registry().create();
+                registry.assign<Node>(new_node, Node(name));
+                provider.node_create(name, new_node);
                 registry.assign<GraphNodeLayout>(new_node, GraphNodeLayout{ });
                 registry.assign<UI>(new_node, UI{ canvas_pos.x, canvas_pos.y });
                 registry.assign<Name>(new_node, unique_name(name));
@@ -765,7 +761,7 @@ namespace noodle {
 
         // may the counting begin
 
-        for (auto node_entity : registry.view<GraphNodeLayout>())
+        for (auto node_entity : registry.view<Node>())
         {
             GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(node_entity);
             if (!registry.valid(node_entity))
@@ -779,41 +775,39 @@ namespace noodle {
             UI& ui = registry.get<UI>(node_entity);
             ImVec2 node_pos = ImVec2{ ui.canvas_x, ui.canvas_y };
 
+            Node& node = registry.get<Node>(node_entity);
+
             // calculate column heights
-            if (registry.any<std::vector<entt::entity>>(node_entity))
+            for (const entt::entity entity : node.pins)
             {
-                std::vector<entt::entity>& pins = registry.get<std::vector<entt::entity>>(node_entity);
-                for (const entt::entity entity : pins)
+                if (!registry.valid(entity))
+                    continue;
+
+                Pin pin = registry.get<Pin>(entity);
+                if (!registry.valid(pin.node_id))
+                    continue;
+
+                // lazily create the layouts on demand.
+                if (!registry.any<GraphPinLayout>(entity))
+                    registry.assign<GraphPinLayout>(entity, GraphPinLayout{});
+
+                GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity);
+                pnl.node_origin_cs = node_pos;
+
+                switch (pin.kind)
                 {
-                    if (!registry.valid(entity))
-                        continue;
-
-                    Pin pin = registry.get<Pin>(entity);
-                    if (!registry.valid(pin.node_id))
-                        continue;
-
-                    // lazily create the layouts on demand.
-                    if (!registry.any<GraphPinLayout>(entity))
-                        registry.assign<GraphPinLayout>(entity, GraphPinLayout{});
-
-                    GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity);
-                    pnl.node_origin_cs = node_pos;
-
-                    switch (pin.kind)
-                    {
-                    case Pin::Kind::BusIn:
-                        gnl.in_height += 1;
-                        break;
-                    case Pin::Kind::BusOut:
-                        gnl.out_height += 1;
-                        break;
-                    case Pin::Kind::Param:
-                        gnl.in_height += 1;
-                        break;
-                    case Pin::Kind::Setting:
-                        gnl.mid_height += 1;
-                        break;
-                    }
+                case Pin::Kind::BusIn:
+                    gnl.in_height += 1;
+                    break;
+                case Pin::Kind::BusOut:
+                    gnl.out_height += 1;
+                    break;
+                case Pin::Kind::Param:
+                    gnl.in_height += 1;
+                    break;
+                case Pin::Kind::Setting:
+                    gnl.mid_height += 1;
+                    break;
                 }
             }
 
@@ -831,43 +825,39 @@ namespace noodle {
             gnl.out_height = 0;
 
             // assign columns
-            if (registry.any<std::vector<entt::entity>>(node_entity))
+            for (const entt::entity entity : node.pins)
             {
-                std::vector<entt::entity>& pins = registry.get<std::vector<entt::entity>>(node_entity);
-                for (const entt::entity entity : pins)
+                if (!registry.valid(entity))
+                    continue;
+
+                Pin& pin = registry.get<Pin>(entity);
+                if (!registry.valid(pin.node_id))
+                    continue;
+
+                GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity);
+
+                switch (pin.kind)
                 {
-                    if (!registry.valid(entity))
-                        continue;
-
-                    Pin& pin = registry.get<Pin>(entity);
-                    if (!registry.valid(pin.node_id))
-                        continue;
-
-                    GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity);
-
-                    switch (pin.kind)
-                    {
-                    case Pin::Kind::BusIn:
-                        pnl.column_number = 0;
-                        pnl.pos_y_cs = style_padding_y + GraphPinLayout::k_height * static_cast<float>(gnl.in_height);
-                        gnl.in_height += 1;
-                        break;
-                    case Pin::Kind::BusOut:
-                        pnl.column_number = static_cast<float>(gnl.column_count);
-                        pnl.pos_y_cs = style_padding_y + GraphPinLayout::k_height * static_cast<float>(gnl.out_height);
-                        gnl.out_height += 1;
-                        break;
-                    case Pin::Kind::Param:
-                        pnl.column_number = 0;
-                        pnl.pos_y_cs = style_padding_y + GraphPinLayout::k_height * static_cast<float>(gnl.in_height);
-                        gnl.in_height += 1;
-                        break;
-                    case Pin::Kind::Setting:
-                        pnl.column_number = 1;
-                        pnl.pos_y_cs = style_padding_y + GraphPinLayout::k_height * static_cast<float>(gnl.mid_height);
-                        gnl.mid_height += 1;
-                        break;
-                    }
+                case Pin::Kind::BusIn:
+                    pnl.column_number = 0;
+                    pnl.pos_y_cs = style_padding_y + GraphPinLayout::k_height * static_cast<float>(gnl.in_height);
+                    gnl.in_height += 1;
+                    break;
+                case Pin::Kind::BusOut:
+                    pnl.column_number = static_cast<float>(gnl.column_count);
+                    pnl.pos_y_cs = style_padding_y + GraphPinLayout::k_height * static_cast<float>(gnl.out_height);
+                    gnl.out_height += 1;
+                    break;
+                case Pin::Kind::Param:
+                    pnl.column_number = 0;
+                    pnl.pos_y_cs = style_padding_y + GraphPinLayout::k_height * static_cast<float>(gnl.in_height);
+                    gnl.in_height += 1;
+                    break;
+                case Pin::Kind::Setting:
+                    pnl.column_number = 1;
+                    pnl.pos_y_cs = style_padding_y + GraphPinLayout::k_height * static_cast<float>(gnl.mid_height);
+                    gnl.mid_height += 1;
+                    break;
                 }
             }
         }
@@ -1482,70 +1472,66 @@ namespace noodle {
             //   Node Input Pins / Connection / Pin  //
             ///////////////////////////////////////////
 
-            if (registry.any<std::vector<entt::entity>>(entity))
+            Node& node = registry.get<Node>(entity);
+            for (entt::entity j : node.pins)
             {
-                std::vector<entt::entity>& pins = provider.pins(entity);
+                Pin& pin_it = registry.get<Pin>(j);
 
-                for (entt::entity j : pins)
+                IconType icon_type;
+                bool has_value = false;
+                uint32_t color;
+                switch (pin_it.kind)
                 {
-                    Pin& pin_it = registry.get<Pin>(j);
-
-                    IconType icon_type;
-                    bool has_value = false;
-                    uint32_t color;
-                    switch (pin_it.kind)
-                    {
-                    case Pin::Kind::BusIn:
-                        icon_type = IconType::Flow;
-                        color = icon_pin_flow;
-                        break;
-                    case Pin::Kind::Param:
-                        icon_type = IconType::Flow;
-                        has_value = true;
-                        color = icon_pin_param;
-                        break;
-                    case Pin::Kind::Setting:
-                        icon_type = IconType::Grid;
-                        has_value = true;
-                        color = icon_pin_setting;
-                        break;
-                    case Pin::Kind::BusOut:
-                        icon_type = IconType::Flow;
-                        color = icon_pin_bus_out;
-                        break;
-                    }
-
-                    GraphPinLayout& pin_gpl = registry.get<GraphPinLayout>(j);
-                    ImVec2 pin_ul = pin_gpl.ul_ws(canvas);
-                    uint32_t fill = (j == hover.pin_id || j == hover.originating_pin_id) ? 0xffffff : 0x000000;
-                    fill |= (uint32_t)(128 + 128 * sinf(pulse * 8)) << 24;
-
-                    DrawIcon(drawList, pin_ul,
-                        ImVec2{ pin_ul.x + GraphPinLayout::k_width * canvas.scale, pin_ul.y + GraphPinLayout::k_height * canvas.scale },
-                        icon_type, false, color, fill);
-
-                    // Only draw text if we can likely see it
-                    if (canvas.scale > 0.5f)
-                    {
-                        float font_size = style_padding_y * canvas.scale;
-                        ImVec2 label_pos = pin_ul;
-
-                        label_pos.y += 2;
-
-                        label_pos.x += 20 * canvas.scale;
-                        drawList->AddText(NULL, font_size, label_pos, text_color,
-                            pin_it.shortName.c_str(), pin_it.shortName.c_str() + pin_it.shortName.length());
-
-                        if (has_value)
-                        {
-                            label_pos.x += 50 * canvas.scale;
-                            drawList->AddText(NULL, font_size, label_pos, text_color,
-                                pin_it.value_as_string.c_str(), pin_it.value_as_string.c_str() + pin_it.value_as_string.length());
-                        }
-                    }
-
-                    pin_ul.y += 20 * canvas.scale;
+                case Pin::Kind::BusIn:
+                    icon_type = IconType::Flow;
+                    color = icon_pin_flow;
+                    break;
+                case Pin::Kind::Param:
+                    icon_type = IconType::Flow;
+                    has_value = true;
+                    color = icon_pin_param;
+                    break;
+                case Pin::Kind::Setting:
+                    icon_type = IconType::Grid;
+                    has_value = true;
+                    color = icon_pin_setting;
+                    break;
+                case Pin::Kind::BusOut:
+                    icon_type = IconType::Flow;
+                    color = icon_pin_bus_out;
+                    break;
                 }
+
+                GraphPinLayout& pin_gpl = registry.get<GraphPinLayout>(j);
+                ImVec2 pin_ul = pin_gpl.ul_ws(canvas);
+                uint32_t fill = (j == hover.pin_id || j == hover.originating_pin_id) ? 0xffffff : 0x000000;
+                fill |= (uint32_t)(128 + 128 * sinf(pulse * 8)) << 24;
+
+                DrawIcon(drawList, pin_ul,
+                    ImVec2{ pin_ul.x + GraphPinLayout::k_width * canvas.scale, pin_ul.y + GraphPinLayout::k_height * canvas.scale },
+                    icon_type, false, color, fill);
+
+                // Only draw text if we can likely see it
+                if (canvas.scale > 0.5f)
+                {
+                    float font_size = style_padding_y * canvas.scale;
+                    ImVec2 label_pos = pin_ul;
+
+                    label_pos.y += 2;
+
+                    label_pos.x += 20 * canvas.scale;
+                    drawList->AddText(NULL, font_size, label_pos, text_color,
+                        pin_it.shortName.c_str(), pin_it.shortName.c_str() + pin_it.shortName.length());
+
+                    if (has_value)
+                    {
+                        label_pos.x += 50 * canvas.scale;
+                        drawList->AddText(NULL, font_size, label_pos, text_color,
+                            pin_it.value_as_string.c_str(), pin_it.value_as_string.c_str() + pin_it.value_as_string.length());
+                    }
+                }
+
+                pin_ul.y += 20 * canvas.scale;
             }
         }
 
@@ -1652,8 +1638,7 @@ namespace noodle {
                 file << " pos: " << ui.canvas_x << " " << ui.canvas_y << "\n";
             }
 
-            std::vector<entt::entity>& pins = reg.get<std::vector<entt::entity>>(node_entity);
-            for (const entt::entity entity : pins)
+            for (const entt::entity entity : node.pins)
             {
                 if (!reg.valid(entity))
                     continue;

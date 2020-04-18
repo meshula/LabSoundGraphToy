@@ -22,23 +22,20 @@ public:
 
     virtual entt::registry& registry() const override;
 
-    virtual entt::entity create_runtime_context() override;
+    virtual entt::entity create_runtime_context(entt::entity id) override;
 
     // node creation and deletion
     virtual char const* const* node_names() const override;
-    virtual entt::entity node_create(const std::string& name) override;
+    virtual entt::entity node_create(const std::string& name, entt::entity id) override;
     virtual void node_delete(entt::entity node) override;
 
     // node access
-    virtual bool  node_has_play_controller(entt::entity node) override;
-    virtual bool  node_has_bang_controller(entt::entity node) override;
     virtual float node_get_timing(entt::entity node) override;      // in seconds
     virtual float node_get_self_timing(entt::entity node) override; // in seconds
     virtual void  node_start_stop(entt::entity node, float when) override;
     virtual void  node_bang(entt::entity node) override;
 
     // pins
-    virtual std::vector<entt::entity>& pins(entt::entity audio_node_id) const override;
     virtual void  pin_set_float_value(entt::entity pin, float) override;
     virtual float pin_float_value(entt::entity pin) override;
     virtual void  pin_set_int_value(entt::entity pin, int) override;

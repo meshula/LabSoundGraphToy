@@ -16,23 +16,20 @@ namespace lab { namespace noodle {
         virtual ~Provider() = default;
 
         virtual entt::registry& registry() const = 0;
-        virtual entt::entity create_runtime_context() = 0;
+        virtual entt::entity create_runtime_context(entt::entity id) = 0;
 
         // node creation and deletion
         virtual char const* const* node_names() const = 0;
-        virtual entt::entity node_create(const std::string& name) = 0;
+        virtual entt::entity node_create(const std::string& name, entt::entity id) = 0;
         virtual void node_delete(entt::entity node) = 0;
 
         // node access
-        virtual bool  node_has_play_controller(entt::entity node) = 0;
-        virtual bool  node_has_bang_controller(entt::entity node) = 0;
         virtual float node_get_timing(entt::entity node) = 0;
         virtual float node_get_self_timing(entt::entity node) = 0;
         virtual void  node_start_stop(entt::entity node, float when) = 0;
         virtual void  node_bang(entt::entity node) = 0;
 
         // pins
-        virtual std::vector<entt::entity>& pins(entt::entity audio_node_id) const = 0;
         virtual void  pin_set_float_value(entt::entity pin, float) = 0;
         virtual float pin_float_value(entt::entity pin) = 0;
         virtual void  pin_set_int_value(entt::entity pin, int) = 0;
@@ -63,9 +60,14 @@ namespace lab { namespace noodle {
     // for example, a Documentation node might be known only to lab noodle.
     struct Node
     {
+        Node() noexcept = default;
+        Node(const std::string& n) noexcept : kind(n) {}
+        ~Node() = default;
+
         bool play_controller = false;
         bool bang_controller = false;
         std::string kind;
+        std::vector<entt::entity> pins;
     };
 
     // Some nodes may have overridden draw methods, such as the LabSound 

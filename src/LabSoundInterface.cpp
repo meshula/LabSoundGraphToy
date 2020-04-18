@@ -151,14 +151,12 @@ void DrawSpectrum(entt::entity id, ImVec2 ul_ws, ImVec2 lr_ws, float scale, ImDr
 }
 
 
-void CreateEntities(shared_ptr<lab::AudioNode> audio_node, entt::entity audio_node_id)
+void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::Node& node, entt::entity audio_node_id)
 {
     if (!audio_node)
         return;
 
     entt::registry& registry = Registry();
-
-    vector<entt::entity> pins;
 
     lab::ContextRenderLock r(g_audio_context.get(), "LabSoundGraphToy_init");
     if (nullptr != dynamic_cast<lab::AnalyserNode*>(audio_node.get()))
@@ -176,7 +174,7 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, entt::entity audio_no
     for (int i = 0; i < c; ++i)
     {
         entt::entity pin_id = registry.create();
-        pins.push_back(pin_id);
+        node.pins.push_back(pin_id);
         registry.assign<lab::noodle::Name>(pin_id, "");
         registry.assign<lab::noodle::Pin>(pin_id, lab::noodle::Pin{
             lab::noodle::Pin::Kind::BusIn,
@@ -194,7 +192,7 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, entt::entity audio_no
     for (int i = 0; i < c; ++i)
     {
         entt::entity pin_id = registry.create();
-        pins.push_back(pin_id);
+        node.pins.push_back(pin_id);
         registry.assign<lab::noodle::Name>(pin_id, "");
         registry.assign<lab::noodle::Pin>(pin_id, lab::noodle::Pin{
             lab::noodle::Pin::Kind::BusOut,
@@ -247,7 +245,7 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, entt::entity audio_no
         }
 
         entt::entity pin_id = registry.create();
-        pins.push_back(pin_id);
+        node.pins.push_back(pin_id);
         registry.assign<AudioPin>(pin_id, AudioPin{
             settings[i]
             });
@@ -273,7 +271,7 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, entt::entity audio_no
         char buff[64];
         sprintf(buff, "%f", params[i]->value());
         entt::entity pin_id = registry.create();
-        pins.push_back(pin_id);
+        node.pins.push_back(pin_id);
         registry.assign<AudioPin>(pin_id, AudioPin{
             shared_ptr<lab::AudioSetting>(),
             params[i],
@@ -287,8 +285,6 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, entt::entity audio_no
             buff
             });
     }
-
-    registry.assign<vector<entt::entity>>(audio_node_id, pins);
 }
 
 void LabSoundProvider::pin_set_bus_from_file(entt::entity pin_id, const std::string& path)
@@ -432,14 +428,14 @@ void LabSoundProvider::disconnect(entt::entity connection_id)
     return;
 }
 
-entt::entity LabSoundProvider::create_runtime_context()
+entt::entity LabSoundProvider::create_runtime_context(entt::entity id)
 {
     entt::registry& registry = Registry();
     const auto defaultAudioDeviceConfigurations = GetDefaultAudioDeviceConfiguration(true);
     g_audio_context = lab::MakeRealtimeAudioContext(defaultAudioDeviceConfigurations.second, defaultAudioDeviceConfigurations.first);
-    entt::entity id = registry.create();
     registry.assign<shared_ptr<lab::AudioNode>>(id, g_audio_context->device());
-    CreateEntities(g_audio_context->device(), id);
+    lab::noodle::Node& node = registry.get<lab::noodle::Node>(id);
+    CreateEntities(g_audio_context->device(), node, id);
     printf("CreateRuntimeContext %d\n", id);
     return id;
 }
@@ -481,13 +477,17 @@ void LabSoundProvider::node_bang(entt::entity node_id)
     printf("Bang %d\n", node_id);
 }
 
-entt::entity LabSoundProvider::node_create(const std::string& name)
+entt::entity LabSoundProvider::node_create(const std::string& name, entt::entity id)
 {
     entt::registry& registry = Registry();
-    shared_ptr<lab::AudioNode> node = NodeFactory(name);
-    entt::entity id = registry.create();
-    registry.assign<shared_ptr<lab::AudioNode>>(id, node);
-    CreateEntities(node, id);
+    shared_ptr<lab::AudioNode> n = NodeFactory(name);
+
+    lab::noodle::Node& node = registry.get<lab::noodle::Node>(id);
+    node.play_controller = n->isScheduledNode();
+    node.bang_controller = !!n->_scheduler._onStart;
+
+    registry.assign<shared_ptr<lab::AudioNode>>(id, n);
+    CreateEntities(n, node, id);
     printf("CreateNode %s %d\n", name.c_str(), id);
     return id;
 }
@@ -524,11 +524,6 @@ void LabSoundProvider::node_delete(entt::entity node_id)
         registry.destroy(node_id);
         /// @TODO end plumbing
     }
-}
-
-vector<entt::entity>& LabSoundProvider::pins(entt::entity audio_pin_id) const
-{
-    return Registry().get<vector<entt::entity>>(audio_pin_id);
 }
 
 entt::registry& LabSoundProvider::registry() const
@@ -629,18 +624,6 @@ bool LabSoundProvider::pin_bool_value(entt::entity pin)
         return a_pin.setting->valueBool();
     else
         return 0;
-}
-
-bool LabSoundProvider::node_has_play_controller(entt::entity node)
-{
-    auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node);
-    return n && n->isScheduledNode();
-}
-
-bool LabSoundProvider::node_has_bang_controller(entt::entity node)
-{
-    auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node);
-    return n && n->_scheduler._onStart;
 }
 
 float LabSoundProvider::node_get_timing(entt::entity node)
