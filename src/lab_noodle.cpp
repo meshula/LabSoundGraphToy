@@ -20,7 +20,7 @@ namespace noodle {
     using namespace ImGui;
 
     static const ImColor node_background_fill = ImColor(10, 20, 30, 128);
-    static const ImColor node_outline_hovered = ImColor(231, 92, 60); 
+    static const ImColor node_outline_hovered = ImColor(231, 102, 72); 
     static const ImColor node_outline_neutral = ImColor(192, 57, 43);
 
     static const ImColor icon_pin_flow = ImColor(241, 196, 15);
@@ -86,17 +86,33 @@ namespace noodle {
         float  scale = 1.f;
     };
 
-    //--------------------
-    // Types
+    struct CanvasNode
+    {
+        explicit CanvasNode() = default;
+        ~CanvasNode() = default;
 
-    // Audio Nodes and Noodles
+        Canvas canvas;
+        std::unordered_set<entt::entity> nodes;
+        std::unordered_set<entt::entity> groups;
+    };
 
-    struct GraphNodeLayout 
+    // ImGui channels for layering the graphics
+    enum class Channel : int {
+        Content = 0,
+        Grid = 1,
+        Groups = 2,
+        Nodes = 3,
+        Count = 4
+    };
+
+    struct GraphNodeLayout
     {
         static const float k_column_width;
+        Channel channel = Channel::Nodes;
+        ImVec2 ul_cs = { 0, 0 };
+        ImVec2 lr_cs = { 0, 0 };
         int in_height = 0, mid_height = 0, out_height = 0;
         int column_count = 1;
-        ImVec2 lr_cs = { 0,0 };
     };
     const float GraphNodeLayout::k_column_width = 180.f;
 
@@ -132,18 +148,6 @@ namespace noodle {
     const float GraphPinLayout::k_height = 20.f;
     const float GraphPinLayout::k_width = 20.f;
 
-    //--------------------
-    // Enumerations
-
-    // ImGui channels for layering the graphics
-
-    enum Channels {
-        ChannelContent = 0,
-        ChannelGrid    = 1,
-        ChannelNodes   = 2,
-        ChannelCount   = 3
-    };
-
     struct MouseState
     {
         bool in_canvas = false;
@@ -166,9 +170,9 @@ namespace noodle {
     struct Work;
     struct EditState
     {
-        void edit_pin(lab::noodle::Provider& provider, entt::entity pin_id, std::vector<Work>& pending_work);
-        void edit_connection(lab::noodle::Provider& provider, entt::entity connection, std::vector<Work>& pending_work);
-        void edit_node(Provider& provider, entt::entity node, std::vector<Work>& pending_work);
+        void edit_pin(lab::noodle::Provider& provider, CanvasNode& root, entt::entity pin_id, std::vector<Work>& pending_work);
+        void edit_connection(lab::noodle::Provider& provider, CanvasNode& root, entt::entity connection, std::vector<Work>& pending_work);
+        void edit_node(Provider& provider, CanvasNode& root, entt::entity node, std::vector<Work>& pending_work);
 
         entt::entity selected_connection = entt::null;
         entt::entity selected_pin = entt::null;
@@ -236,17 +240,23 @@ namespace noodle {
 
     enum class WorkType
     {
-        Nop, CreateRuntimeContext, CreateNode, DeleteNode, SetParam,
+        Nop, 
+        ClearScene, 
+        CreateRuntimeContext, 
+        CreateGroup,
+        CreateNode, DeleteNode, 
+        SetParam,
         SetFloatSetting, SetIntSetting, SetBoolSetting, SetBusSetting,
         ConnectBusOutToBusIn, ConnectBusOutToParamIn,
         DisconnectInFromOut,
         Start, Bang,
-        ClearScene, ResetSaveWorkEpoch
+        ResetSaveWorkEpoch
     };
 
     struct Work
     {
-        lab::noodle::Provider& provider;
+        Provider& provider;
+        CanvasNode& root;
         WorkType type = WorkType::Nop;
         std::string name;
         entt::entity input_node = entt::null;
@@ -262,8 +272,8 @@ namespace noodle {
         Work() = delete;
         ~Work() = default;
 
-        explicit Work(lab::noodle::Provider& provider)
-            : provider(provider)
+        explicit Work(Provider& provider, CanvasNode& root)
+            : provider(provider), root(root)
         {
             output_node = input_node;
             param_pin = input_node;
@@ -285,9 +295,9 @@ namespace noodle {
                 edit._device_node = provider.registry().create();
                 registry.assign<Node>(edit._device_node, Node("Device"));
                 provider.create_runtime_context(edit._device_node);
-                registry.assign<GraphNodeLayout>(edit._device_node, GraphNodeLayout{ });
-                registry.assign<UI>(edit._device_node, UI{ canvas_pos.x, canvas_pos.y });
+                registry.assign<GraphNodeLayout>(edit._device_node, GraphNodeLayout{ Channel::Nodes, { canvas_pos.x, canvas_pos.y } });
                 registry.assign<Name>(edit._device_node, unique_name("Device"));
+                root.nodes.insert(edit._device_node);
                 edit.incr_work_epoch();
                 break;
             }
@@ -296,9 +306,19 @@ namespace noodle {
                 entt::entity new_node = provider.registry().create();
                 registry.assign<Node>(new_node, Node(name));
                 provider.node_create(name, new_node);
-                registry.assign<GraphNodeLayout>(new_node, GraphNodeLayout{ });
-                registry.assign<UI>(new_node, UI{ canvas_pos.x, canvas_pos.y });
+                registry.assign<GraphNodeLayout>(new_node, GraphNodeLayout{ Channel::Nodes, { canvas_pos.x, canvas_pos.y } });
                 registry.assign<Name>(new_node, unique_name(name));
+                root.nodes.insert(new_node);
+                edit.incr_work_epoch();
+                break;
+            }
+            case WorkType::CreateGroup:
+            {
+                entt::entity new_node = provider.registry().create();
+                registry.assign<Node>(new_node, Node(name));
+                registry.assign<GraphNodeLayout>(new_node, GraphNodeLayout{ Channel::Groups, { canvas_pos.x, canvas_pos.y } });
+                registry.assign<Name>(new_node, unique_name(name));
+                root.groups.insert(new_node);
                 edit.incr_work_epoch();
                 break;
             }
@@ -389,7 +409,7 @@ namespace noodle {
         void run(Provider& provider, bool show_profiler, bool show_debug);
 
         legit::ProfilerGraph profiler_graph;
-        Canvas canvas;
+        CanvasNode root;
         MouseState mouse;
         EditState edit;
         HoverState hover;
@@ -398,8 +418,8 @@ namespace noodle {
 
         float total_profile_duration = 1; // in microseconds
         entt::entity ent_main_window = entt::null;
-        ImGuiID main_window_id;
-        ImGuiID graph_interactive_region_id;
+        ImGuiID main_window_id = 0;
+        ImGuiID graph_interactive_region_id = 0;
     };
 
     bool Context::State::context_menu(Provider& provider, ImVec2 canvas_pos)
@@ -410,6 +430,14 @@ namespace noodle {
         if (ImGui::BeginPopupContextWindow())
         {
             ImGui::PushID(id);
+            if (ImGui::MenuItem("Create Group Node"))
+            {
+                Work work(provider, root);
+                work.type = WorkType::CreateGroup;
+                work.canvas_pos = canvas_pos;
+                work.name = "Group";
+                pending_work.push_back(work);
+            }
             result = ImGui::BeginMenu("Create Node");
             if (result)
             {
@@ -427,7 +455,7 @@ namespace noodle {
                 ImGui::EndMenu();
                 if (pressed.size() > 0)
                 {
-                    Work work(provider);
+                    Work work(provider, root);
                     work.type = WorkType::CreateNode;
                     work.canvas_pos = canvas_pos;
                     work.name = pressed;
@@ -440,7 +468,7 @@ namespace noodle {
         return result;
     }
 
-    void EditState::edit_pin(lab::noodle::Provider& provider, entt::entity pin_id, std::vector<Work>& pending_work)
+    void EditState::edit_pin(lab::noodle::Provider& provider, CanvasNode& root, entt::entity pin_id, std::vector<Work>& pending_work)
     {
         entt::registry& registry = provider.registry();
         if (!registry.valid(pin_id))
@@ -518,7 +546,7 @@ namespace noodle {
                     const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_OPEN, "*.*", ".", "*.*");
                     if (file)
                     {
-                        Work work(provider);
+                        Work work(provider, root);
                         work.setting_pin = pin_id;
                         work.name.assign(file);
                         work.type = WorkType::SetBusSetting;
@@ -542,7 +570,7 @@ namespace noodle {
 
             if ((pin.dataType != Pin::DataType::Bus) && (accept || ImGui::Button("OK")))
             {
-                Work work(provider);
+                Work work(provider, root);
                 work.param_pin = pin_id;
                 work.setting_pin = pin_id;
                 buff[0] = '\0'; // clear the string
@@ -593,7 +621,7 @@ namespace noodle {
         }
     }
 
-    void EditState::edit_connection(lab::noodle::Provider& provider, entt::entity connection, std::vector<Work>& pending_work)
+    void EditState::edit_connection(lab::noodle::Provider& provider, CanvasNode& root, entt::entity connection, std::vector<Work>& pending_work)
     {
         entt::registry& reg = provider.registry();
         if (!reg.valid(connection))
@@ -615,7 +643,7 @@ namespace noodle {
         {
             if (ImGui::Button("Delete"))
             {
-                Work work(provider);
+                Work work(provider, root);
                 work.type = WorkType::DisconnectInFromOut;
                 work.connection_id = connection;
                 pending_work.emplace_back(work);
@@ -630,7 +658,7 @@ namespace noodle {
         }
     }
 
-    void EditState::edit_node(Provider& provider, entt::entity node, std::vector<Work>& pending_work)
+    void EditState::edit_node(Provider& provider, CanvasNode& root, entt::entity node, std::vector<Work>& pending_work)
     {
         entt::registry& reg = provider.registry();
         if (!reg.valid(node))
@@ -651,7 +679,7 @@ namespace noodle {
 
             if (ImGui::Button("Delete", {ImGui::GetWindowContentRegionWidth(), 24}))
             {
-                Work work(provider);
+                Work work(provider, root);
                 work.type = WorkType::DeleteNode;
                 work.input_node = node;
                 pending_work.emplace_back(work);
@@ -688,7 +716,7 @@ namespace noodle {
         ImGuiWindow* win = ImGui::GetCurrentWindow();
         ImRect edit_rect = win->ContentRegionRect;
         float y = (edit_rect.Max.y + edit_rect.Min.y) * 0.5f - 64;
-        Work work(provider);
+        Work work(provider, root);
         work.type = WorkType::CreateRuntimeContext;
         work.canvas_pos = ImVec2{ edit_rect.Max.x - 300, y };
         pending_work.push_back(work);
@@ -727,7 +755,7 @@ namespace noodle {
             if (mouse.in_canvas)
             {
                 mouse.mouse_ws = io.MousePos - ImGui::GetCurrentWindow()->Pos;
-                mouse.mouse_cs = (mouse.mouse_ws - canvas.origin_offset_ws) / canvas.scale;
+                mouse.mouse_cs = (mouse.mouse_ws - root.canvas.origin_offset_ws) / root.canvas.scale;
 
                 if (io.MouseDown[0] && io.MouseDownOwned[0])
                 {
@@ -737,7 +765,7 @@ namespace noodle {
                         mouse.click_initiated = true;
                         mouse.initial_click_pos_ws = io.MousePos;
                         mouse.canvas_clickpos_cs = mouse.mouse_cs;
-                        mouse.canvas_clicked_pixel_offset_ws = canvas.origin_offset_ws;
+                        mouse.canvas_clicked_pixel_offset_ws = root.canvas.origin_offset_ws;
                     }
 
                     mouse.dragging = true;
@@ -772,8 +800,7 @@ namespace noodle {
             gnl.out_height = 0;
             gnl.column_count = 1;
 
-            UI& ui = registry.get<UI>(node_entity);
-            ImVec2 node_pos = ImVec2{ ui.canvas_x, ui.canvas_y };
+            ImVec2 node_pos = gnl.ul_cs;
 
             Node& node = registry.get<Node>(node_entity);
 
@@ -907,7 +934,7 @@ namespace noodle {
                 }
 
                 GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity);
-                if (pnl.pin_contains_cs_point(canvas, mouse_x_cs, mouse_y_cs))
+                if (pnl.pin_contains_cs_point(root.canvas, mouse_x_cs, mouse_y_cs))
                 {
                     Pin& pin = registry.get<Pin>(entity);
                     if (pin.kind == Pin::Kind::Setting)
@@ -921,7 +948,7 @@ namespace noodle {
                         hover.node_id = pin.node_id;
                     }
                 }
-                else if (pnl.label_contains_cs_point(canvas, mouse_x_cs, mouse_y_cs))
+                else if (pnl.label_contains_cs_point(root.canvas, mouse_x_cs, mouse_y_cs))
                 {
                     Pin& pin = registry.get<Pin>(entity);
                     if (pin.kind == Pin::Kind::Setting || pin.kind == Pin::Kind::Param)
@@ -941,8 +968,7 @@ namespace noodle {
             for (const entt::entity entity : registry.view<lab::noodle::Node>())
             {
                 GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(entity);
-                UI& ui = registry.get<UI>(entity);
-                ImVec2 ul = ImVec2{ ui.canvas_x, ui.canvas_y };
+                ImVec2 ul = gnl.ul_cs;
                 ImVec2 lr = gnl.lr_cs;
                 if (mouse_x_cs >= ul.x && mouse_x_cs <= (lr.x + GraphPinLayout::k_width) && mouse_y_cs >= (ul.y - 20) && mouse_y_cs <= lr.y)
                 {
@@ -997,14 +1023,14 @@ namespace noodle {
 
                     GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(from_pin);
                     GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(to_pin);
-                    ImVec2 from_pos = from_gpl.ul_ws(canvas) + ImVec2(style_padding_y, style_padding_x) * canvas.scale;
-                    ImVec2 to_pos = to_gpl.ul_ws(canvas) + ImVec2(0, style_padding_x) * canvas.scale;
+                    ImVec2 from_pos = from_gpl.ul_ws(root.canvas) + ImVec2(style_padding_y, style_padding_x) * root.canvas.scale;
+                    ImVec2 to_pos = to_gpl.ul_ws(root.canvas) + ImVec2(0, style_padding_x) * root.canvas.scale;
 
                     ImVec2 p0 = from_pos;
                     ImVec2 p3 = to_pos;
                     ImVec2 p1, p2;
-                    noodle_bezier(p0, p1, p2, p3, canvas.scale);
-                    ImVec2 test = mouse.mouse_ws + canvas.window_origin_offset_ws;
+                    noodle_bezier(p0, p1, p2, p3, root.canvas.scale);
+                    ImVec2 test = mouse.mouse_ws + root.canvas.window_origin_offset_ws;
                     ImVec2 closest = ImBezierClosestPointCasteljau(p0, p1, p2, p3, test, 10);
                     
                     ImVec2 delta = test - closest;
@@ -1034,7 +1060,7 @@ namespace noodle {
         ImGuiIO& io = ImGui::GetIO();
         ImGuiWindow* win = ImGui::GetCurrentWindow();
         ImRect edit_rect = win->ContentRegionRect;
-        canvas.window_origin_offset_ws = ImGui::GetWindowPos() + ImGui::GetWindowContentRegionMin();
+        root.canvas.window_origin_offset_ws = ImGui::GetWindowPos() + ImGui::GetWindowContentRegionMin();
 
         //---------------------------------------------------------------------
         // ensure node sizes are up to date
@@ -1058,28 +1084,28 @@ namespace noodle {
         // draw the grid on the canvas
 
         ImDrawList* drawList = ImGui::GetWindowDrawList();
-        drawList->ChannelsSplit(ChannelCount);
-        drawList->ChannelsSetCurrent(ChannelContent);
+        drawList->ChannelsSplit((int) Channel::Count);
+        drawList->ChannelsSetCurrent((int) Channel::Content);
         {
-            drawList->ChannelsSetCurrent(ChannelGrid);
+            drawList->ChannelsSetCurrent((int) Channel::Grid);
 
-            const float grid_step_x = 100.0f * canvas.scale;
-            const float grid_step_y = 100.0f * canvas.scale;
+            const float grid_step_x = 100.0f * root.canvas.scale;
+            const float grid_step_y = 100.0f * root.canvas.scale;
             const ImVec2 grid_origin = ImGui::GetWindowPos();
             const ImVec2 grid_size = ImGui::GetWindowSize();
 
             drawList->AddRectFilled(grid_origin, grid_origin + grid_size, grid_bg_color);
 
-            for (float x = fmodf(canvas.origin_offset_ws.x, grid_step_x); x < grid_size.x; x += grid_step_x)
+            for (float x = fmodf(root.canvas.origin_offset_ws.x, grid_step_x); x < grid_size.x; x += grid_step_x)
             {
                 drawList->AddLine(ImVec2(x, 0.0f) + grid_origin, ImVec2(x, grid_size.y) + grid_origin, grid_line_color);
             }
-            for (float y = fmodf(canvas.origin_offset_ws.y, grid_step_y); y < grid_size.y; y += grid_step_y)
+            for (float y = fmodf(root.canvas.origin_offset_ws.y, grid_step_y); y < grid_size.y; y += grid_step_y)
             {
                 drawList->AddLine(ImVec2(0.0f, y) + grid_origin, ImVec2(grid_size.x, y) + grid_origin, grid_line_color);
             }
         }
-        drawList->ChannelsSetCurrent(ChannelContent);
+        drawList->ChannelsSetCurrent((int) Channel::Content);
 
         //---------------------------------------------------------------------
         // run the Imgui portion of the UI
@@ -1104,7 +1130,7 @@ namespace noodle {
             else if (edit.selected_pin != entt::null)
             {
                 ImGui::SetNextWindowPos(mouse.initial_click_pos_ws);
-                edit.edit_pin(provider, edit.selected_pin, pending_work);
+                edit.edit_pin(provider, root, edit.selected_pin, pending_work);
                 mouse.dragging = false;
                 hover.node_id = entt::null;
                 hover.reset(entt::null);
@@ -1112,7 +1138,7 @@ namespace noodle {
             else if (edit.selected_connection != entt::null)
             {
                 ImGui::SetNextWindowPos(mouse.initial_click_pos_ws);
-                edit.edit_connection(provider, edit.selected_connection, pending_work);
+                edit.edit_connection(provider, root, edit.selected_connection, pending_work);
                 mouse.dragging = false;
                 hover.node_id = entt::null;
                 hover.reset(entt::null);
@@ -1120,7 +1146,7 @@ namespace noodle {
             else if (edit.selected_node != entt::null)
             {
                 ImGui::SetNextWindowPos(mouse.initial_click_pos_ws);
-                edit.edit_node(provider, edit.selected_node, pending_work);
+                edit.edit_node(provider, root, edit.selected_node, pending_work);
                 mouse.dragging = false;
             }
             else
@@ -1199,7 +1225,7 @@ namespace noodle {
                 {
                     if (to_kind == Pin::Kind::BusIn)
                     {
-                        Work work(provider);
+                        Work work(provider, root);
                         work.type = WorkType::ConnectBusOutToBusIn;
                         work.input_node = to_pin.node_id;
                         work.output_node = from_pin.node_id;
@@ -1207,7 +1233,7 @@ namespace noodle {
                     }
                     else if (to_kind == Pin::Kind::Param)
                     {
-                        Work work(provider);
+                        Work work(provider, root);
                         work.type = WorkType::ConnectBusOutToParamIn;
                         work.input_node = to_pin.node_id;
                         work.output_node = from_pin.node_id;
@@ -1239,14 +1265,14 @@ namespace noodle {
             {
                 if (hover.bang)
                 {
-                    Work work(provider);
+                    Work work(provider, root);
                     work.type = WorkType::Bang;
                     work.input_node = hover.node_id;
                     pending_work.push_back(work);
                 }
                 if (hover.play)
                 {
-                    Work work(provider);
+                    Work work(provider, root);
                     work.type = WorkType::Start;
                     work.input_node = hover.node_id;
                     pending_work.push_back(work);
@@ -1282,8 +1308,8 @@ namespace noodle {
                     mouse.dragging_wire = false;
                     mouse.dragging_node = true;
 
-                    UI& ui = registry.get<UI>(hover.node_id);
-                    mouse.node_initial_pos_cs = ImVec2{ ui.canvas_x, ui.canvas_y };
+                    GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id);
+                    mouse.node_initial_pos_cs = gnl.ul_cs;
                 }
             }
 
@@ -1291,12 +1317,10 @@ namespace noodle {
             {
                 ImVec2 delta = mouse.mouse_cs - mouse.canvas_clickpos_cs;
 
-                UI& ui = registry.get<UI>(hover.node_id);
                 GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id);
-                ImVec2 sz = gnl.lr_cs - ImVec2{ ui.canvas_x, ui.canvas_y };
+                ImVec2 sz = gnl.lr_cs - gnl.ul_cs;
                 ImVec2 new_pos = mouse.node_initial_pos_cs + delta;
-                ui.canvas_x = new_pos.x;
-                ui.canvas_y = new_pos.y;
+                gnl.ul_cs = new_pos;
                 gnl.lr_cs = new_pos + sz;
 
                 /// @TODO force the color to be highlighting
@@ -1312,7 +1336,7 @@ namespace noodle {
                     if (fabsf(io.MouseDelta.x) > 0.f || fabsf(io.MouseDelta.y) > 0.f)
                     {
                         // pull the pivot around
-                        canvas.origin_offset_ws = mouse.canvas_clicked_pixel_offset_ws - mouse.initial_click_pos_ws + io.MousePos;
+                        root.canvas.origin_offset_ws = mouse.canvas_clicked_pixel_offset_ws - mouse.initial_click_pos_ws + io.MousePos;
                     }
                 }
                 else if (mouse.in_canvas)
@@ -1320,13 +1344,13 @@ namespace noodle {
                     if (fabsf(io.MouseWheel) > 0.f)
                     {
                         // scale using where the mouse is currently hovered as the pivot
-                        float prev_scale = canvas.scale;
-                        canvas.scale += std::copysign(0.25f, io.MouseWheel);
-                        canvas.scale = std::max(canvas.scale, 0.25f);
+                        float prev_scale = root.canvas.scale;
+                        root.canvas.scale += std::copysign(0.25f, io.MouseWheel);
+                        root.canvas.scale = std::max(root.canvas.scale, 0.25f);
 
                         // solve for off2
                         // (mouse - off1) / scale1 = (mouse - off2) / scale2 
-                        canvas.origin_offset_ws = mouse.mouse_ws - (mouse.mouse_ws - canvas.origin_offset_ws) * (canvas.scale / prev_scale);
+                        root.canvas.origin_offset_ws = mouse.mouse_ws - (mouse.mouse_ws - root.canvas.origin_offset_ws) * (root.canvas.scale / prev_scale);
                     }
                 }
             }
@@ -1342,14 +1366,14 @@ namespace noodle {
 
         uint32_t text_color = 0xffffff;
         uint32_t text_color_highlighted = 0x00ffff;
-        text_color |= (uint32_t)(255 * 2 * (canvas.scale - 0.5f)) << 24;
-        text_color_highlighted |= (uint32_t)(255 * 2 * (canvas.scale - 0.5f)) << 24;
+        text_color |= (uint32_t)(255 * 2 * (root.canvas.scale - 0.5f)) << 24;
+        text_color_highlighted |= (uint32_t)(255 * 2 * (root.canvas.scale - 0.5f)) << 24;
 
         ///////////////////////////////////////////
         //   Noodles Bezier Lines Curves Pulled  //
         ///////////////////////////////////////////
 
-        drawList->ChannelsSetCurrent(ChannelNodes);
+        drawList->ChannelsSetCurrent((int) Channel::Nodes);
 
         for (const auto entity : registry.view<lab::noodle::Connection>())
         {
@@ -1359,13 +1383,13 @@ namespace noodle {
 
             GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(from_pin);
             GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(to_pin);
-            ImVec2 from_pos = from_gpl.ul_ws(canvas) + ImVec2(style_padding_y, style_padding_x) * canvas.scale;
-            ImVec2 to_pos = to_gpl.ul_ws(canvas) + ImVec2(0, style_padding_x) * canvas.scale;
+            ImVec2 from_pos = from_gpl.ul_ws(root.canvas) + ImVec2(style_padding_y, style_padding_x) * root.canvas.scale;
+            ImVec2 to_pos = to_gpl.ul_ws(root.canvas) + ImVec2(0, style_padding_x) * root.canvas.scale;
 
             ImVec2 p0 = from_pos;
             ImVec2 p3 = to_pos;
             ImVec2 p1, p2;
-            noodle_bezier(p0, p1, p2, p3, canvas.scale);
+            noodle_bezier(p0, p1, p2, p3, root.canvas.scale);
             ImU32 color = entity == hover.connection_id ? noodle_bezier_hovered : noodle_bezier_neutral;
             drawList->AddBezierCurve(p0, p1, p2, p3, color, 2.f);
         }
@@ -1373,10 +1397,10 @@ namespace noodle {
         if (mouse.dragging_wire)
         {
             GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(hover.originating_pin_id);
-            ImVec2 p0 = from_gpl.ul_ws(canvas) + ImVec2(style_padding_y, style_padding_x) * canvas.scale;
-            ImVec2 p3 = mouse.mouse_ws + canvas.window_origin_offset_ws;
+            ImVec2 p0 = from_gpl.ul_ws(root.canvas) + ImVec2(style_padding_y, style_padding_x) * root.canvas.scale;
+            ImVec2 p3 = mouse.mouse_ws + root.canvas.window_origin_offset_ws;
             ImVec2 p1, p2;
-            noodle_bezier(p0, p1, p2, p3, canvas.scale);
+            noodle_bezier(p0, p1, p2, p3, root.canvas.scale);
             ImU32 color = hover.valid_connection ? noodle_bezier_neutral : noodle_bezier_cancel;
             drawList->AddBezierCurve(p0, p1, p2, p3, color, 2.f);
         }
@@ -1403,11 +1427,12 @@ namespace noodle {
             profile_idx = (profile_idx + 1) % profiler_data.size();
 
             GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(entity);
-            UI& ui = registry.get<UI>(entity);
-            ImVec2 ul_ws = ImVec2{ ui.canvas_x, ui.canvas_y };
+            drawList->ChannelsSetCurrent((int)gnl.channel);
+
+            ImVec2 ul_ws = gnl.ul_cs;
             ImVec2 lr_ws = gnl.lr_cs;
-            ul_ws = canvas.window_origin_offset_ws + ul_ws * canvas.scale + canvas.origin_offset_ws;
-            lr_ws = canvas.window_origin_offset_ws + lr_ws * canvas.scale + canvas.origin_offset_ws;
+            ul_ws = root.canvas.window_origin_offset_ws + ul_ws * root.canvas.scale + root.canvas.origin_offset_ws;
+            lr_ws = root.canvas.window_origin_offset_ws + lr_ws * root.canvas.scale + root.canvas.origin_offset_ws;
 
             // draw node
             drawList->AddRectFilled(ul_ws, lr_ws, node_background_fill, node_border_radius);
@@ -1416,7 +1441,7 @@ namespace noodle {
             if (show_profiler)
             {
                 ImVec2 p1{ ul_ws.x, lr_ws.y };
-                ImVec2 p2{ lr_ws.x, lr_ws.y + canvas.scale * style_padding_y };
+                ImVec2 p2{ lr_ws.x, lr_ws.y + root.canvas.scale * style_padding_y };
                 drawList->AddRect(p1, p2, ImColor(128, 255, 128, 255));
                 p2.x = p1.x + (p2.x - p1.x) * node_profile_duration / total_profile_duration;
                 drawList->AddRectFilled(p1, p2, ImColor(255, 255, 255, 128));
@@ -1426,18 +1451,18 @@ namespace noodle {
             {
                 NodeRender& render = registry.get<NodeRender>(entity);
                 if (render.render)
-                    render.render(entity, { ul_ws.x, ul_ws.y }, { lr_ws.x, lr_ws.y }, canvas.scale, drawList);
+                    render.render(entity, { ul_ws.x, ul_ws.y }, { lr_ws.x, lr_ws.y }, root.canvas.scale, drawList);
             }
 
             ///////////////////////////////////////////
             //   Node Header / Banner / Top / Menu   //
             ///////////////////////////////////////////
 
-            if (canvas.scale > 0.5f)
+            if (root.canvas.scale > 0.5f)
             {
-                const float label_font_size = style_padding_y * canvas.scale;
+                const float label_font_size = style_padding_y * root.canvas.scale;
                 ImVec2 label_pos = ul_ws;
-                label_pos.y -= 20 * canvas.scale;
+                label_pos.y -= 20 * root.canvas.scale;
 
                 auto& node = registry.get<Node>(entity);
 
@@ -1503,35 +1528,35 @@ namespace noodle {
                 }
 
                 GraphPinLayout& pin_gpl = registry.get<GraphPinLayout>(j);
-                ImVec2 pin_ul = pin_gpl.ul_ws(canvas);
+                ImVec2 pin_ul = pin_gpl.ul_ws(root.canvas);
                 uint32_t fill = (j == hover.pin_id || j == hover.originating_pin_id) ? 0xffffff : 0x000000;
                 fill |= (uint32_t)(128 + 128 * sinf(pulse * 8)) << 24;
 
                 DrawIcon(drawList, pin_ul,
-                    ImVec2{ pin_ul.x + GraphPinLayout::k_width * canvas.scale, pin_ul.y + GraphPinLayout::k_height * canvas.scale },
+                    ImVec2{ pin_ul.x + GraphPinLayout::k_width * root.canvas.scale, pin_ul.y + GraphPinLayout::k_height * root.canvas.scale },
                     icon_type, false, color, fill);
 
                 // Only draw text if we can likely see it
-                if (canvas.scale > 0.5f)
+                if (root.canvas.scale > 0.5f)
                 {
-                    float font_size = style_padding_y * canvas.scale;
+                    float font_size = style_padding_y * root.canvas.scale;
                     ImVec2 label_pos = pin_ul;
 
                     label_pos.y += 2;
 
-                    label_pos.x += 20 * canvas.scale;
+                    label_pos.x += 20 * root.canvas.scale;
                     drawList->AddText(NULL, font_size, label_pos, text_color,
                         pin_it.shortName.c_str(), pin_it.shortName.c_str() + pin_it.shortName.length());
 
                     if (has_value)
                     {
-                        label_pos.x += 50 * canvas.scale;
+                        label_pos.x += 50 * root.canvas.scale;
                         drawList->AddText(NULL, font_size, label_pos, text_color,
                             pin_it.value_as_string.c_str(), pin_it.value_as_string.c_str() + pin_it.value_as_string.length());
                     }
                 }
 
-                pin_ul.y += 20 * canvas.scale;
+                pin_ul.y += 20 * root.canvas.scale;
             }
         }
 
@@ -1552,9 +1577,9 @@ namespace noodle {
 
             ImGui::Separator();
             ImGui::TextUnformatted("Canvas");
-            ImVec2 off = canvas.window_origin_offset_ws;
+            ImVec2 off = root.canvas.window_origin_offset_ws;
             ImGui::Text("canvas window offset (%d, %d)", (int)off.x, (int)off.y);
-            off = canvas.origin_offset_ws;
+            off = root.canvas.origin_offset_ws;
             ImGui::Text("canvas origin offset (%d, %d)", (int)off.x, (int)off.y);
 
             ImGui::Separator();
@@ -1618,7 +1643,6 @@ namespace noodle {
         // Note: this code uses \n because std::endl has other behaviors
         using lab::noodle::Name;
         using lab::noodle::Pin;
-        using lab::noodle::UI;
         entt::registry& reg = provider.registry();
         std::ofstream file(path, std::ios::binary);
         file << "#!LabSoundGraphToy\n";
@@ -1632,10 +1656,10 @@ namespace noodle {
             lab::noodle::Name& name = reg.get<lab::noodle::Name>(node_entity);
             file << "node: " << node.kind << " name: " << name.name << "\n";
 
-            if (reg.any<UI>(node_entity))
+            if (reg.any<GraphNodeLayout>(node_entity))
             {
-                UI& ui = reg.get<UI>(node_entity);
-                file << " pos: " << ui.canvas_x << " " << ui.canvas_y << "\n";
+                GraphNodeLayout& gnl = reg.get<GraphNodeLayout>(node_entity);
+                file << " pos: " << gnl.ul_cs.x << " " << gnl.ul_cs.y << "\n";
             }
 
             for (const entt::entity entity : node.pins)
@@ -1713,7 +1737,7 @@ namespace noodle {
 
     void Context::clear_all()
     {
-        Work work(provider);
+        Work work(provider, _s->root);
         work.type = WorkType::ClearScene;
         _s->pending_work.emplace_back(work);
     }

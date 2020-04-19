@@ -154,9 +154,9 @@ namespace legit
     {
       ImDrawList* drawList = ImGui::GetWindowDrawList();
       const vec2 widgetPos = Vec2(ImGui::GetCursorScreenPos());
-      RenderGraph(drawList, widgetPos, vec2(graphWidth, height), maxFrameTime, frameIndexOffset);
-      RenderLegend(drawList, widgetPos + vec2(graphWidth, 0.0f), vec2(legendWidth, height), maxFrameTime, frameIndexOffset);
-      ImGui::Dummy(ImVec2(float(graphWidth + legendWidth), float(height)));
+      RenderGraph(drawList, widgetPos, vec2(static_cast<float>(graphWidth), static_cast<float>(height)), maxFrameTime, frameIndexOffset);
+      RenderLegend(drawList, widgetPos + vec2(static_cast<float>(graphWidth), 0.0f), vec2(static_cast<float>(legendWidth), static_cast<float>(height)), maxFrameTime, frameIndexOffset);
+      ImGui::Dummy(ImVec2(float(graphWidth + legendWidth), static_cast<float>(height)));
     }
 
   private:
@@ -212,7 +212,7 @@ namespace legit
           float taskEndHeight = (float(task.endTime) / maxFrameTime) * graphSize.y;
           //taskMaxCosts[task.name] = std::max(taskMaxCosts[task.name], task.endTime - task.startTime);
           if (abs(taskEndHeight - taskStartHeight) > heightThreshold)
-            Rect(drawList, taskPos + vec2(0.0f, -taskStartHeight), taskPos + vec2(frameWidth, -taskEndHeight), task.color, true);
+            Rect(drawList, taskPos + vec2(0.0f, -taskStartHeight), taskPos + vec2(static_cast<float>(frameWidth), -taskEndHeight), task.color, true);
         }
       }
     }

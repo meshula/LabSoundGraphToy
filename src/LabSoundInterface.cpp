@@ -639,7 +639,7 @@ float LabSoundProvider::node_get_timing(entt::entity node)
 
 float LabSoundProvider::node_get_self_timing(entt::entity node)
 {
-    if (!registry().valid(node))
+    if (!registry().has<std::shared_ptr<lab::AudioNode>>(node))
         return 0;
 
     auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node);

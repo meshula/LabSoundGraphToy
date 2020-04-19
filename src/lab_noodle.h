@@ -130,12 +130,6 @@ namespace lab { namespace noodle {
         entt::entity node_to = entt::null;
     };
 
-    // serializable data indicating where on the canvas an entity is
-    /// @TODO gnl.lr_cs should be here as well.
-    struct UI
-    {
-        float canvas_x = 0, canvas_y = 0;
-    };
 
     //--------------------------------------------------------------------------
     // Runtime
