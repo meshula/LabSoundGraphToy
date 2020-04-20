@@ -111,6 +111,7 @@ namespace noodle {
         Channel channel = Channel::Nodes;
         ImVec2 ul_cs = { 0, 0 };
         ImVec2 lr_cs = { 0, 0 };
+        bool group = false;
         int in_height = 0, mid_height = 0, out_height = 0;
         int column_count = 1;
     };
@@ -154,6 +155,7 @@ namespace noodle {
         bool dragging = false;
         bool dragging_wire = false;
         bool dragging_node = false;
+        bool resizing_node = false;
         bool interacting_with_canvas = false;
         bool click_initiated = false;
         bool click_ended = false;
@@ -217,9 +219,12 @@ namespace noodle {
         void reset(entt::entity en)
         {
             node_id = en;
-            originating_pin_id = en;
             pin_id = en;
             pin_label_id = en;
+            connection_id = en;
+            originating_pin_id = en;
+            size_widget_node_id = en;
+
             node_menu = false;
             bang = false;
             play = false;
@@ -231,6 +236,8 @@ namespace noodle {
         entt::entity pin_label_id = entt::null;
         entt::entity connection_id = entt::null;
         entt::entity originating_pin_id = entt::null;
+        entt::entity size_widget_node_id = entt::null;
+
         bool node_menu = false;
         bool bang = false;
         bool play = false;
@@ -316,7 +323,11 @@ namespace noodle {
             {
                 entt::entity new_node = provider.registry().create();
                 registry.assign<Node>(new_node, Node(name));
-                registry.assign<GraphNodeLayout>(new_node, GraphNodeLayout{ Channel::Groups, { canvas_pos.x, canvas_pos.y } });
+                registry.assign<GraphNodeLayout>(new_node, 
+                    GraphNodeLayout{ Channel::Groups, 
+                        { canvas_pos.x, canvas_pos.y },
+                        { canvas_pos.x + GraphNodeLayout::k_column_width * 2, canvas_pos.y + GraphPinLayout::k_height * 8},
+                        true });
                 registry.assign<Name>(new_node, unique_name(name));
                 root.groups.insert(new_node);
                 edit.incr_work_epoch();
@@ -748,6 +759,7 @@ namespace noodle {
             {
                 //printf("button released\n");
                 mouse.dragging_node = false;
+                mouse.resizing_node = false;
                 mouse.click_ended = true;
             }
             mouse.in_canvas = ImGui::IsItemHovered();
@@ -791,8 +803,11 @@ namespace noodle {
 
         for (auto node_entity : registry.view<Node>())
         {
-            GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(node_entity);
             if (!registry.valid(node_entity))
+                continue;
+
+            GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(node_entity);
+            if (gnl.group)
                 continue;
 
             gnl.in_height = 0;
@@ -921,6 +936,7 @@ namespace noodle {
             hover.pin_id = entt::null;
             hover.pin_label_id = entt::null;
             hover.connection_id = entt::null;
+            hover.size_widget_node_id = entt::null;
             float mouse_x_cs = mouse.mouse_cs.x;
             float mouse_y_cs = mouse.mouse_cs.y;
 
@@ -1002,6 +1018,10 @@ namespace noodle {
                         {
                             hover.node_menu = true;
                         }
+                    }
+                    else if (gnl.group && mouse_y_cs > lr.y - 16 && mouse_x_cs > lr.x - 16)
+                    {
+                        hover.size_widget_node_id = entity;
                     }
 
                     hover.node_id = entity;
@@ -1215,7 +1235,7 @@ namespace noodle {
                     from_kind == Pin::Kind::Setting);
 
                 // disallow connecting a node to itself
-               hover.valid_connection &= from_pin.node_id != to_pin.node_id;
+                hover.valid_connection &= from_pin.node_id != to_pin.node_id;
 
                 if (!hover.valid_connection)
                 {
@@ -1242,6 +1262,7 @@ namespace noodle {
                     }
                 }
             }
+            mouse.resizing_node = false;
             mouse.dragging_wire = false;
             hover.originating_pin_id = entt::null;
         }
@@ -1280,6 +1301,7 @@ namespace noodle {
                 if (hover.pin_id != entt::null)
                 {
                     mouse.dragging_wire = true;
+                    mouse.resizing_node = false;
                     mouse.dragging_node = false;
                     mouse.node_initial_pos_cs = mouse.mouse_cs;
                     if (hover.originating_pin_id == entt::null)
@@ -1303,9 +1325,18 @@ namespace noodle {
                         edit.pin_bool = provider.pin_bool_value(edit.selected_pin);
                     }
                 }
+                else if (hover.size_widget_node_id != entt::null)
+                {
+                    mouse.dragging_wire = false;
+                    mouse.dragging_node = false;
+                    mouse.resizing_node = true;
+                    GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id);
+                    mouse.node_initial_pos_cs = gnl.lr_cs;
+                }
                 else
                 {
                     mouse.dragging_wire = false;
+                    mouse.resizing_node = false;
                     mouse.dragging_node = true;
 
                     GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id);
@@ -1324,6 +1355,17 @@ namespace noodle {
                 gnl.lr_cs = new_pos + sz;
 
                 /// @TODO force the color to be highlighting
+            }
+            else if (mouse.resizing_node)
+            {
+                ImVec2 delta = mouse.mouse_cs - mouse.canvas_clickpos_cs;
+
+                GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id);
+                ImVec2 sz = gnl.lr_cs - gnl.ul_cs;
+                ImVec2 new_pos = mouse.node_initial_pos_cs + delta;
+                gnl.lr_cs = new_pos;
+                gnl.lr_cs.x = std::max(gnl.ul_cs.x + 100, gnl.lr_cs.x);
+                gnl.lr_cs.y = std::max(gnl.ul_cs.y + 50, gnl.lr_cs.y);
             }
         }
         else
@@ -1437,6 +1479,17 @@ namespace noodle {
             // draw node
             drawList->AddRectFilled(ul_ws, lr_ws, node_background_fill, node_border_radius);
             drawList->AddRect(ul_ws, lr_ws, (hover.node_id == entity) ? node_outline_hovered : node_outline_neutral, node_border_radius, 15, 2);
+
+            if (gnl.group)
+            {
+                ImVec2 p0 = lr_ws;
+                p0.x -= 16;
+                p0.y -= 16;
+                ImVec2 p1 = lr_ws;
+                p1.x -= 4;
+                p1.y -= 4;
+                drawList->AddRect(p0, p1, node_outline_hovered, node_border_radius, 15, 2);
+            }
 
             if (show_profiler)
             {
@@ -1590,6 +1643,7 @@ namespace noodle {
             ImGui::Text("hovered pin label: %d", hover.pin_label_id);
             ImGui::Text("hovered connection: %d", hover.connection_id);
             ImGui::Text("hovered node menu: %s", hover.node_menu ? "*" : ".");
+            ImGui::Text("hovered size widget: %d", hover.size_widget_node_id);
 
             ImGui::Separator();
             ImGui::TextUnformatted("Edit");
