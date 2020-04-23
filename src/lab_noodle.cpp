@@ -108,12 +108,19 @@ namespace noodle {
     struct GraphNodeLayout
     {
         static const float k_column_width;
+
+        // position and shape
+
+        CanvasNode* parent_canvas = nullptr;
         Channel channel = Channel::Nodes;
         ImVec2 ul_cs = { 0, 0 };
         ImVec2 lr_cs = { 0, 0 };
         bool group = false;
         int in_height = 0, mid_height = 0, out_height = 0;
         int column_count = 1;
+
+        // interaction
+        ImVec2 initial_pos_cs = { 0, 0 };
     };
     const float GraphNodeLayout::k_column_width = 180.f;
 
@@ -160,7 +167,6 @@ namespace noodle {
         bool click_initiated = false;
         bool click_ended = false;
 
-        ImVec2 node_initial_pos_cs = { 0, 0 };
         ImVec2 initial_click_pos_ws = { 0, 0 };
         ImVec2 canvas_clickpos_cs = { 0, 0 };
         ImVec2 canvas_clicked_pixel_offset_ws = { 0, 0 };
@@ -222,7 +228,6 @@ namespace noodle {
             pin_id = en;
             pin_label_id = en;
             connection_id = en;
-            originating_pin_id = en;
             size_widget_node_id = en;
 
             node_menu = false;
@@ -231,17 +236,24 @@ namespace noodle {
             valid_connection = true;
         }
 
+        // moment to moment hover data
         entt::entity node_id = entt::null;
         entt::entity pin_id = entt::null;
         entt::entity pin_label_id = entt::null;
         entt::entity connection_id = entt::null;
-        entt::entity originating_pin_id = entt::null;
         entt::entity size_widget_node_id = entt::null;
+
+        float node_area = 0.f;
+        float group_area = 0.f;
 
         bool node_menu = false;
         bool bang = false;
         bool play = false;
         bool valid_connection = true;
+
+        // interaction data
+        entt::entity originating_pin_id = entt::null;
+        entt::entity group_id = entt::null;
     };
 
 
@@ -266,6 +278,7 @@ namespace noodle {
         CanvasNode& root;
         WorkType type = WorkType::Nop;
         std::string name;
+        entt::entity group_node = entt::null;
         entt::entity input_node = entt::null;
         entt::entity output_node = entt::null;
         entt::entity param_pin = entt::null;
@@ -302,7 +315,8 @@ namespace noodle {
                 edit._device_node = provider.registry().create();
                 registry.assign<Node>(edit._device_node, Node("Device"));
                 provider.create_runtime_context(edit._device_node);
-                registry.assign<GraphNodeLayout>(edit._device_node, GraphNodeLayout{ Channel::Nodes, { canvas_pos.x, canvas_pos.y } });
+                registry.assign<GraphNodeLayout>(edit._device_node, 
+                    GraphNodeLayout{ nullptr, Channel::Nodes, { canvas_pos.x, canvas_pos.y } });
                 registry.assign<Name>(edit._device_node, unique_name("Device"));
                 root.nodes.insert(edit._device_node);
                 edit.incr_work_epoch();
@@ -313,9 +327,25 @@ namespace noodle {
                 entt::entity new_node = provider.registry().create();
                 registry.assign<Node>(new_node, Node(name));
                 provider.node_create(name, new_node);
-                registry.assign<GraphNodeLayout>(new_node, GraphNodeLayout{ Channel::Nodes, { canvas_pos.x, canvas_pos.y } });
+
+                CanvasNode* cn = nullptr;
+                if (group_node != entt::null && registry.valid(group_node))
+                {
+                    cn = &registry.get<CanvasNode>(group_node);
+                }
+
+                registry.assign<GraphNodeLayout>(new_node, 
+                    GraphNodeLayout{cn, Channel::Nodes, { canvas_pos.x, canvas_pos.y } });
                 registry.assign<Name>(new_node, unique_name(name));
-                root.nodes.insert(new_node);
+
+                if (group_node != entt::null && registry.valid(group_node))
+                {
+                    CanvasNode& cn = registry.get<CanvasNode>(group_node);
+                    cn.nodes.insert(new_node);
+                }
+                else
+                    root.nodes.insert(new_node);
+
                 edit.incr_work_epoch();
                 break;
             }
@@ -324,11 +354,12 @@ namespace noodle {
                 entt::entity new_node = provider.registry().create();
                 registry.assign<Node>(new_node, Node(name));
                 registry.assign<GraphNodeLayout>(new_node, 
-                    GraphNodeLayout{ Channel::Groups, 
+                    GraphNodeLayout{ nullptr, Channel::Groups, 
                         { canvas_pos.x, canvas_pos.y },
                         { canvas_pos.x + GraphNodeLayout::k_column_width * 2, canvas_pos.y + GraphPinLayout::k_height * 8},
                         true });
                 registry.assign<Name>(new_node, unique_name(name));
+                registry.assign<CanvasNode>(new_node, CanvasNode{});
                 root.groups.insert(new_node);
                 edit.incr_work_epoch();
                 break;
@@ -383,7 +414,27 @@ namespace noodle {
             }
             case WorkType::DeleteNode:
             {
-                provider.node_delete(input_node);
+                if (registry.any<CanvasNode>(input_node))
+                {
+                    CanvasNode& cn = registry.get<CanvasNode>(input_node);
+                    for (auto en : cn.nodes)
+                    {
+                        provider.node_delete(en);
+                        registry.destroy(en);
+                    }
+                }
+                else
+                {
+                    GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(input_node);
+                    if (gnl.parent_canvas)
+                    {
+                        auto it = gnl.parent_canvas->nodes.find(input_node);
+                        if (it != gnl.parent_canvas->nodes.end())
+                            gnl.parent_canvas->nodes.erase(it);
+                    }
+                    provider.node_delete(input_node);
+                }
+                registry.destroy(input_node);
                 edit.incr_work_epoch();
                 break;
             }
@@ -470,6 +521,7 @@ namespace noodle {
                     work.type = WorkType::CreateNode;
                     work.canvas_pos = canvas_pos;
                     work.name = pressed;
+                    work.group_node = hover.group_id;
                     pending_work.push_back(work);
                 }
             }
@@ -929,14 +981,8 @@ namespace noodle {
         
         if (find_highlights)
         {
-            hover.bang = false;
-            hover.play = false;
-            hover.node_menu = false;
-            hover.node_id = entt::null;
-            hover.pin_id = entt::null;
-            hover.pin_label_id = entt::null;
-            hover.connection_id = entt::null;
-            hover.size_widget_node_id = entt::null;
+            hover.reset(entt::null);
+            hover.group_id = entt::null;
             float mouse_x_cs = mouse.mouse_cs.x;
             float mouse_y_cs = mouse.mouse_cs.y;
 
@@ -980,6 +1026,9 @@ namespace noodle {
                 }
             }
 
+            hover.node_area = 1e20f; // unreasonably large
+            hover.group_area = 1e20f;
+
             // test all nodes
             for (const entt::entity entity : registry.view<lab::noodle::Node>())
             {
@@ -988,6 +1037,28 @@ namespace noodle {
                 ImVec2 lr = gnl.lr_cs;
                 if (mouse_x_cs >= ul.x && mouse_x_cs <= (lr.x + GraphPinLayout::k_width) && mouse_y_cs >= (ul.y - 20) && mouse_y_cs <= lr.y)
                 {
+                    // traditional UI heuristic:
+                    // always pick the box with least area in the case of overlaps
+
+                    float w = lr.x - ul.x;
+                    float h = lr.y - ul.y;
+                    float area = w * h;
+
+                    // check group in addition to hovered node
+                    if (gnl.group)
+                    {
+                        if (area < hover.group_area)
+                        {
+                            hover.group_area = area;
+                            hover.group_id = entity;
+                        }
+                    }
+
+                    if (area > hover.node_area)
+                        continue;
+
+                    hover.node_area = area;
+
                     ImVec2 pin_ul;
 
                     if (mouse_y_cs < ul.y)
@@ -1025,7 +1096,6 @@ namespace noodle {
                     }
 
                     hover.node_id = entity;
-                    break;
                 }
             }
 
@@ -1303,9 +1373,10 @@ namespace noodle {
                     mouse.dragging_wire = true;
                     mouse.resizing_node = false;
                     mouse.dragging_node = false;
-                    mouse.node_initial_pos_cs = mouse.mouse_cs;
                     if (hover.originating_pin_id == entt::null)
                         hover.originating_pin_id = hover.pin_id;
+                    GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id);
+                    gnl.initial_pos_cs = mouse.mouse_cs;
                 }
                 else if (hover.pin_label_id != entt::null)
                 {
@@ -1331,7 +1402,7 @@ namespace noodle {
                     mouse.dragging_node = false;
                     mouse.resizing_node = true;
                     GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id);
-                    mouse.node_initial_pos_cs = gnl.lr_cs;
+                    gnl.initial_pos_cs = gnl.lr_cs;
                 }
                 else
                 {
@@ -1340,7 +1411,18 @@ namespace noodle {
                     mouse.dragging_node = true;
 
                     GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id);
-                    mouse.node_initial_pos_cs = gnl.ul_cs;
+                    gnl.initial_pos_cs = gnl.ul_cs;
+
+                    // set up initials for group dragging
+                    if (hover.group_id != entt::null)
+                    {
+                        CanvasNode& cn = registry.get<CanvasNode>(hover.group_id);
+                        for (auto en : cn.nodes)
+                        {
+                            GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(en);
+                            gnl.initial_pos_cs = gnl.ul_cs;
+                        }
+                    }
                 }
             }
 
@@ -1350,11 +1432,24 @@ namespace noodle {
 
                 GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id);
                 ImVec2 sz = gnl.lr_cs - gnl.ul_cs;
-                ImVec2 new_pos = mouse.node_initial_pos_cs + delta;
+                ImVec2 new_pos = gnl.initial_pos_cs + delta;
                 gnl.ul_cs = new_pos;
                 gnl.lr_cs = new_pos + sz;
 
                 /// @TODO force the color to be highlighting
+
+                if (gnl.group)
+                {
+                    CanvasNode& cn = registry.get<CanvasNode>(hover.node_id);
+                    for (entt::entity i : cn.nodes)
+                    {
+                        GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(i);
+                        ImVec2 sz = gnl.lr_cs - gnl.ul_cs;
+                        ImVec2 new_pos = gnl.initial_pos_cs + delta;
+                        gnl.ul_cs = new_pos;
+                        gnl.lr_cs = new_pos + sz;
+                    }
+                }
             }
             else if (mouse.resizing_node)
             {
@@ -1362,7 +1457,7 @@ namespace noodle {
 
                 GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id);
                 ImVec2 sz = gnl.lr_cs - gnl.ul_cs;
-                ImVec2 new_pos = mouse.node_initial_pos_cs + delta;
+                ImVec2 new_pos = gnl.initial_pos_cs + delta;
                 gnl.lr_cs = new_pos;
                 gnl.lr_cs.x = std::max(gnl.ul_cs.x + 100, gnl.lr_cs.x);
                 gnl.lr_cs.y = std::max(gnl.ul_cs.y + 50, gnl.lr_cs.y);
@@ -1638,6 +1733,7 @@ namespace noodle {
             ImGui::Separator();
             ImGui::TextUnformatted("Hover");
             ImGui::Text("node hovered: %s", hover.node_id != entt::null ? "*" : ".");
+            ImGui::Text("group hovered: %d", hover.group_id);
             ImGui::Text("originating pin id: %d", hover.originating_pin_id);
             ImGui::Text("hovered pin id: %d", hover.pin_id);
             ImGui::Text("hovered pin label: %d", hover.pin_label_id);

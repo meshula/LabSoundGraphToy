@@ -521,8 +521,9 @@ void LabSoundProvider::node_delete(entt::entity node_id)
                 registry.destroy(entity);
         }
 
-        registry.destroy(node_id);
         /// @TODO end plumbing
+
+        // note: node_id is to be deleted externally, as it was created externally
     }
 }
 
