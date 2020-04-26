@@ -472,8 +472,13 @@ void LabSoundProvider::node_bang(entt::entity node_id)
     if (!in_node)
         return;
 
-    lab::AudioScheduledSourceNode* n = dynamic_cast<lab::AudioScheduledSourceNode*>(in_node.get());
-    n->start(0);
+    shared_ptr<lab::AudioParam> gate = in_node->param("gate");
+    if (gate)
+    {
+        gate->setValueAtTime(1.f, g_audio_context->currentTime() + 0.f);
+        gate->setValueAtTime(0.f, g_audio_context->currentTime() + 1.f);
+    }
+
     printf("Bang %d\n", node_id);
 }
 
@@ -484,7 +489,7 @@ entt::entity LabSoundProvider::node_create(const std::string& name, entt::entity
 
     lab::noodle::Node& node = registry.get<lab::noodle::Node>(id);
     node.play_controller = n->isScheduledNode();
-    node.bang_controller = !!n->_scheduler._onStart;
+    node.bang_controller = !!n->param("gate");
 
     registry.assign<shared_ptr<lab::AudioNode>>(id, n);
     CreateEntities(n, node, id);
