@@ -132,14 +132,11 @@ ImFont * g_audio_icon = nullptr;
 std::thread* osc_service_thread = nullptr;
 
 void init(void) {
-#ifdef HAVE_TINY_OSC
     _osc_queue = new polymer::spsc_queue<OSCMsg>();
     osc_net_init();
     osc_service_thread = new std::thread([]() {
         open_udp_server();
         });
-
-#endif
 
     // setup sokol-gfx, sokol-time and sokol-imgui
     sg_desc desc = { };
