@@ -13,3 +13,6 @@
 [submodule "third/LabMidi"]
 	path = third/LabMidi
 	url = git@github.com:meshula/LabMidi.git
+[submodule "third/tinyosc"]
+	path = third/tinyosc
+	url = git@github.com:ddiakopoulos/tinyosc.git
