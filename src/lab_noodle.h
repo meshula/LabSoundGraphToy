@@ -39,8 +39,8 @@ namespace lab { namespace noodle {
         virtual void  pin_set_bus_from_file(entt::entity pin, const std::string& path) = 0;
 
         // connections
-        virtual entt::entity connect_bus_out_to_bus_in(entt::entity node_out_id, entt::entity node_in_id) = 0;
-        virtual entt::entity connect_bus_out_to_param_in(entt::entity output_node_id, entt::entity pin_id) = 0;
+        virtual entt::entity connect_bus_out_to_bus_in(entt::entity node_out_id, entt::entity output_pin_id, entt::entity node_in_id) = 0;
+        virtual entt::entity connect_bus_out_to_param_in(entt::entity output_node_id, entt::entity output_pin_id, entt::entity pin_id) = 0;
         virtual void disconnect(entt::entity connection_id) = 0;
     };
 
@@ -94,7 +94,7 @@ namespace lab { namespace noodle {
 
     // pins have kind. Settings can't be connected to.
     // Busses carry signals, and parameters parameterize a node.
-    // Busses can connect to paramaters to drive them.
+    // Busses can connect to parameters to drive them.
     struct Pin
     {
         Pin() = default;

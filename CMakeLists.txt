@@ -24,6 +24,8 @@ set(PLAYGROUND_SRC
     src/ImguiFontCousineRegular.cpp
     src/LabSoundInterface.cpp
     src/LabSoundInterface.h
+    src/OSCMsg.hpp
+    src/queue_spsc.hpp
 )
 
 if(APPLE)
@@ -43,6 +45,13 @@ endif()
 #-------------------------------------------------------------------------------
 
 add_subdirectory("third/LabMidi")
+
+#-------------------------------------------------------------------------------
+# TinyOSC
+#-------------------------------------------------------------------------------
+
+add_subdirectory("third/tinyosc")
+
 
 #-------------------------------------------------------------------------------
 # imgui
@@ -196,6 +205,7 @@ target_link_libraries(LabSoundGraphToy
     imgui
     Lab::Sound
     Lab::Midi
+    Tiny::OSC
     sokol)
 
 #-------------------------------------------------------------------------------

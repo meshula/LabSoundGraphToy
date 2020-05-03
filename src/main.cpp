@@ -13,10 +13,101 @@
 
 #include "nfd.h"
 
-#include <string>
-#include <vector>
+#include <tinyosc.hpp>
+#include <tinyosc-net.hpp>
+
 #include <fstream>
 #include <iostream>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include "OSCMsg.hpp"
+
+std::unordered_map<std::string, int> _addr_map;
+std::unordered_map<int, int> _id_argc_map;
+int _next_addr = 0;
+
+polymer::spsc_queue<OSCMsg> * _osc_queue = nullptr;
+namespace {
+    bool join_osc = false;
+}
+
+void open_udp_server()
+{
+    osc_net_address_t server_addr;
+    osc_net_get_address(&server_addr, nullptr, 8000);
+
+    osc_net_socket_t server_socket;
+    if (osc_net_udp_socket_open(&server_socket, server_addr, true))
+    {
+        std::cout << "osc_net_udp_socket_open osc_net_err: " << osc_net_get_error() << std::endl;
+    }
+    else
+    {
+        std::cout << "OSC server started, will listen to packets on UDP port " << 8000 << std::endl;
+
+        tinyosc::osc_packet_reader packet_reader;
+        tinyosc::osc_packet_writer packet_writer;
+
+        while (!join_osc)
+        {
+            std::vector<uint8_t> recv_byte_buffer(1024 * 128);
+
+            osc_net_address_t sender;
+            if (auto bytes = osc_net_udp_socket_receive(&server_socket, &sender, recv_byte_buffer.data(), (int) recv_byte_buffer.size(), 30))
+            {
+                packet_reader.initialize_from_ptr(recv_byte_buffer.data(), bytes);
+                tinyosc::osc_message* msg;
+
+                while (packet_reader.check_error() && (msg = packet_reader.pop_message()) != 0)
+                {
+                    OSCMsg osc_msg;
+                    auto addr = msg->get_address_pattern();
+                    int addr_id;
+                    auto it = _addr_map.find(addr);
+                    if (it == _addr_map.end())
+                    {
+                        addr_id = ++_next_addr;
+                        _addr_map[addr] = addr_id;
+                        auto tags = msg->get_type_tags();
+                        if (tags == "f")
+                            osc_msg.argc = 1;
+                        else if (tags == "ff")
+                            osc_msg.argc = 2;
+                        else if (tags == "fff")
+                            osc_msg.argc = 3;
+                        else
+                            osc_msg.argc = 0;
+                        _id_argc_map[addr_id] = osc_msg.argc;
+                        it = _addr_map.find(addr);
+                        osc_msg.addr = it->first.c_str();
+                    }
+                    else
+                    {
+                        addr_id = it->second;
+                        osc_msg.addr = it->first.c_str();
+                        osc_msg.argc = _id_argc_map[addr_id];
+                    }
+
+                    osc_msg.addr_id = addr_id;
+
+                    auto& match = msg->match_complete(addr);
+                    for (int i = 0; i < osc_msg.argc; ++i)
+                    {
+                        float x;
+                        match = match.pop_float(x);
+                        if (i < 4)
+                            osc_msg.data[i] = x;
+                    }
+                    match.check_no_more_args();
+
+                    _osc_queue->produce(std::move(osc_msg));
+                }
+            }
+        }
+    }
+}
 
 enum class Command
 {
@@ -38,7 +129,18 @@ ImFont * g_roboto = nullptr;
 ImFont * g_cousine = nullptr;
 ImFont * g_audio_icon = nullptr;
 
+std::thread* osc_service_thread = nullptr;
+
 void init(void) {
+#ifdef HAVE_TINY_OSC
+    _osc_queue = new polymer::spsc_queue<OSCMsg>();
+    osc_net_init();
+    osc_service_thread = new std::thread([]() {
+        open_udp_server();
+        });
+
+#endif
+
     // setup sokol-gfx, sokol-time and sokol-imgui
     sg_desc desc = { };
     desc.mtl_device = sapp_metal_get_device();
@@ -130,6 +232,11 @@ void frame()
     static LabSoundProvider provider;
     static lab::noodle::Context config(provider);
     static bool show_demo = false;
+    OSCMsg osc_msg;
+    while (_osc_queue->consume(osc_msg))
+    {
+        provider.add_osc_addr(osc_msg.addr, osc_msg.addr_id, osc_msg.argc, osc_msg.data);
+    }
 
     static Command command = Command::None;
     if (ImGui::BeginMainMenuBar())
@@ -307,13 +414,25 @@ void frame()
     sg_commit();
 }
 
-void cleanup(void) {
+void cleanup(void) 
+{
+    if (osc_service_thread)
+    {
+        join_osc = true;
+        if (osc_service_thread->joinable())
+            osc_service_thread->join();
+        delete osc_service_thread;
+    }
+    delete _osc_queue;
+    osc_net_shutdown();
+
     sg_imgui_discard(&sg_imgui);
     simgui_shutdown();
     sg_shutdown();
 }
 
-void input(const sapp_event* event) {
+void input(const sapp_event* event) 
+{
     simgui_handle_event(event);
 }
 

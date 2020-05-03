@@ -281,6 +281,7 @@ namespace noodle {
         entt::entity group_node = entt::null;
         entt::entity input_node = entt::null;
         entt::entity output_node = entt::null;
+        entt::entity output_pin = entt::null;
         entt::entity param_pin = entt::null;
         entt::entity setting_pin = entt::null;
         entt::entity connection_id = entt::null;
@@ -384,7 +385,7 @@ namespace noodle {
             }
             case WorkType::SetBoolSetting:
             {
-                provider.pin_set_int_value(setting_pin, bool_value);
+                provider.pin_set_bool_value(setting_pin, bool_value);
                 edit.incr_work_epoch();
                 break;
             }
@@ -396,13 +397,13 @@ namespace noodle {
             }
             case WorkType::ConnectBusOutToBusIn:
             {
-                provider.connect_bus_out_to_bus_in(output_node, input_node);
+                provider.connect_bus_out_to_bus_in(output_node, output_pin, input_node);
                 edit.incr_work_epoch();
                 break;
             }
             case WorkType::ConnectBusOutToParamIn:
             {
-                provider.connect_bus_out_to_param_in(output_node, param_pin);
+                provider.connect_bus_out_to_param_in(output_node, output_pin, param_pin);
                 edit.incr_work_epoch();
                 break;
             }
@@ -994,6 +995,11 @@ namespace noodle {
                     // @TODO slate entity for demolition
                     continue;
                 }
+                if (!registry.has<GraphPinLayout>(entity))
+                {
+                    // this can occur if pins have been created, but no associated node exists
+                    continue;
+                }
 
                 GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity);
                 if (pnl.pin_contains_cs_point(root.canvas, mouse_x_cs, mouse_y_cs))
@@ -1327,6 +1333,7 @@ namespace noodle {
                         work.type = WorkType::ConnectBusOutToParamIn;
                         work.input_node = to_pin.node_id;
                         work.output_node = from_pin.node_id;
+                        work.output_pin = from_pin.pin_id;
                         work.param_pin = to_pin.pin_id;
                         pending_work.emplace_back(work);
                     }
@@ -1693,8 +1700,30 @@ namespace noodle {
                     label_pos.y += 2;
 
                     label_pos.x += 20 * root.canvas.scale;
-                    drawList->AddText(NULL, font_size, label_pos, text_color,
-                        pin_it.shortName.c_str(), pin_it.shortName.c_str() + pin_it.shortName.length());
+
+                    if (pin_it.shortName.size())
+                    {
+                        // prefer shortname
+                        drawList->AddText(NULL, font_size, label_pos, text_color,
+                            pin_it.shortName.c_str(), pin_it.shortName.c_str() + pin_it.shortName.length());
+                    }
+                    else
+                    {
+                        // if there's a long name, use it
+                        if (registry.has<Name>(j))
+                        {
+                            auto& name = registry.get<Name>(j);
+                            if (name.name.size())
+                            {
+                                if (pin_it.kind == Pin::Kind::BusOut)
+                                {
+                                    label_pos.x -= (ImGui::CalcTextSize(name.name.c_str()).x + 30) * root.canvas.scale;
+                                }
+                                drawList->AddText(NULL, font_size, label_pos, text_color,
+                                    name.name.c_str(), name.name.c_str() + name.name.length());
+                            }
+                        }
+                    }
 
                     if (has_value)
                     {
