@@ -52,6 +52,11 @@ add_subdirectory("third/LabMidi")
 
 add_subdirectory("third/tinyosc")
 
+#-------------------------------------------------------------------------------
+# rapidjson
+#-------------------------------------------------------------------------------
+
+set(RAPIDJSON_INCL third/rapidjson/include)
 
 #-------------------------------------------------------------------------------
 # imgui
@@ -168,6 +173,7 @@ target_compile_definitions(LabSoundGraphToy PRIVATE
 
 target_include_directories(LabSoundGraphToy SYSTEM
     PRIVATE third/imgui
+    PRIVATE ${RAPIDJSON_INCL}
     PRIVATE third/entt/single_include)
 
 target_include_directories(LabSoundGraphToy

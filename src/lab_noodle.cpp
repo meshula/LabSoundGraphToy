@@ -10,6 +10,11 @@
 
 #include "nfd.h"
 
+#include <rapidjson/document.h>
+#include <rapidjson/reader.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
+
 #include <algorithm>
 #include <unordered_map>
 #include <unordered_set>
@@ -1815,6 +1820,11 @@ namespace noodle {
 
     void Context::save(const std::string& path)
     {
+        save_json(path);
+    }
+
+    void Context::save_test(const std::string& path)
+    {
         /// @TODO this is a prototype file format, meant to debug actually writing valuable data
         /// The format could be something else entirely, this routine should be treated more
         /// like a prototype template that can be duplicated for a new format.
@@ -1854,7 +1864,9 @@ namespace noodle {
                 switch (pin.kind)
                 {
                 case Pin::Kind::BusIn:
+                    break;
                 case Pin::Kind::BusOut:
+                    file << " out: " << name.name << "\n";
                     break;
 
                 case Pin::Kind::Param:
@@ -1900,9 +1912,199 @@ namespace noodle {
         _s->edit.unify_epochs();
     }
 
+    void Context::save_json(const std::string& path)
+    {
+        using lab::noodle::Name;
+        using lab::noodle::Pin;
+        using StringBuffer = rapidjson::StringBuffer;
+        using Writer = rapidjson::Writer<StringBuffer>;
+
+        entt::registry& reg = provider.registry();
+
+        StringBuffer s;
+        Writer writer(s);
+        writer.StartObject();
+        writer.Key("LabSoundGraphToy");
+        writer.StartObject();
+        writer.Key("nodes");
+        writer.StartArray();
+
+        for (auto node_entity : reg.view<lab::noodle::Node>())
+        {
+            if (!reg.valid(node_entity))
+                continue;
+
+            lab::noodle::Node& node = reg.get<lab::noodle::Node>(node_entity);
+            lab::noodle::Name& name = reg.get<lab::noodle::Name>(node_entity);
+
+            writer.StartObject();
+
+            writer.Key("name");
+            writer.String(name.name.c_str());
+            writer.Key("kind");
+            writer.String(node.kind.c_str());
+
+            if (reg.any<GraphNodeLayout>(node_entity))
+            {
+                GraphNodeLayout& gnl = reg.get<GraphNodeLayout>(node_entity);
+                writer.Key("pos");
+                writer.StartArray();
+                writer.Double(gnl.ul_cs.x);
+                writer.Double(gnl.ul_cs.y);
+                writer.EndArray();
+            }
+
+            writer.Key("pins");
+            writer.StartArray();
+            for (const entt::entity entity : node.pins)
+            {
+                if (!reg.valid(entity))
+                    continue;
+
+                Pin pin = reg.get<Pin>(entity);
+                if (!reg.valid(pin.node_id))
+                    continue;
+
+                Name& name = reg.get<Name>(entity);
+                switch (pin.kind)
+                {
+                case Pin::Kind::BusIn:
+                    break;
+
+                case Pin::Kind::BusOut:
+                    writer.StartObject();
+                    writer.Key("kind");
+                    writer.String("bus_out");
+                    writer.Key("name");
+                    writer.String(name.name.c_str());
+                    writer.EndObject();
+                    break;
+
+                case Pin::Kind::Param:
+                    writer.StartObject();
+                    writer.Key("kind");
+                    writer.String("param");
+                    writer.Key("name");
+                    writer.String(name.name.c_str());
+                    writer.Key("value");
+                    writer.String(pin.value_as_string.c_str());
+                    writer.EndObject();
+                    break;
+
+                case Pin::Kind::Setting:
+                    writer.StartObject();
+                    writer.Key("kind");
+                    writer.String("setting");
+                    writer.Key("name");
+                    writer.String(name.name.c_str());
+                    writer.Key("value");
+                    writer.String(pin.value_as_string.c_str());
+                    writer.Key("type");
+                    switch (pin.dataType)
+                    {
+                    default:
+                    case Pin::DataType::None: writer.String("None"); break;
+                    case Pin::DataType::Bus: writer.String("Bus"); break;
+                    case Pin::DataType::Bool: writer.String("Bool"); break;
+                    case Pin::DataType::Integer: writer.String("Integer"); break;
+                    case Pin::DataType::Enumeration: writer.String("Enumeration"); break;
+                    case Pin::DataType::Float: writer.String("Float"); break;
+                    case Pin::DataType::String: writer.String("String"); break;
+                    }
+                    writer.EndObject();
+                    break;
+                }
+            }
+            writer.EndArray();
+
+            writer.EndObject(); // node
+        }
+
+        writer.EndArray(); // nodes
+
+        writer.Key("connections");
+        writer.StartArray();
+        for (const auto entity : reg.view<lab::noodle::Connection>())
+        {
+            lab::noodle::Connection& connection = reg.get<lab::noodle::Connection>(entity);
+            entt::entity from_pin = connection.pin_from;
+            entt::entity to_pin = connection.pin_to;
+            if (!reg.valid(from_pin) || !reg.valid(to_pin))
+                continue;
+
+            using lab::noodle::Name;
+            Name& from_node_name = reg.get<Name>(connection.node_from);
+            Name& from_pin_name = reg.get<Name>(from_pin);
+            Name& to_node_name = reg.get<Name>(connection.node_to);
+            Name& to_pin_name = reg.get<Name>(to_pin);
+
+            writer.Key("connection");
+            writer.StartObject();
+            writer.Key("from_node");
+            writer.String(from_node_name.name.c_str());
+            writer.Key("from_pin");
+            writer.String(from_pin_name.name.c_str());
+            writer.Key("to_node");
+            writer.String(to_node_name.name.c_str());
+            writer.Key("to_pin");
+            writer.String(to_pin_name.name.c_str());
+            writer.EndObject();
+        }
+        writer.EndArray(); // connections
+
+        writer.EndObject(); // LabSoundGraphToy
+        writer.EndObject(); // outer scope
+
+        std::ofstream file(path, std::ios::binary);
+        file << s.GetString();
+        file.flush();
+
+        _s->edit.unify_epochs();
+    }
+
     void Context::load(const std::string& path)
     {
         bool load_succeeded = true;
+
+        std::vector<uint8_t> str = read_file_binary(path);
+        str.push_back('\0');
+
+        rapidjson::Document d;
+        d.Parse(reinterpret_cast<const char*>(str.data()));
+
+        auto& dom = d["LabSoundGraphToy"];
+        auto& root = dom.GetObject();
+        auto& nodes_root = root["nodes"];
+        auto& nodes_array = nodes_root.GetArray();
+        for (auto& node : nodes_array)
+        {
+            std::string name = node["name"].GetString();
+            std::string kind = node["kind"].GetString();
+            auto& pos_array = node["pos"].GetArray();
+            float x = pos_array[0].GetFloat();
+            float y = pos_array[1].GetFloat();
+            auto& pins_array = node["pins"].GetArray();
+            for (auto& pin_root : pins_array)
+            {
+                std::string name = pin_root["name"].GetString();
+                std::string kind = node["kind"].GetString();
+                std::string value = node["value"].GetString();
+                if (kind == "param")
+                {
+                }
+                else if (kind == "setting")
+                {
+                    std::string type = node["type"].GetString();
+                }
+            }
+        }
+        auto& connections_root = root["connections"];
+        auto& connections_array = connections_root.GetArray();
+        for (auto& node : connections_array)
+        {
+
+        }
+
         if (load_succeeded)
         {
             _s->edit.reset_epochs();

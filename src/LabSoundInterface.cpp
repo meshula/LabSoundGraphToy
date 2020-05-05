@@ -548,13 +548,13 @@ char const* const* LabSoundProvider::node_names() const
         for (; *src_names != nullptr; ++src_names, ++count)
         {
         }
-        names = reinterpret_cast<char const**>(malloc(sizeof(char*) * count + 2));
+        names = reinterpret_cast<char const**>(malloc(sizeof(char*) * count + 3));
         if (names)
         {
             static char* osc_name = "OSC";
             names[0] = osc_name;
-            names[count + 1] = nullptr;
             memcpy(&names[1], lab::AudioNodeNames(), sizeof(char*) * count);
+            names[count + 1] = nullptr;
         }
     }
     return names;
