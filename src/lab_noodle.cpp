@@ -2038,7 +2038,6 @@ namespace noodle {
             Name& to_node_name = reg.get<Name>(connection.node_to);
             Name& to_pin_name = reg.get<Name>(to_pin);
 
-            writer.Key("connection");
             writer.StartObject();
             writer.Key("from_node");
             writer.String(from_node_name.name.c_str());
@@ -2088,7 +2087,6 @@ namespace noodle {
             {
                 std::string name = pin_root["name"].GetString();
                 std::string kind = node["kind"].GetString();
-                std::string value = node["value"].GetString();
                 if (kind == "param")
                 {
                 }
@@ -2096,13 +2094,22 @@ namespace noodle {
                 {
                     std::string type = node["type"].GetString();
                 }
+                std::string value;
+                auto& it= node.FindMember("value");
+                if (it != node.MemberEnd())
+                {
+                    value = it->value.GetString();
+                }
             }
         }
         auto& connections_root = root["connections"];
         auto& connections_array = connections_root.GetArray();
         for (auto& node : connections_array)
         {
-
+            std::string from_node = node["from_node"].GetString();
+            std::string from_pin = node["from_pin"].GetString();
+            std::string to_node = node["to_node"].GetString();
+            std::string to_pin = node["to_pin"].GetString();
         }
 
         if (load_succeeded)

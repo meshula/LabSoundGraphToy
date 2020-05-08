@@ -391,6 +391,13 @@ void frame()
         {
             command = Command::None;
         }
+        const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_OPEN, "*.ls", ".", "*.*");
+        if (file)
+        {
+            config.clear_all();
+            config.load(file);
+        }
+        command = Command::None;
         break;
     }
 
