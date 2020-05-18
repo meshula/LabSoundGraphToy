@@ -46,10 +46,10 @@ namespace noodle {
     static constexpr float style_padding_y = 16.f;    
     static constexpr float style_padding_x = 12.f;
 
+    static std::unordered_map<std::string, int> unique_bases;
+    static std::unordered_set<std::string> unique_names;
     std::string unique_name(std::string name)
     {
-        static std::unordered_map<std::string, int> bases;
-        static std::unordered_set<std::string> names;
 
         size_t pos = name.rfind("-");
         std::string base;
@@ -64,24 +64,29 @@ namespace noodle {
             base = name.substr(0, pos);
 
         // if base isn't already known, remember it, and return name
-        auto i = bases.find(base);
-        if (i == bases.end())
+        auto i = unique_bases.find(base);
+        if (i == unique_bases.end())
         {
-            bases[base] = 1;
-            names.insert(name);
+            unique_bases[base] = 1;
+            unique_names.insert(name);
             return name;
         }
 
         int id = i->second;
         std::string candidate = base + "-" + std::to_string(id);
-        while (names.find(candidate) != names.end())
+        while (unique_names.find(candidate) != unique_names.end())
         {
             ++id;
             candidate = base + "-" + std::to_string(id);
         }
-        bases[base] = id;
-        names.insert(candidate);
+        unique_bases[base] = id;
+        unique_names.insert(candidate);
         return candidate;
+    }
+    void clear_unique_names()
+    {
+        unique_bases.clear();
+        unique_names.clear();
     }
 
     struct Canvas
@@ -267,22 +272,38 @@ namespace noodle {
         Nop, 
         ClearScene, 
         CreateRuntimeContext, 
-        CreateGroup,
+        CreateGroup, CreateOutput,
         CreateNode, DeleteNode, 
         SetParam,
         SetFloatSetting, SetIntSetting, SetBoolSetting, SetBusSetting,
+        SetEnumerationSetting,
         ConnectBusOutToBusIn, ConnectBusOutToParamIn,
         DisconnectInFromOut,
         Start, Bang,
         ResetSaveWorkEpoch
     };
 
+    struct WorkPendingConnection
+    {
+        std::string from_node;
+        std::string from_pin;
+        std::string to_node;
+        std::string to_pin;
+        std::string to_pin_kind;
+    };
+
+
     struct Work
     {
         Provider& provider;
         CanvasNode& root;
         WorkType type = WorkType::Nop;
+
+        std::unique_ptr<WorkPendingConnection> pendingConnection;
+
+        std::string kind;
         std::string name;
+
         entt::entity group_node = entt::null;
         entt::entity input_node = entt::null;
         entt::entity output_node = entt::null;
@@ -290,9 +311,11 @@ namespace noodle {
         entt::entity param_pin = entt::null;
         entt::entity setting_pin = entt::null;
         entt::entity connection_id = entt::null;
+
         float float_value = 0.f;
         int int_value = 0;
         bool bool_value = false;
+        std::string string_value;
         ImVec2 canvas_pos = { 0, 0 };
 
         Work() = delete;
@@ -301,10 +324,19 @@ namespace noodle {
         explicit Work(Provider& provider, CanvasNode& root)
             : provider(provider), root(root)
         {
-            output_node = input_node;
-            param_pin = input_node;
-            setting_pin = input_node;
-            connection_id = input_node;
+        }
+
+        explicit Work(Work&& rh)
+        : provider(rh.provider), root(rh.root)
+        , type(rh.type), kind(rh.kind), name(rh.name)
+        , group_node(rh.group_node), input_node(rh.input_node), output_node(rh.output_node)
+        , param_pin(rh.param_pin), setting_pin(rh.setting_pin), output_pin(rh.output_pin)
+        , connection_id(rh.connection_id)
+        , float_value(rh.float_value), int_value(rh.int_value), bool_value(rh.bool_value)
+        , string_value(rh.string_value), canvas_pos(rh.canvas_pos)
+        {
+            std::swap(pendingConnection, rh.pendingConnection);
+
         }
 
         void eval(EditState& edit)
@@ -331,8 +363,8 @@ namespace noodle {
             case WorkType::CreateNode:
             {
                 entt::entity new_node = provider.registry().create();
-                registry.assign<Node>(new_node, Node(name));
-                provider.node_create(name, new_node);
+                registry.assign<Node>(new_node, Node(kind));
+                provider.node_create(kind, new_node);
 
                 CanvasNode* cn = nullptr;
                 if (group_node != entt::null && registry.valid(group_node))
@@ -342,7 +374,18 @@ namespace noodle {
 
                 registry.assign<GraphNodeLayout>(new_node, 
                     GraphNodeLayout{cn, Channel::Nodes, { canvas_pos.x, canvas_pos.y } });
-                registry.assign<Name>(new_node, unique_name(name));
+
+                if (name.length())
+                {
+                    registry.assign<Name>(new_node, name);
+                    provider.associate(new_node, name);
+                }
+                else
+                {
+                    std::string n = unique_name(kind);
+                    registry.assign<Name>(new_node, n);
+                    provider.associate(new_node, n);
+                }
 
                 if (group_node != entt::null && registry.valid(group_node))
                 {
@@ -355,16 +398,27 @@ namespace noodle {
                 edit.incr_work_epoch();
                 break;
             }
+            case WorkType::CreateOutput:
+            {
+                provider.pin_create_output(kind, name, int_value);
+                edit.incr_work_epoch();
+                break;
+            }
             case WorkType::CreateGroup:
             {
                 entt::entity new_node = provider.registry().create();
-                registry.assign<Node>(new_node, Node(name));
+                registry.assign<Node>(new_node, Node(kind));
                 registry.assign<GraphNodeLayout>(new_node, 
                     GraphNodeLayout{ nullptr, Channel::Groups, 
                         { canvas_pos.x, canvas_pos.y },
                         { canvas_pos.x + GraphNodeLayout::k_column_width * 2, canvas_pos.y + GraphPinLayout::k_height * 8},
                         true });
-                registry.assign<Name>(new_node, unique_name(name));
+
+                if (name.length())
+                    registry.assign<Name>(new_node, name);
+                else
+                    registry.assign<Name>(new_node, unique_name(kind));
+
                 registry.assign<CanvasNode>(new_node, CanvasNode{});
                 root.groups.insert(new_node);
                 edit.incr_work_epoch();
@@ -372,46 +426,141 @@ namespace noodle {
             }
             case WorkType::SetParam:
             {
-                provider.pin_set_float_value(param_pin, float_value);
+                if (setting_pin != entt::null)
+                    provider.pin_set_float_value(param_pin, float_value);
+                else
+                    provider.pin_set_param_value(kind, name, float_value);
                 edit.incr_work_epoch();
                 break;
             }
             case WorkType::SetFloatSetting:
             {
-                provider.pin_set_float_value(setting_pin, float_value);
+                if (setting_pin != entt::null)
+                    provider.pin_set_float_value(setting_pin, float_value);
+                else
+                    provider.pin_set_setting_float_value(kind, name, float_value);
                 edit.incr_work_epoch();
                 break;
             }
             case WorkType::SetIntSetting:
             {
-                provider.pin_set_int_value(setting_pin, int_value);
+                if (setting_pin != entt::null)
+                    provider.pin_set_int_value(setting_pin, int_value);
+                else
+                    provider.pin_set_setting_int_value(kind, name, int_value);
                 edit.incr_work_epoch();
                 break;
             }
             case WorkType::SetBoolSetting:
             {
-                provider.pin_set_bool_value(setting_pin, bool_value);
+                if (setting_pin != entt::null)
+                    provider.pin_set_bool_value(setting_pin, bool_value);
+                else
+                    provider.pin_set_setting_bool_value(kind, name, bool_value);
                 edit.incr_work_epoch();
                 break;
             }
             case WorkType::SetBusSetting:
             {
-                provider.pin_set_bus_from_file(setting_pin, name);
+                if (setting_pin != entt::null)
+                    provider.pin_set_bus_from_file(setting_pin, string_value);
+                else
+                    provider.pin_set_setting_bus_value(kind, name, string_value);
                 edit.incr_work_epoch();
                 break;
             }
+            case WorkType::SetEnumerationSetting:
+            {
+                if (setting_pin != entt::null)
+                    provider.pin_set_enumeration_value(setting_pin, string_value);
+                else
+                    provider.pin_set_setting_enumeration_value(kind, name, string_value);
+                edit.incr_work_epoch();
+                edit.incr_work_epoch();
+            }
+
             case WorkType::ConnectBusOutToBusIn:
             {
-                provider.connect_bus_out_to_bus_in(output_node, output_pin, input_node);
+                entt::entity from_node_e = entt::null;
+                entt::entity to_node_e = entt::null;
+                entt::entity from_pin_e = entt::null;
+                entt::entity to_pin_e = entt::null;
+                if (pendingConnection)
+                {
+                    from_node_e = provider.entity_for_node_named(pendingConnection->from_node);
+                    to_node_e = provider.entity_for_node_named(pendingConnection->to_node);
+                    if (!registry.valid(from_node_e) || !registry.valid(to_node_e))
+                        break;
+
+                    if (pendingConnection->from_pin.length())
+                        from_pin_e = provider.node_output_named(from_node_e, pendingConnection->from_pin);
+
+                    provider.connect_bus_out_to_bus_in(from_node_e, from_pin_e, to_node_e);
+                }
+                else
+                {
+                    provider.connect_bus_out_to_bus_in(output_node, output_pin, input_node);
+                    from_node_e = output_node;
+                    from_pin_e = output_pin;
+                    to_node_e = input_node;
+                    to_pin_e = param_pin;
+                }
+
+                entt::entity connection_id = registry.create();
+                registry.assign<lab::noodle::Connection>(connection_id, lab::noodle::Connection(
+                    connection_id,
+                    from_pin_e, from_node_e,
+                    to_pin_e, to_node_e,
+                    lab::noodle::Connection::Kind::ToBus
+                ));
+
                 edit.incr_work_epoch();
                 break;
             }
+
             case WorkType::ConnectBusOutToParamIn:
             {
-                provider.connect_bus_out_to_param_in(output_node, output_pin, param_pin);
+                entt::entity from_node_e = entt::null;
+                entt::entity to_node_e = entt::null;
+                entt::entity from_pin_e = entt::null;
+                entt::entity to_pin_e = entt::null;
+                if (pendingConnection)
+                {
+                    from_node_e = provider.entity_for_node_named(pendingConnection->from_node);
+                    to_node_e = provider.entity_for_node_named(pendingConnection->to_node);
+                    if (!registry.valid(from_node_e) || !registry.valid(to_node_e))
+                        break;
+
+                    from_pin_e = entt::null;
+                    if (pendingConnection->from_pin.length())
+                        from_pin_e = provider.node_output_named(from_node_e, pendingConnection->from_pin);
+
+                    to_pin_e = entt::null;
+                    if (pendingConnection->to_pin.length())
+                        to_pin_e = provider.node_param_named(to_node_e, pendingConnection->to_pin);
+
+                    provider.connect_bus_out_to_param_in(from_node_e, from_pin_e, to_pin_e);
+                }
+                else
+                {
+                    provider.connect_bus_out_to_param_in(output_node, output_pin, param_pin);
+                    from_node_e = output_node;
+                    from_pin_e = output_pin;
+                    to_node_e = input_node;
+                    to_pin_e = param_pin;
+                }
+
+                entt::entity connection_id = registry.create();
+                registry.assign<lab::noodle::Connection>(connection_id, lab::noodle::Connection(
+                    connection_id,
+                    from_pin_e, from_node_e,
+                    to_pin_e, to_node_e,
+                    lab::noodle::Connection::Kind::ToParam
+                ));
                 edit.incr_work_epoch();
                 break;
             }
+
             case WorkType::DisconnectInFromOut:
             {
                 provider.disconnect(connection_id);
@@ -456,9 +605,39 @@ namespace noodle {
             }
             case WorkType::ClearScene:
             {
+                for (auto node_entity : registry.view<lab::noodle::Node>())
+                {
+                    if (!registry.valid(node_entity))
+                        continue;
+
+                    if (registry.any<CanvasNode>(node_entity))
+                    {
+                        CanvasNode& cn = registry.get<CanvasNode>(node_entity);
+                        for (auto en : cn.nodes)
+                        {
+                            provider.node_delete(en);
+                            registry.destroy(en);
+                        }
+                    }
+                    else
+                    {
+                        GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(node_entity);
+                        if (gnl.parent_canvas)
+                        {
+                            auto it = gnl.parent_canvas->nodes.find(node_entity);
+                            if (it != gnl.parent_canvas->nodes.end())
+                                gnl.parent_canvas->nodes.erase(it);
+                        }
+                        provider.node_delete(node_entity);
+                    }
+                    registry.destroy(node_entity);
+                }
                 edit.clear_epochs();
+                clear_unique_names();
+                provider.clear_entity_node_associations();
             }
-            }
+            break;
+            } // switch
         }
     };
 
@@ -474,7 +653,7 @@ namespace noodle {
         void update_mouse_state(Provider& provider);
         void update_hovers(Provider& provider);
         bool context_menu(Provider& provider, ImVec2 canvas_pos);
-        void run(Provider& provider, bool show_profiler, bool show_debug);
+        void run(Provider& provider, bool show_profiler, bool show_debug, bool show_ids);
 
         legit::ProfilerGraph profiler_graph;
         CanvasNode root;
@@ -503,8 +682,8 @@ namespace noodle {
                 Work work(provider, root);
                 work.type = WorkType::CreateGroup;
                 work.canvas_pos = canvas_pos;
-                work.name = "Group";
-                pending_work.push_back(work);
+                work.kind = "Group";
+                pending_work.emplace_back(std::move(work));
             }
             result = ImGui::BeginMenu("Create Node");
             if (result)
@@ -526,9 +705,9 @@ namespace noodle {
                     Work work(provider, root);
                     work.type = WorkType::CreateNode;
                     work.canvas_pos = canvas_pos;
-                    work.name = pressed;
+                    work.kind = pressed;
                     work.group_node = hover.group_id;
-                    pending_work.push_back(work);
+                    pending_work.emplace_back(std::move(work));
                 }
             }
             ImGui::PopID();
@@ -615,11 +794,13 @@ namespace noodle {
                     const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_OPEN, "*.*", ".", "*.*");
                     if (file)
                     {
-                        Work work(provider, root);
-                        work.setting_pin = pin_id;
-                        work.name.assign(file);
-                        work.type = WorkType::SetBusSetting;
-                        pending_work.emplace_back(work);
+                        {
+                            Work work(provider, root);
+                            work.setting_pin = pin_id;
+                            work.string_value.assign(file);
+                            work.type = WorkType::SetBusSetting;
+                            pending_work.emplace_back(std::move(work));
+                        }
                         selected_pin = entt::null;
 
                         std::string path(file);
@@ -679,7 +860,7 @@ namespace noodle {
 
                 pin.value_as_string.assign(buff);
 
-                pending_work.emplace_back(work);
+                pending_work.emplace_back(std::move(work));
                 selected_pin = entt::null;
             }
             ImGui::SameLine();
@@ -715,7 +896,7 @@ namespace noodle {
                 Work work(provider, root);
                 work.type = WorkType::DisconnectInFromOut;
                 work.connection_id = connection;
-                pending_work.emplace_back(work);
+                pending_work.emplace_back(std::move(work));
                 selected_connection = entt::null;
             }
 
@@ -751,7 +932,7 @@ namespace noodle {
                 Work work(provider, root);
                 work.type = WorkType::DeleteNode;
                 work.input_node = node;
-                pending_work.emplace_back(work);
+                pending_work.emplace_back(std::move(work));
                 selected_node = entt::null;
             }
             if (ImGui::Button("Cancel", {ImGui::GetWindowContentRegionWidth(), 24}))
@@ -785,12 +966,17 @@ namespace noodle {
         ImGuiWindow* win = ImGui::GetCurrentWindow();
         ImRect edit_rect = win->ContentRegionRect;
         float y = (edit_rect.Max.y + edit_rect.Min.y) * 0.5f - 64;
-        Work work(provider, root);
-        work.type = WorkType::CreateRuntimeContext;
-        work.canvas_pos = ImVec2{ edit_rect.Max.x - 300, y };
-        pending_work.push_back(work);
-        work.type = WorkType::ResetSaveWorkEpoch; // reset so that quitting immediately doesn't prompt a save
-        pending_work.push_back(work);
+        {
+            Work work(provider, root);
+            work.type = WorkType::CreateRuntimeContext;
+            work.canvas_pos = ImVec2{ edit_rect.Max.x - 300, y };
+            pending_work.emplace_back(std::move(work));
+        }
+        {
+            Work work(provider, root);
+            work.type = WorkType::ResetSaveWorkEpoch; // reset so that quitting immediately doesn't prompt a save
+            pending_work.emplace_back(std::move(work));
+        }
     }
 
 
@@ -1147,7 +1333,7 @@ namespace noodle {
     }
 
 
-    void Context::State::run(Provider& provider, bool show_profiler, bool show_debug)
+    void Context::State::run(Provider& provider, bool show_profiler, bool show_debug, bool show_ids)
     {
         int profile_idx = 0;
 
@@ -1324,24 +1510,16 @@ namespace noodle {
                 }
                 else
                 {
+                    Work work(provider, root);
+                    work.input_node = to_pin.node_id;
+                    work.output_node = from_pin.node_id;
+                    work.output_pin = from_pin.pin_id;
+                    work.param_pin = to_pin.pin_id;
                     if (to_kind == Pin::Kind::BusIn)
-                    {
-                        Work work(provider, root);
                         work.type = WorkType::ConnectBusOutToBusIn;
-                        work.input_node = to_pin.node_id;
-                        work.output_node = from_pin.node_id;
-                        pending_work.emplace_back(work);
-                    }
                     else if (to_kind == Pin::Kind::Param)
-                    {
-                        Work work(provider, root);
                         work.type = WorkType::ConnectBusOutToParamIn;
-                        work.input_node = to_pin.node_id;
-                        work.output_node = from_pin.node_id;
-                        work.output_pin = from_pin.pin_id;
-                        work.param_pin = to_pin.pin_id;
-                        pending_work.emplace_back(work);
-                    }
+                    pending_work.emplace_back(std::move(work));
                 }
             }
             mouse.resizing_node = false;
@@ -1371,14 +1549,14 @@ namespace noodle {
                     Work work(provider, root);
                     work.type = WorkType::Bang;
                     work.input_node = hover.node_id;
-                    pending_work.push_back(work);
+                    pending_work.emplace_back(std::move(work));
                 }
                 if (hover.play)
                 {
                     Work work(provider, root);
                     work.type = WorkType::Start;
                     work.input_node = hover.node_id;
-                    pending_work.push_back(work);
+                    pending_work.emplace_back(std::move(work));
                 }
                 if (hover.pin_id != entt::null)
                 {
@@ -1589,12 +1767,8 @@ namespace noodle {
 
             if (gnl.group)
             {
-                ImVec2 p0 = lr_ws;
-                p0.x -= 16;
-                p0.y -= 16;
-                ImVec2 p1 = lr_ws;
-                p1.x -= 4;
-                p1.y -= 4;
+                ImVec2 p0 = lr_ws - ImVec2(16, 16);
+                ImVec2 p1 = lr_ws - ImVec2(4, 4);
                 drawList->AddRect(p0, p1, node_outline_hovered, node_border_radius, 15, 2);
             }
 
@@ -1651,6 +1825,20 @@ namespace noodle {
                 drawList->AddText(io.FontDefault, label_font_size, label_pos,
                     (hover.node_menu && entity == hover.node_id) ? text_color_highlighted : text_color,
                     name.name.c_str(), name.name.c_str() + name.name.size());
+
+                if (show_ids)
+                {
+                    ImVec2 text_size = io.Fonts->Fonts[0]->CalcTextSizeA(label_font_size, FLT_MAX, 0.f, 
+                        name.name.c_str(), name.name.c_str() + name.name.size(), NULL);
+
+                    label_pos.x += text_size.x + 5.f;
+
+                    char buff[32];
+                    sprintf(buff, "(%d)", entity);
+                    drawList->AddText(io.FontDefault, label_font_size, label_pos,
+                        (hover.node_menu && entity == hover.node_id) ? text_color_highlighted : text_color,
+                        buff, buff + strlen(buff));
+                }
             }
 
             ///////////////////////////////////////////
@@ -1702,8 +1890,18 @@ namespace noodle {
                     float font_size = style_padding_y * root.canvas.scale;
                     ImVec2 label_pos = pin_ul;
 
-                    label_pos.y += 2;
+                    if (show_ids)
+                    {
+                        ImVec2 pos = label_pos - ImVec2(50, 0);
+                        char buff[32];
+                        sprintf(buff, "(%d)", j);
+                        drawList->AddText(io.FontDefault, font_size, pos,
+                            (hover.node_menu && entity == hover.node_id) ? text_color_highlighted : text_color,
+                            buff, buff + strlen(buff));
+                    }
 
+
+                    label_pos.y += 2;
                     label_pos.x += 20 * root.canvas.scale;
 
                     if (pin_it.shortName.size())
@@ -1814,7 +2012,7 @@ namespace noodle {
 
     bool Context::run()
     {
-        _s->run(provider, show_profiler, show_debug);
+        _s->run(provider, show_profiler, show_debug, show_ids);
         return true;
     }
 
@@ -2047,6 +2245,11 @@ namespace noodle {
             writer.String(to_node_name.name.c_str());
             writer.Key("to_pin");
             writer.String(to_pin_name.name.c_str());
+            writer.Key("to_pin_kind");
+            if (connection.kind == Connection::Kind::ToParam)
+                writer.String("param");
+            else
+                writer.String("bus");
             writer.EndObject();
         }
         writer.EndArray(); // connections
@@ -2063,6 +2266,12 @@ namespace noodle {
 
     void Context::load(const std::string& path)
     {
+        {
+            Work work(provider, _s->root);
+            work.type = WorkType::ClearScene;
+            _s->pending_work.emplace_back(std::move(work));
+        }
+
         bool load_succeeded = true;
 
         std::vector<uint8_t> str = read_file_binary(path);
@@ -2073,43 +2282,137 @@ namespace noodle {
 
         auto& dom = d["LabSoundGraphToy"];
         auto& root = dom.GetObject();
+
+        // create all the nodes
+
         auto& nodes_root = root["nodes"];
         auto& nodes_array = nodes_root.GetArray();
         for (auto& node : nodes_array)
         {
-            std::string name = node["name"].GetString();
-            std::string kind = node["kind"].GetString();
-            auto& pos_array = node["pos"].GetArray();
-            float x = pos_array[0].GetFloat();
-            float y = pos_array[1].GetFloat();
+            std::string node_name = node["name"].GetString();
+            {
+                Work work(provider, _s->root);
+                work.type = WorkType::CreateNode;
+                work.name = node_name;
+                work.kind = node["kind"].GetString();
+                work.group_node = entt::null;
+                auto& pos_array = node["pos"].GetArray();
+                float x = pos_array[0].GetFloat();
+                float y = pos_array[1].GetFloat();
+                work.canvas_pos = { x, y };
+                _s->pending_work.emplace_back(std::move(work));
+            }
+
             auto& pins_array = node["pins"].GetArray();
             for (auto& pin_root : pins_array)
             {
                 std::string name = pin_root["name"].GetString();
                 std::string kind = node["kind"].GetString();
-                if (kind == "param")
-                {
-                }
-                else if (kind == "setting")
-                {
-                    std::string type = node["type"].GetString();
-                }
                 std::string value;
-                auto& it= node.FindMember("value");
+                auto& it = node.FindMember("value");
                 if (it != node.MemberEnd())
                 {
                     value = it->value.GetString();
                 }
+                if (kind == "param")
+                {
+                    if (value.length() > 0)
+                    {
+                        Work work(provider, _s->root);
+                        work.name = name;
+                        work.kind = node_name;
+                        work.param_pin = entt::null;
+                        work.type = WorkType::SetParam;
+                        work.float_value = static_cast<float>(std::atof(value.c_str()));
+                        _s->pending_work.emplace_back(std::move(work));
+                    }
+                }
+                else if (kind == "setting")
+                {
+                    if (value.length() > 0)
+                    {
+                        std::string type = node["type"].GetString();
+                        if (type == "None") {}
+                        else if (type == "Bus") {}
+                        else if (type == "Bool") 
+                        {
+                            Work work(provider, _s->root);
+                            work.name = name;
+                            work.kind = node_name;
+                            work.setting_pin = entt::null;
+                            work.type = WorkType::SetBoolSetting;
+                            work.bool_value = value == "True";
+                            _s->pending_work.emplace_back(std::move(work));
+                        }
+                        else if (type == "Integer") 
+                        {
+                            Work work(provider, _s->root);
+                            work.name = name;
+                            work.kind = node_name;
+                            work.setting_pin = entt::null;
+                            work.type = WorkType::SetIntSetting;
+                            work.int_value = std::atoi(value.c_str());
+                            _s->pending_work.emplace_back(std::move(work));
+                        }
+                        else if (type == "Enumeration") 
+                        {
+                            Work work(provider, _s->root);
+                            work.name = name;
+                            work.kind = node_name;
+                            work.setting_pin = entt::null;
+                            work.type = WorkType::SetEnumerationSetting;
+                            work.string_value = value;
+                            _s->pending_work.emplace_back(std::move(work));
+                        }
+                        else if (type == "Float") 
+                        {
+                            Work work(provider, _s->root);
+                            work.name = name;
+                            work.kind = node_name;
+                            work.setting_pin = entt::null;
+                            work.type = WorkType::SetFloatSetting;
+                            work.float_value = static_cast<float>(std::atof(value.c_str()));
+                            _s->pending_work.emplace_back(std::move(work));
+                        }
+                        else if (type == "String")
+                        {
+                        }
+                    }
+                }
+                else if (kind == "bus_out")
+                {
+                    Work work(provider, _s->root);
+                    work.name = name;
+                    work.kind = node_name;
+                    work.setting_pin = entt::null;
+                    work.type = WorkType::CreateOutput;
+                    work.int_value = 1;     /// @TODO save the channel count in the save path
+                    _s->pending_work.emplace_back(std::move(work));
+                }
             }
         }
+
+        // make all the connections
+
+        auto& registry = provider.registry();
         auto& connections_root = root["connections"];
         auto& connections_array = connections_root.GetArray();
         for (auto& node : connections_array)
         {
-            std::string from_node = node["from_node"].GetString();
-            std::string from_pin = node["from_pin"].GetString();
-            std::string to_node = node["to_node"].GetString();
-            std::string to_pin = node["to_pin"].GetString();
+            Work work(provider, _s->root);
+            work.pendingConnection = std::make_unique<WorkPendingConnection>();
+            work.pendingConnection->from_node = node["from_node"].GetString();
+            work.pendingConnection->from_pin = node["from_pin"].GetString();
+            work.pendingConnection->to_node = node["to_node"].GetString();
+            work.pendingConnection->to_pin = node["to_pin"].GetString();
+            work.pendingConnection->to_pin_kind = node["to_pin_kind"].GetString();
+
+            if (work.pendingConnection->to_pin_kind == "bus")
+                work.type = WorkType::ConnectBusOutToBusIn;
+            else
+                work.type = WorkType::ConnectBusOutToParamIn;
+
+            _s->pending_work.emplace_back(std::move(work));
         }
 
         if (load_succeeded)
@@ -2127,7 +2430,7 @@ namespace noodle {
     {
         Work work(provider, _s->root);
         work.type = WorkType::ClearScene;
-        _s->pending_work.emplace_back(work);
+        _s->pending_work.emplace_back(std::move(work));
     }
 
 

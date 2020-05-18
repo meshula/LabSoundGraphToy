@@ -2,6 +2,7 @@
 
 #include "sokol_app.h"
 #include "sokol_gfx.h"
+#include "sokol_glue.h"
 #include "sokol_time.h"
 #include "imgui.h"
 #include "sokol_imgui.h"
@@ -140,14 +141,7 @@ void init(void) {
 
     // setup sokol-gfx, sokol-time and sokol-imgui
     sg_desc desc = { };
-    desc.mtl_device = sapp_metal_get_device();
-    desc.mtl_renderpass_descriptor_cb = sapp_metal_get_renderpass_descriptor;
-    desc.mtl_drawable_cb = sapp_metal_get_drawable;
-    desc.d3d11_device = sapp_d3d11_get_device();
-    desc.d3d11_device_context = sapp_d3d11_get_device_context();
-    desc.d3d11_render_target_view_cb = sapp_d3d11_get_render_target_view;
-    desc.d3d11_depth_stencil_view_cb = sapp_d3d11_get_depth_stencil_view;
-    desc.gl_force_gles2 = sapp_gles2();
+    desc.context = sapp_sgcontext();
     sg_setup(&desc);
     stm_setup();
 
@@ -228,7 +222,6 @@ void frame()
 
     static LabSoundProvider provider;
     static lab::noodle::Context config(provider);
-    static bool show_demo = false;
     OSCMsg osc_msg;
     while (_osc_queue->consume(osc_msg))
     {
@@ -262,7 +255,8 @@ void frame()
         {
             ImGui::Checkbox("Show Profiler", &config.show_profiler);
             ImGui::Checkbox("Show Graph Canvas values", &config.show_debug);
-            ImGui::Checkbox("Show ImGui demo", &show_demo);
+            ImGui::Checkbox("Show ImGui demo", &config.show_demo);
+            ImGui::Checkbox("Show IDs", &config.show_ids);
             ImGui::EndMenu();
         }
         ImGui::EndMainMenuBar();
@@ -405,7 +399,7 @@ void frame()
 
     imgui_fixed_window_end();
 
-    if (show_demo)
+    if (config.show_demo)
         ImGui::ShowDemoWindow();
 
     ImGui::PopFont();
