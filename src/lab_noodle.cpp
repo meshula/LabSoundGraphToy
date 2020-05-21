@@ -351,19 +351,40 @@ namespace noodle {
             case WorkType::CreateRuntimeContext:
             {
                 edit._device_node = provider.registry().create();
-                registry.assign<Node>(edit._device_node, Node("Device"));
-                provider.create_runtime_context(edit._device_node);
-                registry.assign<GraphNodeLayout>(edit._device_node, 
-                    GraphNodeLayout{ nullptr, Channel::Nodes, { canvas_pos.x, canvas_pos.y } });
-                registry.assign<Name>(edit._device_node, unique_name("Device"));
-                root.nodes.insert(edit._device_node);
-                edit.incr_work_epoch();
-                break;
+                kind = "Device";
+                // fall through to CreateNode
             }
             case WorkType::CreateNode:
             {
+                if (kind == "Device")
+                {
+                    if (!registry.valid(edit._device_node))
+                        edit._device_node = provider.registry().create();
+
+                    registry.emplace<Node>(edit._device_node, Node("Device"));
+                    provider.create_runtime_context(edit._device_node);
+                    registry.emplace<GraphNodeLayout>(edit._device_node,
+                        GraphNodeLayout{ nullptr, Channel::Nodes, { canvas_pos.x, canvas_pos.y } });
+
+                    if (name.length())
+                    {
+                        registry.emplace<Name>(edit._device_node, name);
+                        provider.associate(edit._device_node, name);
+                    }
+                    else
+                    {
+                        std::string n = unique_name(kind);
+                        registry.emplace<Name>(edit._device_node, n);
+                        provider.associate(edit._device_node, n);
+                    }
+
+                    root.nodes.insert(edit._device_node);
+                    edit.incr_work_epoch();
+                    break;
+                }
+
                 entt::entity new_node = provider.registry().create();
-                registry.assign<Node>(new_node, Node(kind));
+                registry.emplace<Node>(new_node, Node(kind));
                 provider.node_create(kind, new_node);
 
                 CanvasNode* cn = nullptr;
@@ -372,18 +393,18 @@ namespace noodle {
                     cn = &registry.get<CanvasNode>(group_node);
                 }
 
-                registry.assign<GraphNodeLayout>(new_node, 
+                registry.emplace<GraphNodeLayout>(new_node,
                     GraphNodeLayout{cn, Channel::Nodes, { canvas_pos.x, canvas_pos.y } });
 
                 if (name.length())
                 {
-                    registry.assign<Name>(new_node, name);
+                    registry.emplace<Name>(new_node, name);
                     provider.associate(new_node, name);
                 }
                 else
                 {
                     std::string n = unique_name(kind);
-                    registry.assign<Name>(new_node, n);
+                    registry.emplace<Name>(new_node, n);
                     provider.associate(new_node, n);
                 }
 
@@ -407,19 +428,19 @@ namespace noodle {
             case WorkType::CreateGroup:
             {
                 entt::entity new_node = provider.registry().create();
-                registry.assign<Node>(new_node, Node(kind));
-                registry.assign<GraphNodeLayout>(new_node, 
+                registry.emplace<Node>(new_node, Node(kind));
+                registry.emplace<GraphNodeLayout>(new_node,
                     GraphNodeLayout{ nullptr, Channel::Groups, 
                         { canvas_pos.x, canvas_pos.y },
                         { canvas_pos.x + GraphNodeLayout::k_column_width * 2, canvas_pos.y + GraphPinLayout::k_height * 8},
                         true });
 
                 if (name.length())
-                    registry.assign<Name>(new_node, name);
+                    registry.emplace<Name>(new_node, name);
                 else
-                    registry.assign<Name>(new_node, unique_name(kind));
+                    registry.emplace<Name>(new_node, unique_name(kind));
 
-                registry.assign<CanvasNode>(new_node, CanvasNode{});
+                registry.emplace<CanvasNode>(new_node, CanvasNode{});
                 root.groups.insert(new_node);
                 edit.incr_work_epoch();
                 break;
@@ -507,7 +528,7 @@ namespace noodle {
                 }
 
                 entt::entity connection_id = registry.create();
-                registry.assign<lab::noodle::Connection>(connection_id, lab::noodle::Connection(
+                registry.emplace<lab::noodle::Connection>(connection_id, lab::noodle::Connection(
                     connection_id,
                     from_pin_e, from_node_e,
                     to_pin_e, to_node_e,
@@ -551,7 +572,7 @@ namespace noodle {
                 }
 
                 entt::entity connection_id = registry.create();
-                registry.assign<lab::noodle::Connection>(connection_id, lab::noodle::Connection(
+                registry.emplace<lab::noodle::Connection>(connection_id, lab::noodle::Connection(
                     connection_id,
                     from_pin_e, from_node_e,
                     to_pin_e, to_node_e,
@@ -1075,7 +1096,7 @@ namespace noodle {
 
                 // lazily create the layouts on demand.
                 if (!registry.any<GraphPinLayout>(entity))
-                    registry.assign<GraphPinLayout>(entity, GraphPinLayout{});
+                    registry.emplace<GraphPinLayout>(entity, GraphPinLayout{});
 
                 GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity);
                 pnl.node_origin_cs = node_pos;
@@ -1707,6 +1728,8 @@ namespace noodle {
             lab::noodle::Connection& i = registry.get<lab::noodle::Connection>(entity);
             entt::entity from_pin = i.pin_from;
             entt::entity to_pin = i.pin_to;
+            if (from_pin == entt::null || to_pin == entt::null)
+                continue;
 
             GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(from_pin);
             GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(to_pin);
