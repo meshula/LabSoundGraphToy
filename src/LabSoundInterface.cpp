@@ -24,6 +24,7 @@ struct AudioPin
 
 struct NodeReverseLookup
 {
+    std::map<std::string, entt::entity> input_pin_map;
     std::map<std::string, entt::entity> output_pin_map;
     std::map<std::string, entt::entity> param_pin_map;
 };
@@ -193,7 +194,9 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::Node& no
     {
         entt::entity pin_id = registry.create();
         node.pins.push_back(pin_id);
-        registry.emplace<lab::noodle::Name>(pin_id, "");
+        std::string name = ""; // audio_node->input(i)->name(); @TODO an IDL for all the things
+        reverse.input_pin_map[name] = pin_id;
+        registry.emplace<lab::noodle::Name>(pin_id, name);
         registry.emplace<lab::noodle::Pin>(pin_id, lab::noodle::Pin{
             lab::noodle::Pin::Kind::BusIn,
             lab::noodle::Pin::DataType::Bus,
@@ -500,6 +503,50 @@ entt::entity LabSoundProvider::node_output_named(entt::entity node_id, const std
 
     auto& reverse = reverse_it->second;
     auto output_it = reverse.output_pin_map.find(output_name);
+    if (output_it == reverse.output_pin_map.end())
+        return entt::null;
+
+    return output_it->second;
+}
+
+entt::entity LabSoundProvider::node_input_with_index(entt::entity node_id, int output)
+{
+    entt::registry& registry = Registry();
+    if (node_id == entt::null)
+        return entt::null;
+
+    shared_ptr<lab::AudioNode> node = registry.get<shared_ptr<lab::AudioNode>>(node_id);
+    if (!node)
+        return entt::null;
+
+    auto reverse_it = g_node_reverse_lookups.find(node_id);
+    if (reverse_it == g_node_reverse_lookups.end())
+        return entt::null;
+
+    auto& reverse = reverse_it->second;
+    auto input_it = reverse.input_pin_map.find("");
+    if (input_it == reverse.input_pin_map.end())
+        return entt::null;
+
+    return input_it->second;
+}
+
+entt::entity LabSoundProvider::node_output_with_index(entt::entity node_id, int output)
+{
+    entt::registry& registry = Registry();
+    if (node_id == entt::null)
+        return entt::null;
+
+    shared_ptr<lab::AudioNode> node = registry.get<shared_ptr<lab::AudioNode>>(node_id);
+    if (!node)
+        return entt::null;
+
+    auto reverse_it = g_node_reverse_lookups.find(node_id);
+    if (reverse_it == g_node_reverse_lookups.end())
+        return entt::null;
+
+    auto& reverse = reverse_it->second;
+    auto output_it = reverse.output_pin_map.find("");
     if (output_it == reverse.output_pin_map.end())
         return entt::null;
 

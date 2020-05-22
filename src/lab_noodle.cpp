@@ -515,6 +515,10 @@ namespace noodle {
 
                     if (pendingConnection->from_pin.length())
                         from_pin_e = provider.node_output_named(from_node_e, pendingConnection->from_pin);
+                    else
+                        from_pin_e = provider.node_output_with_index(from_node_e, 0);
+
+                    to_pin_e = provider.node_input_with_index(to_node_e, 0);
 
                     provider.connect_bus_out_to_bus_in(from_node_e, from_pin_e, to_node_e);
                 }
@@ -545,6 +549,7 @@ namespace noodle {
                 entt::entity to_node_e = entt::null;
                 entt::entity from_pin_e = entt::null;
                 entt::entity to_pin_e = entt::null;
+
                 if (pendingConnection)
                 {
                     from_node_e = provider.entity_for_node_named(pendingConnection->from_node);
@@ -555,10 +560,17 @@ namespace noodle {
                     from_pin_e = entt::null;
                     if (pendingConnection->from_pin.length())
                         from_pin_e = provider.node_output_named(from_node_e, pendingConnection->from_pin);
+                    else
+                        from_pin_e = provider.node_output_with_index(from_node_e, 0);
 
                     to_pin_e = entt::null;
                     if (pendingConnection->to_pin.length())
                         to_pin_e = provider.node_param_named(to_node_e, pendingConnection->to_pin);
+                    else
+                        break;  // nothing to connect from
+
+                    if (!registry.valid(from_pin_e) || !registry.valid(to_pin_e))
+                        break;
 
                     provider.connect_bus_out_to_param_in(from_node_e, from_pin_e, to_pin_e);
                 }

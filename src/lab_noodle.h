@@ -48,7 +48,9 @@ namespace lab { namespace noodle {
         virtual void  node_start_stop(entt::entity node, float when) = 0;
         virtual void  node_bang(entt::entity node) = 0;
 
+        virtual entt::entity node_input_with_index(entt::entity node, int output) = 0;
         virtual entt::entity node_output_named(entt::entity node, const std::string& output_name) = 0;
+        virtual entt::entity node_output_with_index(entt::entity node, int output) = 0;
         virtual entt::entity node_param_named(entt::entity node, const std::string& output_name) = 0;
 
         // pins
