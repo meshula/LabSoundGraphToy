@@ -64,7 +64,7 @@ struct OSCNode : public lab::AudioNode
     // The AudioNodeInput(s) (if any) will already have their input data available when process() is called.
     // Subclasses will take this input data and put the results in the AudioBus(s) of its AudioNodeOutput(s) (if any).
     // Called from context's audio thread.
-    virtual void process(lab::ContextRenderLock& r, int bufferSize)
+    virtual void process(lab::ContextRenderLock& r, int bufferSize) override
     {
         /// @TODO make the value changes sample accurate
         for (auto i : key_to_addrData)
@@ -84,15 +84,15 @@ struct OSCNode : public lab::AudioNode
     // Resets DSP processing state (clears delay lines, filter memory, etc.)
     // Called from context's audio thread.
 
-    virtual void reset(lab::ContextRenderLock&) { }
+    virtual void reset(lab::ContextRenderLock&) override { }
 
     // tailTime() is the length of time (not counting latency time) where non-zero output may occur after continuous silent input.
-    virtual double tailTime(lab::ContextRenderLock& r) const { return 0.; }
+    virtual double tailTime(lab::ContextRenderLock& r) const override { return 0.; }
 
     // latencyTime() is the length of time it takes for non-zero output to appear after non-zero input is provided. This only applies to
     // processing delay which is an artifact of the processing algorithm chosen and is *not* part of the intrinsic desired effect. For
     // example, a "delay" effect is expected to delay the signal, and thus would not be considered latency.
-    virtual double latencyTime(lab::ContextRenderLock& r) const { return 0.; }
+    virtual double latencyTime(lab::ContextRenderLock& r) const override { return 0.; }
 };
 
 class LabSoundProvider final : public lab::noodle::Provider

@@ -29,4 +29,4 @@ void DrawIcon(ImDrawList* drawList, const ImVec2& ul, const ImVec2& lr, IconType
 
 bool imgui_knob(const char* label, float* p_value, float v_min, float v_max);
 
-#endif lab_imgui_ext_hpp
+#endif // lab_imgui_ext_hpp

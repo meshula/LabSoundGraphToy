@@ -93,7 +93,7 @@ void open_udp_server()
 
                     osc_msg.addr_id = addr_id;
 
-                    auto& match = msg->match_complete(addr);
+                    auto match = msg->match_complete(addr);
                     for (int i = 0; i < osc_msg.argc; ++i)
                     {
                         float x;

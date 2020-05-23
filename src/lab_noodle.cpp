@@ -344,6 +344,9 @@ namespace noodle {
             entt::registry& registry = provider.registry();
             switch (type)
             {
+            case WorkType::Nop:
+                break;
+
             case WorkType::ResetSaveWorkEpoch:
                 edit.reset_epochs();
                 break;
@@ -2316,12 +2319,12 @@ namespace noodle {
         d.Parse(reinterpret_cast<const char*>(str.data()));
 
         auto& dom = d["LabSoundGraphToy"];
-        auto& root = dom.GetObject();
+        auto root = dom.GetObject();
 
         // create all the nodes
 
         auto& nodes_root = root["nodes"];
-        auto& nodes_array = nodes_root.GetArray();
+        auto nodes_array = nodes_root.GetArray();
         for (auto& node : nodes_array)
         {
             std::string node_name = node["name"].GetString();
@@ -2331,20 +2334,20 @@ namespace noodle {
                 work.name = node_name;
                 work.kind = node["kind"].GetString();
                 work.group_node = entt::null;
-                auto& pos_array = node["pos"].GetArray();
+                auto pos_array = node["pos"].GetArray();
                 float x = pos_array[0].GetFloat();
                 float y = pos_array[1].GetFloat();
                 work.canvas_pos = { x, y };
                 _s->pending_work.emplace_back(std::move(work));
             }
 
-            auto& pins_array = node["pins"].GetArray();
+            auto pins_array = node["pins"].GetArray();
             for (auto& pin_root : pins_array)
             {
                 std::string name = pin_root["name"].GetString();
                 std::string kind = node["kind"].GetString();
                 std::string value;
-                auto& it = node.FindMember("value");
+                auto it = node.FindMember("value");
                 if (it != node.MemberEnd())
                 {
                     value = it->value.GetString();
@@ -2431,7 +2434,7 @@ namespace noodle {
 
         auto& registry = provider.registry();
         auto& connections_root = root["connections"];
-        auto& connections_array = connections_root.GetArray();
+        auto connections_array = connections_root.GetArray();
         for (auto& node : connections_array)
         {
             Work work(provider, _s->root);
