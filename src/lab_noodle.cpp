@@ -330,7 +330,9 @@ namespace noodle {
         : provider(rh.provider), root(rh.root)
         , type(rh.type), kind(rh.kind), name(rh.name)
         , group_node(rh.group_node), input_node(rh.input_node), output_node(rh.output_node)
-        , param_pin(rh.param_pin), setting_pin(rh.setting_pin), output_pin(rh.output_pin)
+        , output_pin(rh.output_pin)
+        , param_pin(rh.param_pin)
+        , setting_pin(rh.setting_pin)
         , connection_id(rh.connection_id)
         , float_value(rh.float_value), int_value(rh.int_value), bool_value(rh.bool_value)
         , string_value(rh.string_value), canvas_pos(rh.canvas_pos)
@@ -922,8 +924,6 @@ namespace noodle {
             return;
         }
 
-        lab::noodle::Connection& conn = reg.get<lab::noodle::Connection>(connection);
-
         ImGui::OpenPopup("Connection");
         if (ImGui::BeginPopupModal("Connection", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize))
         {
@@ -1397,7 +1397,7 @@ namespace noodle {
         //- ImGui::GetTextLineHeightWithSpacing()   // space for the time bar
         //- ImGui::GetTextLineHeightWithSpacing();  // space for horizontal scroller
 
-        bool rv = ImGui::BeginChild(main_window_id, ImVec2(0, height), false,
+        ImGui::BeginChild(main_window_id, ImVec2(0, height), false,
             ImGuiWindowFlags_NoBringToFrontOnFocus |
             ImGuiWindowFlags_NoMove |
             ImGuiWindowFlags_NoScrollbar |
@@ -1488,9 +1488,6 @@ namespace noodle {
             if (hover.originating_pin_id != entt::null && hover.pin_id != entt::null && 
                 registry.valid(hover.originating_pin_id) && registry.valid(hover.pin_id))
             {
-                GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(hover.originating_pin_id);
-                GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(hover.pin_id);
-
                 Pin from_pin = registry.get<Pin>(hover.originating_pin_id);
                 Pin to_pin = registry.get<Pin>(hover.pin_id);
 
@@ -1517,9 +1514,6 @@ namespace noodle {
             if (hover.originating_pin_id != entt::null && hover.pin_id != entt::null && 
                 registry.valid(hover.originating_pin_id) && registry.valid(hover.pin_id))
             {
-                GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(hover.originating_pin_id);
-                GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(hover.pin_id);
-
                 Pin from_pin = registry.get<Pin>(hover.originating_pin_id);
                 Pin to_pin = registry.get<Pin>(hover.pin_id);
 
@@ -1682,7 +1676,6 @@ namespace noodle {
                 ImVec2 delta = mouse.mouse_cs - mouse.canvas_clickpos_cs;
 
                 GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id);
-                ImVec2 sz = gnl.lr_cs - gnl.ul_cs;
                 ImVec2 new_pos = gnl.initial_pos_cs + delta;
                 gnl.lr_cs = new_pos;
                 gnl.lr_cs.x = std::max(gnl.ul_cs.x + 100, gnl.lr_cs.x);
@@ -2136,7 +2129,7 @@ namespace noodle {
 
             using lab::noodle::Name;
             Name& from_pin_name = reg.get<Name>(from_pin);
-            Name& to_pin_name = reg.get<Name>(from_pin);
+            //Name& to_pin_name = reg.get<Name>(from_pin);
             Name& from_node_name = reg.get<Name>(connection.node_from);
             Name& to_node_name = reg.get<Name>(connection.node_to);
 
@@ -2432,7 +2425,6 @@ namespace noodle {
 
         // make all the connections
 
-        auto& registry = provider.registry();
         auto& connections_root = root["connections"];
         auto connections_array = connections_root.GetArray();
         for (auto& node : connections_array)

@@ -20,6 +20,7 @@ set(PLAYGROUND_SRC
     src/lab_noodle.cpp
     src/lab_noodle.h
     src/legit_profiler.hpp
+    src/meshula_lap.hpp
     src/IconsFontaudio.h
     src/ImguiFontCousineRegular.cpp
     src/LabSoundInterface.cpp

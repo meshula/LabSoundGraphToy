@@ -44,7 +44,7 @@ entt::registry& Registry()
 }
 
 // Returns input, output
-std::pair<lab::AudioStreamConfig, lab::AudioStreamConfig> GetDefaultAudioDeviceConfiguration(const bool with_input)
+std::pair<lab::AudioStreamConfig, lab::AudioStreamConfig> GetDefaultAudioDeviceConfiguration(bool with_input, bool throw_if_no_input)
 {
     using namespace lab;
     AudioStreamConfig inputConfig;
@@ -76,7 +76,7 @@ std::pair<lab::AudioStreamConfig, lab::AudioStreamConfig> GetDefaultAudioDeviceC
             inputConfig.desired_channels = std::min(uint32_t(1), defaultInputInfo.num_input_channels);
             inputConfig.desired_samplerate = defaultInputInfo.nominal_samplerate;
         }
-        else
+        else if (throw_if_no_input)
         {
             throw std::invalid_argument("the default audio input device was requested but none were found");
         }
@@ -432,7 +432,7 @@ void LabSoundProvider::disconnect(entt::entity connection_id)
 entt::entity LabSoundProvider::create_runtime_context(entt::entity id)
 {
     entt::registry& registry = Registry();
-    const auto defaultAudioDeviceConfigurations = GetDefaultAudioDeviceConfiguration(true);
+    const auto defaultAudioDeviceConfigurations = GetDefaultAudioDeviceConfiguration(true, false);
 
     if (!g_audio_context)
         g_audio_context = lab::MakeRealtimeAudioContext(defaultAudioDeviceConfigurations.second, defaultAudioDeviceConfigurations.first);
@@ -665,7 +665,7 @@ char const* const* LabSoundProvider::node_names() const
         names = reinterpret_cast<char const**>(malloc(sizeof(char*) * (count + 2)));
         if (names)
         {
-            static char* osc_name = "OSC";
+            static const char* osc_name = "OSC";
             names[0] = osc_name;
             memcpy(&names[1], lab::AudioNodeNames(), sizeof(char*) * count);
             names[count + 1] = nullptr;
