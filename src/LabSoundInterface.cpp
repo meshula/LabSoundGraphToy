@@ -51,14 +51,14 @@ std::pair<lab::AudioStreamConfig, lab::AudioStreamConfig> GetDefaultAudioDeviceC
     AudioStreamConfig outputConfig;
 
     const std::vector<AudioDeviceInfo> audioDevices = lab::MakeAudioDeviceList();
-    const uint32_t default_output_device = lab::GetDefaultOutputAudioDeviceIndex();
-    const uint32_t default_input_device = lab::GetDefaultInputAudioDeviceIndex();
+    AudioDeviceIndex default_output_device = lab::GetDefaultOutputAudioDeviceIndex();
+    AudioDeviceIndex default_input_device = lab::GetDefaultInputAudioDeviceIndex();
 
     AudioDeviceInfo defaultOutputInfo, defaultInputInfo;
     for (auto& info : audioDevices)
     {
-        if (info.index == default_output_device) defaultOutputInfo = info;
-        else if (info.index == default_input_device) defaultInputInfo = info;
+        if (info.index == default_output_device.index) defaultOutputInfo = info;
+        else if (info.index == default_input_device.index) defaultInputInfo = info;
     }
 
     if (defaultOutputInfo.index != -1)

@@ -125,10 +125,10 @@ ml_String* ml_application_executable_path()
     s->len = 0;
     char buf[1024] = { 0 };
     DWORD ret = GetModuleFileNameA(NULL, buf, sizeof(buf));
-    if (!ret || ret = sizeof(buf))
+    if (!ret || ret == sizeof(buf))
         return (ml_String*) s; // return an empty string, as either the function failed, or path is unusually long
 
-    s->len = strlen(buf);
+    s->len = (int) strlen(buf);
     s->str = (char*) malloc(s->len + 1);
     if (!s->str)
     {
@@ -243,7 +243,7 @@ ml_String* ml_String_trim_filename(ml_String* s0)
         return (ml_String*) src;
     }
 
-    src->len = sep - src->str;
+    src->len = (int)(sep - src->str);
     src->str[src->len] = '\0';
     
     return (ml_String*) trimmed;
