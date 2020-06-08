@@ -201,6 +201,7 @@ namespace lab { namespace noodle {
         bool needs_saving() const;
         void save(const std::string& path);
         void load(const std::string& path);
+        void export_cpp(const std::string& path);
         void save_test(const std::string& path);
         void save_json(const std::string& path);
         void clear_all();

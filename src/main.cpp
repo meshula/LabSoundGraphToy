@@ -120,6 +120,7 @@ enum class Command
     New,
     Open,
     Save,
+    ExportCpp,
     Quit
 };
 
@@ -251,6 +252,7 @@ void frame()
             bool save = false;
             bool new_file = false;
             bool load = false;
+            bool export_cpp = false;
             bool quit = false;
             ImGui::MenuItem("New", 0, &new_file);
             if (new_file)
@@ -261,6 +263,9 @@ void frame()
             ImGui::MenuItem("Save", 0, &save);
             if (save)
                 command = Command::Save;
+            ImGui::MenuItem("Export as C++", 0, &export_cpp);
+            if (export_cpp)
+                command = Command::ExportCpp;
             ImGui::MenuItem("Quit", 0, &quit);
             if (quit)
                 command = Command::Quit;
@@ -360,10 +365,21 @@ void frame()
 
     case Command::Save:
     {
-        const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_SAVE, "*.ls", ".", "*.*");
+        const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_SAVE, "*.ls\0", ".", "*.*");
         if (file)
         {
             config.save(file);
+        }
+        command = Command::None;
+        break;
+    }
+            
+    case Command::ExportCpp:
+    {
+        const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_SAVE, "*.cpp\0", ".", "*.*");
+        if (file)
+        {
+            config.export_cpp(file);
         }
         command = Command::None;
         break;
