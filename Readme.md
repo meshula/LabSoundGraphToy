@@ -3,8 +3,6 @@
 
 Copyright 2020 the LabSound Authors
 
-![CC BY](resources/CCBY.png) Creative Commons, Attribution
-
 The submodules are licensed under their respective terms.
 
 **LabSound GraphToy** is a workspace for exploring **LabSound** nodes and their properties.
