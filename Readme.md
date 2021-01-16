@@ -1,7 +1,9 @@
 
 # LabSound GraphToy
 
-Copyright 2020 the LabSound Authors
+Copyright 2020 Nick Porcino
+
+License: MIT
 
 The submodules are licensed under their respective terms.
 
