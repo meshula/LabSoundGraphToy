@@ -1,10 +1,6 @@
 
 #include "lab_noodle.h"
 
-#include <LabSound/LabSound.h>
-#include <LabSound/core/AudioNode.h>
-
-#include "LabSoundInterface.h"
 #include "lab_imgui_ext.hpp"
 #include "legit_profiler.hpp"
 
@@ -2074,13 +2070,19 @@ namespace noodle {
         entt::registry& reg = provider.registry();
         std::ofstream file(path, std::ios::binary);
         
-        file << "// " << path << "\n";
-        file << "// Automatic export from LabSoundGraphToy, output is licensed under BSD-2 clause.\n\n";
+        file << "// " << path;
+        file << R"(
 
-        file << "#include <LabSound/LabSound.h>\n";
-        file << "#include <memory>\n\n";
-        file << "void create_graph(lab::AudioContext& ctx)\n{\n";
-        file << "    // Nodes:\n\n";
+// Automatic export from LabSoundGraphToy, output is licensed under BSD-2 clause.
+
+#include <LabSound/LabSound.h>
+#include <memory>
+
+void create_graph(lab::AudioContext& ctx)
+{
+    // Nodes:
+            
+)";
 
         for (auto node_entity : reg.view<lab::noodle::Node>())
         {
