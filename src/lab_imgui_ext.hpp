@@ -29,4 +29,6 @@ void DrawIcon(ImDrawList* drawList, const ImVec2& ul, const ImVec2& lr, IconType
 
 bool imgui_knob(const char* label, float* p_value, float v_min, float v_max);
 
+bool imgui_splitter(bool split_vertically, float thickness, float* size1, float* size2, float min_size1, float min_size2, float splitter_long_axis_size = -1.0f);
+
 #endif // lab_imgui_ext_hpp

@@ -320,3 +320,105 @@ bool imgui_knob(const char* label, float* p_value, float v_min, float v_max)
 
     return value_changed;
 }
+
+bool imgui_splitter(bool split_vertically, float thickness, float* size1, float* size2, float min_size1, float min_size2, float splitter_long_axis_size)
+{
+    using namespace ImGui;
+    ImGuiContext& g = *GImGui;
+    ImGuiWindow* window = g.CurrentWindow;
+    ImGuiID id = window->GetID("##Splitter");
+    ImRect bb;
+    bb.Min = window->DC.CursorPos + (split_vertically ? ImVec2(*size1, 0.0f) : ImVec2(0.0f, *size1));
+    bb.Max = bb.Min + CalcItemSize(split_vertically ? ImVec2(thickness, splitter_long_axis_size) : ImVec2(splitter_long_axis_size, thickness), 0.0f, 0.0f);
+    window->DrawList->AddRect(bb.Min, bb.Max, IM_COL32(255,255,0,255));
+
+    return ImGui::SplitterBehavior(bb, id, split_vertically ? ImGuiAxis_X : ImGuiAxis_Y, size1, size2, min_size1, min_size2, 0.0f);
+}
+
+// Piano display: https://github.com/shric/midi
+// The MIT License (MIT)
+// Copyright (c) 2020 Chris Young
+
+class Piano {
+    int key_states[256] = {0};
+public:
+    void up(int key);
+    void draw(bool *show);
+    void down(int key, int velocity);
+    std::vector<int> current_notes();
+};
+
+
+static bool has_black(int key) {
+    return (!((key - 1) % 7 == 0 || (key - 1) % 7 == 3) && key != 51);
+}
+
+void Piano::up(int key) {
+    key_states[key] = 0;
+}
+
+void Piano::down(int key, int velocity) {
+    key_states[key] = velocity;
+
+}
+
+void Piano::draw(bool *show) {
+    ImU32 Black = IM_COL32(0, 0, 0, 255);
+    ImU32 White = IM_COL32(255, 255, 255, 255);
+    ImU32 Red = IM_COL32(255,0,0,255);
+    ImGui::Begin("Keyboard", show);
+    ImDrawList *draw_list = ImGui::GetWindowDrawList();
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    int width = 20;
+    int cur_key = 21;
+    for (int key = 0; key < 52; key++) {
+        ImU32 col = White;
+        if (key_states[cur_key]) {
+            col = Red;
+        }
+        draw_list->AddRectFilled(
+                ImVec2(p.x + key * width, p.y),
+                ImVec2(p.x + key * width + width, p.y + 120),
+                col, 0, ImDrawCornerFlags_All);
+        draw_list->AddRect(
+                ImVec2(p.x + key * width, p.y),
+                ImVec2(p.x + key * width + width, p.y + 120),
+                Black, 0, ImDrawCornerFlags_All);
+        cur_key++;
+        if (has_black(key)) {
+            cur_key++;
+        }
+    }
+    cur_key = 22;
+    for (int key = 0; key < 52; key++) {
+        if (has_black(key)) {
+            ImU32 col = Black;
+            if (key_states[cur_key]) {
+                col = Red;
+            }
+            draw_list->AddRectFilled(
+                    ImVec2(p.x + key * width + width * 3 / 4, p.y),
+                    ImVec2(p.x + key * width + width * 5 / 4 + 1, p.y + 80),
+                    col, 0, ImDrawCornerFlags_All);
+            draw_list->AddRect(
+                    ImVec2(p.x + key * width + width * 3 / 4, p.y),
+                    ImVec2(p.x + key * width + width * 5 / 4 + 1, p.y + 80),
+                    Black, 0, ImDrawCornerFlags_All);
+
+            cur_key += 2;
+        } else {
+            cur_key++;
+        }
+    }
+    ImGui::End();
+}
+
+std::vector<int> Piano::current_notes() {
+    std::vector<int> result{};
+    for (int i = 0; i < 256; i++) {
+        if (key_states[i]) {
+            result.push_back(i);
+        }
+    }
+    return result;
+}
