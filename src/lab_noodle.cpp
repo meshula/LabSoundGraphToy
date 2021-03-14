@@ -184,15 +184,15 @@ namespace noodle {
     struct Work;
     struct EditState
     {
-        void edit_pin(lab::noodle::Provider& provider, CanvasNode& root, entt::entity pin_id, std::vector<Work>& pending_work);
-        void edit_connection(lab::noodle::Provider& provider, CanvasNode& root, entt::entity connection, std::vector<Work>& pending_work);
-        void edit_node(Provider& provider, CanvasNode& root, entt::entity node, std::vector<Work>& pending_work);
+        void edit_pin(lab::noodle::Provider& provider, CanvasNode& root, ln_Pin pin_id, std::vector<Work>& pending_work);
+        void edit_connection(lab::noodle::Provider& provider, CanvasNode& root, ln_Connection connection, std::vector<Work>& pending_work);
+        void edit_node(Provider& provider, CanvasNode& root, ln_Node node, std::vector<Work>& pending_work);
 
-        entt::entity selected_connection = entt::null;
-        entt::entity selected_pin = entt::null;
-        entt::entity selected_node = entt::null;
+        ln_Connection selected_connection = { entt::null };
+        ln_Pin selected_pin = { entt::null, false };
+        ln_Node selected_node = { entt::null, false };
 
-        entt::entity _device_node = entt::null;
+        ln_Node _device_node = { entt::null, false };
 
         float pin_float = 0;
         int   pin_int = 0;
@@ -230,11 +230,11 @@ namespace noodle {
     {
         void reset(entt::entity en)
         {
-            node_id = en;
-            pin_id = en;
-            pin_label_id = en;
-            connection_id = en;
-            size_widget_node_id = en;
+            node_id = ln_Node{ en };
+            pin_id = ln_Pin{ en };
+            pin_label_id = ln_Pin{ en };
+            connection_id = ln_Connection{ en };
+            size_widget_node_id = ln_Node{ en };
 
             node_menu = false;
             bang = false;
@@ -243,11 +243,11 @@ namespace noodle {
         }
 
         // moment to moment hover data
-        entt::entity node_id = entt::null;
-        entt::entity pin_id = entt::null;
-        entt::entity pin_label_id = entt::null;
-        entt::entity connection_id = entt::null;
-        entt::entity size_widget_node_id = entt::null;
+        ln_Node node_id = { entt::null, false };
+        ln_Pin pin_id = { entt::null, false };
+        ln_Pin pin_label_id = { entt::null, false };
+        ln_Connection connection_id = { entt::null };
+        ln_Node size_widget_node_id = { entt::null, false };
 
         float node_area = 0.f;
         float group_area = 0.f;
@@ -258,8 +258,8 @@ namespace noodle {
         bool valid_connection = true;
 
         // interaction data
-        entt::entity originating_pin_id = entt::null;
-        entt::entity group_id = entt::null;
+        ln_Pin originating_pin_id = { entt::null, false };
+        ln_Node group_id = { entt::null, false };
     };
 
 
@@ -300,13 +300,13 @@ namespace noodle {
         std::string kind;
         std::string name;
 
-        entt::entity group_node = entt::null;
-        entt::entity input_node = entt::null;
-        entt::entity output_node = entt::null;
-        entt::entity output_pin = entt::null;
-        entt::entity param_pin = entt::null;
-        entt::entity setting_pin = entt::null;
-        entt::entity connection_id = entt::null;
+        ln_Node group_node = ln_Node{ entt::null, false };
+        ln_Node input_node = ln_Node{ entt::null, false };
+        ln_Node output_node = ln_Node{ entt::null, false };
+        ln_Pin output_pin = ln_Pin{ entt::null, false };
+        ln_Pin param_pin = ln_Pin{ entt::null, false };
+        ln_Pin setting_pin = ln_Pin{ entt::null, false };
+        ln_Connection connection_id = ln_Connection{ entt::null };
 
         float float_value = 0.f;
         int int_value = 0;
@@ -351,7 +351,7 @@ namespace noodle {
 
             case WorkType::CreateRuntimeContext:
             {
-                edit._device_node = provider.registry().create();
+                edit._device_node = ln_Node{ provider.registry().create() };
                 kind = "Device";
                 // fall through to CreateNode
             }
@@ -359,63 +359,63 @@ namespace noodle {
             {
                 if (kind == "Device")
                 {
-                    if (!registry.valid(edit._device_node))
-                        edit._device_node = provider.registry().create();
+                    if (!edit._device_node.valid)
+                        edit._device_node = ln_Node{ provider.registry().create() };
 
-                    registry.emplace<Node>(edit._device_node, Node("Device"));
+                    registry.emplace<Node>(edit._device_node.id, Node("Device"));
                     provider.create_runtime_context(edit._device_node);
-                    registry.emplace<GraphNodeLayout>(edit._device_node,
+                    registry.emplace<GraphNodeLayout>(edit._device_node.id,
                         GraphNodeLayout{ nullptr, Channel::Nodes, { canvas_pos.x, canvas_pos.y } });
 
                     if (name.length())
                     {
-                        registry.emplace<Name>(edit._device_node, name);
+                        registry.emplace<Name>(edit._device_node.id, name);
                         provider.associate(edit._device_node, name);
                     }
                     else
                     {
                         std::string n = unique_name(kind);
-                        registry.emplace<Name>(edit._device_node, n);
+                        registry.emplace<Name>(edit._device_node.id, n);
                         provider.associate(edit._device_node, n);
                     }
 
-                    root.nodes.insert(edit._device_node);
+                    root.nodes.insert(edit._device_node.id);
                     edit.incr_work_epoch();
                     break;
                 }
 
-                entt::entity new_node = provider.registry().create();
-                registry.emplace<Node>(new_node, Node(kind));
+                ln_Node new_node = ln_Node{ provider.registry().create() };
+                registry.emplace<Node>(new_node.id, Node(kind));
                 provider.node_create(kind, new_node);
 
                 CanvasNode* cn = nullptr;
-                if (group_node != entt::null && registry.valid(group_node))
+                if (group_node.id != entt::null && registry.valid(group_node.id))
                 {
-                    cn = &registry.get<CanvasNode>(group_node);
+                    cn = &registry.get<CanvasNode>(group_node.id);
                 }
 
-                registry.emplace<GraphNodeLayout>(new_node,
+                registry.emplace<GraphNodeLayout>(new_node.id,
                     GraphNodeLayout{cn, Channel::Nodes, { canvas_pos.x, canvas_pos.y } });
 
                 if (name.length())
                 {
-                    registry.emplace<Name>(new_node, name);
+                    registry.emplace<Name>(new_node.id, name);
                     provider.associate(new_node, name);
                 }
                 else
                 {
                     std::string n = unique_name(kind);
-                    registry.emplace<Name>(new_node, n);
+                    registry.emplace<Name>(new_node.id, n);
                     provider.associate(new_node, n);
                 }
 
-                if (group_node != entt::null && registry.valid(group_node))
+                if (group_node.id != entt::null && registry.valid(group_node.id))
                 {
-                    CanvasNode& cn = registry.get<CanvasNode>(group_node);
-                    cn.nodes.insert(new_node);
+                    CanvasNode& cn = registry.get<CanvasNode>(group_node.id);
+                    cn.nodes.insert(new_node.id);
                 }
                 else
-                    root.nodes.insert(new_node);
+                    root.nodes.insert(new_node.id);
 
                 edit.incr_work_epoch();
                 break;
@@ -448,7 +448,7 @@ namespace noodle {
             }
             case WorkType::SetParam:
             {
-                if (setting_pin != entt::null)
+                if (setting_pin.id != entt::null)
                     provider.pin_set_float_value(param_pin, float_value);
                 else
                     provider.pin_set_param_value(kind, name, float_value);
@@ -457,7 +457,7 @@ namespace noodle {
             }
             case WorkType::SetFloatSetting:
             {
-                if (setting_pin != entt::null)
+                if (setting_pin.id != entt::null)
                     provider.pin_set_float_value(setting_pin, float_value);
                 else
                     provider.pin_set_setting_float_value(kind, name, float_value);
@@ -466,7 +466,7 @@ namespace noodle {
             }
             case WorkType::SetIntSetting:
             {
-                if (setting_pin != entt::null)
+                if (setting_pin.id != entt::null)
                     provider.pin_set_int_value(setting_pin, int_value);
                 else
                     provider.pin_set_setting_int_value(kind, name, int_value);
@@ -475,7 +475,7 @@ namespace noodle {
             }
             case WorkType::SetBoolSetting:
             {
-                if (setting_pin != entt::null)
+                if (setting_pin.id != entt::null)
                     provider.pin_set_bool_value(setting_pin, bool_value);
                 else
                     provider.pin_set_setting_bool_value(kind, name, bool_value);
@@ -484,7 +484,7 @@ namespace noodle {
             }
             case WorkType::SetBusSetting:
             {
-                if (setting_pin != entt::null)
+                if (setting_pin.id != entt::null)
                     provider.pin_set_bus_from_file(setting_pin, string_value);
                 else
                     provider.pin_set_setting_bus_value(kind, name, string_value);
@@ -493,7 +493,7 @@ namespace noodle {
             }
             case WorkType::SetEnumerationSetting:
             {
-                if (setting_pin != entt::null)
+                if (setting_pin.id != entt::null)
                     provider.pin_set_enumeration_value(setting_pin, string_value);
                 else
                     provider.pin_set_setting_enumeration_value(kind, name, string_value);
@@ -503,15 +503,15 @@ namespace noodle {
 
             case WorkType::ConnectBusOutToBusIn:
             {
-                entt::entity from_node_e = entt::null;
-                entt::entity to_node_e = entt::null;
-                entt::entity from_pin_e = entt::null;
-                entt::entity to_pin_e = entt::null;
+                ln_Node from_node_e = ln_Node{ entt::null, false };
+                ln_Node to_node_e = ln_Node{ entt::null, false };
+                ln_Pin from_pin_e = ln_Pin{ entt::null, false };
+                ln_Pin to_pin_e = ln_Pin{ entt::null, false };
                 if (pendingConnection)
                 {
                     from_node_e = provider.entity_for_node_named(pendingConnection->from_node);
                     to_node_e = provider.entity_for_node_named(pendingConnection->to_node);
-                    if (!registry.valid(from_node_e) || !registry.valid(to_node_e))
+                    if (!from_node_e.valid || !to_node_e.valid)
                         break;
 
                     if (pendingConnection->from_pin.length())
@@ -533,12 +533,12 @@ namespace noodle {
                 }
 
                 entt::entity connection_id = registry.create();
-                registry.emplace<lab::noodle::Connection>(connection_id, lab::noodle::Connection(
-                    connection_id,
-                    from_pin_e, from_node_e,
-                    to_pin_e, to_node_e,
-                    lab::noodle::Connection::Kind::ToBus
-                ));
+                registry.emplace<lab::noodle::Connection>(connection_id,
+                                                          lab::noodle::Connection(
+                                                                ln_Connection{ connection_id },
+                                                                from_pin_e, ln_Node{ from_node_e },
+                                                                to_pin_e, ln_Node{ to_node_e },
+                                                                lab::noodle::Connection::Kind::ToBus));
 
                 edit.incr_work_epoch();
                 break;
@@ -546,31 +546,31 @@ namespace noodle {
 
             case WorkType::ConnectBusOutToParamIn:
             {
-                entt::entity from_node_e = entt::null;
-                entt::entity to_node_e = entt::null;
-                entt::entity from_pin_e = entt::null;
-                entt::entity to_pin_e = entt::null;
+                ln_Node from_node_e = ln_Node{ entt::null, false };
+                ln_Node to_node_e = ln_Node{ entt::null, false };
+                ln_Pin  from_pin_e = ln_Pin{ entt::null, false };
+                ln_Pin  to_pin_e = ln_Pin{ entt::null, false };
 
                 if (pendingConnection)
                 {
                     from_node_e = provider.entity_for_node_named(pendingConnection->from_node);
                     to_node_e = provider.entity_for_node_named(pendingConnection->to_node);
-                    if (!registry.valid(from_node_e) || !registry.valid(to_node_e))
+                    if (!from_node_e.valid || !to_node_e.valid)
                         break;
 
-                    from_pin_e = entt::null;
+                    from_pin_e = ln_Pin{ entt::null, false };
                     if (pendingConnection->from_pin.length())
                         from_pin_e = provider.node_output_named(from_node_e, pendingConnection->from_pin);
                     else
                         from_pin_e = provider.node_output_with_index(from_node_e, 0);
 
-                    to_pin_e = entt::null;
+                    to_pin_e = ln_Pin{ entt::null, false };
                     if (pendingConnection->to_pin.length())
                         to_pin_e = provider.node_param_named(to_node_e, pendingConnection->to_pin);
                     else
                         break;  // nothing to connect from
 
-                    if (!registry.valid(from_pin_e) || !registry.valid(to_pin_e))
+                    if (!from_pin_e.valid || !to_pin_e.valid)
                         break;
 
                     provider.connect_bus_out_to_param_in(from_node_e, from_pin_e, to_pin_e);
@@ -585,45 +585,45 @@ namespace noodle {
                 }
 
                 entt::entity connection_id = registry.create();
-                registry.emplace<lab::noodle::Connection>(connection_id, lab::noodle::Connection(
-                    connection_id,
-                    from_pin_e, from_node_e,
-                    to_pin_e, to_node_e,
-                    lab::noodle::Connection::Kind::ToParam
-                ));
+                registry.emplace<lab::noodle::Connection>(connection_id,
+                                                          lab::noodle::Connection(
+                                                                ln_Connection{ connection_id },
+                                                                from_pin_e, ln_Node{ from_node_e },
+                                                                to_pin_e, ln_Node{ to_node_e },
+                                                                lab::noodle::Connection::Kind::ToParam));
                 edit.incr_work_epoch();
                 break;
             }
 
             case WorkType::DisconnectInFromOut:
             {
-                provider.disconnect(connection_id);
+                provider.disconnect(ln_Connection{connection_id});
                 edit.incr_work_epoch();
                 break;
             }
             case WorkType::DeleteNode:
             {
-                if (registry.any<CanvasNode>(input_node))
+                if (registry.any<CanvasNode>(input_node.id))
                 {
-                    CanvasNode& cn = registry.get<CanvasNode>(input_node);
+                    CanvasNode& cn = registry.get<CanvasNode>(input_node.id);
                     for (auto en : cn.nodes)
                     {
-                        provider.node_delete(en);
+                        provider.node_delete(ln_Node{ en });
                         registry.destroy(en);
                     }
                 }
                 else
                 {
-                    GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(input_node);
+                    GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(input_node.id);
                     if (gnl.parent_canvas)
                     {
-                        auto it = gnl.parent_canvas->nodes.find(input_node);
+                        auto it = gnl.parent_canvas->nodes.find(input_node.id);
                         if (it != gnl.parent_canvas->nodes.end())
                             gnl.parent_canvas->nodes.erase(it);
                     }
                     provider.node_delete(input_node);
                 }
-                registry.destroy(input_node);
+                registry.destroy(input_node.id);
                 edit.incr_work_epoch();
                 break;
             }
@@ -649,7 +649,7 @@ namespace noodle {
                         CanvasNode& cn = registry.get<CanvasNode>(node_entity);
                         for (auto en : cn.nodes)
                         {
-                            provider.node_delete(en);
+                            provider.node_delete(ln_Node{ en });
                             registry.destroy(en);
                         }
                     }
@@ -662,7 +662,7 @@ namespace noodle {
                             if (it != gnl.parent_canvas->nodes.end())
                                 gnl.parent_canvas->nodes.erase(it);
                         }
-                        provider.node_delete(node_entity);
+                        provider.node_delete(ln_Node{ node_entity });
                     }
                     registry.destroy(node_entity);
                 }
@@ -750,18 +750,18 @@ namespace noodle {
         return result;
     }
 
-    void EditState::edit_pin(lab::noodle::Provider& provider, CanvasNode& root, entt::entity pin_id, std::vector<Work>& pending_work)
+    void EditState::edit_pin(lab::noodle::Provider& provider, CanvasNode& root, ln_Pin pin_id, std::vector<Work>& pending_work)
     {
+        if (!pin_id.valid)
+            return;
+
         entt::registry& registry = provider.registry();
-        if (!registry.valid(pin_id))
+        Pin& pin = registry.get<Pin>(pin_id.id);
+        if (!pin.node_id.valid)
             return;
 
-        Pin& pin = registry.get<Pin>(pin_id);
-        if (!registry.valid(pin.node_id))
-            return;
-
-        Name& name = registry.get<Name>(pin.node_id);
-        Name& pin_name = registry.get<Name>(pin_id);
+        Name& name = registry.get<Name>(pin.node_id.id);
+        Name& pin_name = registry.get<Name>(pin_id.id);
         char buff[256];
         sprintf(buff, "%s:%s", name.name.c_str(), pin_name.name.c_str());
 
@@ -776,7 +776,7 @@ namespace noodle {
             if (pin.dataType == Pin::DataType::Float)
             {
                 if (ImGui::InputFloat("###EditPinParamFloat", &pin_float,
-                    0, 0, 5,
+                    0, 0, "%.3f",
                     ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CharsScientific))
                 {
                     accept = true;
@@ -835,7 +835,7 @@ namespace noodle {
                             work.type = WorkType::SetBusSetting;
                             pending_work.emplace_back(std::move(work));
                         }
-                        selected_pin = entt::null;
+                        selected_pin = ln_Pin{ entt::null };
 
                         std::string path(file);
                         size_t o = path.rfind('/');
@@ -895,28 +895,28 @@ namespace noodle {
                 pin.value_as_string.assign(buff);
 
                 pending_work.emplace_back(std::move(work));
-                selected_pin = entt::null;
+                selected_pin = ln_Pin{ entt::null };
             }
             ImGui::SameLine();
             if (ImGui::Button("Cancel"))
-                selected_pin = entt::null;
+                selected_pin = ln_Pin{ entt::null };
 
             ImGui::EndPopup();
         }
     }
 
-    void EditState::edit_connection(lab::noodle::Provider& provider, CanvasNode& root, entt::entity connection, std::vector<Work>& pending_work)
+    void EditState::edit_connection(lab::noodle::Provider& provider, CanvasNode& root, ln_Connection connection, std::vector<Work>& pending_work)
     {
         entt::registry& reg = provider.registry();
-        if (!reg.valid(connection))
+        if (!reg.valid(connection.id))
         {
-            selected_connection = entt::null;
+            selected_connection = ln_Connection{ entt::null };
             return;
         }
-        if (!reg.any<lab::noodle::Connection>(connection))
+        if (!reg.any<lab::noodle::Connection>(connection.id))
         {
-            printf("No GraphConnection for %d", connection);
-            selected_connection = entt::null;
+            printf("No GraphConnection for %d", connection.id);
+            selected_connection = ln_Connection{ entt::null };
             return;
         }
 
@@ -929,27 +929,27 @@ namespace noodle {
                 work.type = WorkType::DisconnectInFromOut;
                 work.connection_id = connection;
                 pending_work.emplace_back(std::move(work));
-                selected_connection = entt::null;
+                selected_connection = ln_Connection{ entt::null };
             }
 
             ImGui::SameLine();
             if (ImGui::Button("Cancel"))
-                selected_connection = entt::null;
+                selected_connection = ln_Connection{ entt::null };
 
             ImGui::EndPopup();
         }
     }
 
-    void EditState::edit_node(Provider& provider, CanvasNode& root, entt::entity node, std::vector<Work>& pending_work)
+    void EditState::edit_node(Provider& provider, CanvasNode& root, ln_Node node, std::vector<Work>& pending_work)
     {
         entt::registry& reg = provider.registry();
-        if (!reg.valid(node))
+        if (!reg.valid(node.id))
         {
-            selected_node = entt::null;
+            selected_node = ln_Node{ entt::null };
             return;
         }
 
-        Name& name = reg.get<Name>(node);
+        Name& name = reg.get<Name>(node.id);
 
         char buff[256];
         sprintf(buff, "%s Node", name.name.c_str());
@@ -965,11 +965,11 @@ namespace noodle {
                 work.type = WorkType::DeleteNode;
                 work.input_node = node;
                 pending_work.emplace_back(std::move(work));
-                selected_node = entt::null;
+                selected_node = ln_Node{ entt::null };
             }
             if (ImGui::Button("Cancel", {ImGui::GetWindowContentRegionWidth(), 24}))
             {
-                selected_node = entt::null;
+                selected_node = ln_Node{ entt::null };
             }
 
             ImGui::Dummy({256, style_padding_y});
@@ -1068,7 +1068,7 @@ namespace noodle {
             mouse.dragging = false;
 
         if (!mouse.dragging)
-            hover.node_id = entt::null;
+            hover.node_id = ln_Node{ entt::null };
     }
 
     void lay_out_pins(Provider& provider)
@@ -1102,7 +1102,7 @@ namespace noodle {
                     continue;
 
                 Pin pin = registry.get<Pin>(entity);
-                if (!registry.valid(pin.node_id))
+                if (!registry.valid(pin.node_id.id))
                     continue;
 
                 // lazily create the layouts on demand.
@@ -1149,7 +1149,7 @@ namespace noodle {
                     continue;
 
                 Pin& pin = registry.get<Pin>(entity);
-                if (!registry.valid(pin.node_id))
+                if (!registry.valid(pin.node_id.id))
                     continue;
 
                 GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity);
@@ -1206,7 +1206,7 @@ namespace noodle {
         if (find_highlights)
         {
             hover.reset(entt::null);
-            hover.group_id = entt::null;
+            hover.group_id = ln_Node{ entt::null };
             float mouse_x_cs = mouse.mouse_cs.x;
             float mouse_y_cs = mouse.mouse_cs.y;
 
@@ -1230,12 +1230,12 @@ namespace noodle {
                     Pin& pin = registry.get<Pin>(entity);
                     if (pin.kind == Pin::Kind::Setting)
                     {
-                        hover.pin_id = entt::null;
+                        hover.pin_id = ln_Pin{ entt::null };
                     }
                     else
                     {
-                        hover.pin_id = entity;
-                        hover.pin_label_id = entt::null;
+                        hover.pin_id = ln_Pin{ entity };
+                        hover.pin_label_id = ln_Pin{ entt::null };
                         hover.node_id = pin.node_id;
                     }
                 }
@@ -1244,13 +1244,13 @@ namespace noodle {
                     Pin& pin = registry.get<Pin>(entity);
                     if (pin.kind == Pin::Kind::Setting || pin.kind == Pin::Kind::Param)
                     {
-                        hover.pin_id = entt::null;
-                        hover.pin_label_id = entity;
+                        hover.pin_id = ln_Pin{ entt::null };
+                        hover.pin_label_id = ln_Pin{ entity };
                         hover.node_id = pin.node_id;
                     }
                     else
                     {
-                        hover.pin_label_id = entt::null;
+                        hover.pin_label_id = ln_Pin{ entt::null };
                     }
                 }
             }
@@ -1279,7 +1279,7 @@ namespace noodle {
                         if (area < hover.group_area)
                         {
                             hover.group_area = area;
-                            hover.group_id = entity;
+                            hover.group_id = ln_Node{ entity };
                         }
                     }
 
@@ -1321,27 +1321,27 @@ namespace noodle {
                     }
                     else if (gnl.group && mouse_y_cs > lr.y - 16 && mouse_x_cs > lr.x - 16)
                     {
-                        hover.size_widget_node_id = entity;
+                        hover.size_widget_node_id = ln_Node{ entity };
                     }
 
-                    hover.node_id = entity;
+                    hover.node_id = ln_Node{ entity };
                 }
             }
 
             // test all connections
-            if (hover.node_id == entt::null)
+            if (hover.node_id.id == entt::null)
             {
                 // no node or node furniture hovered, check connections
                 for (const auto entity : registry.view<lab::noodle::Connection>())
                 {
                     lab::noodle::Connection& connection = registry.get<lab::noodle::Connection>(entity);
-                    entt::entity from_pin = connection.pin_from;
-                    entt::entity to_pin = connection.pin_to;
-                    if (!registry.valid(from_pin) || !registry.valid(to_pin))
+                    ln_Pin from_pin = provider.copy(connection.pin_from);
+                    ln_Pin to_pin = provider.copy(connection.pin_to);
+                    if (!from_pin.valid || !to_pin.valid)
                         continue;
 
-                    GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(from_pin);
-                    GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(to_pin);
+                    GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(from_pin.id);
+                    GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(to_pin.id);
                     ImVec2 from_pos = from_gpl.ul_ws(root.canvas) + ImVec2(style_padding_y, style_padding_x) * root.canvas.scale;
                     ImVec2 to_pos = to_gpl.ul_ws(root.canvas) + ImVec2(0, style_padding_x) * root.canvas.scale;
 
@@ -1350,13 +1350,13 @@ namespace noodle {
                     ImVec2 p1, p2;
                     noodle_bezier(p0, p1, p2, p3, root.canvas.scale);
                     ImVec2 test = mouse.mouse_ws + root.canvas.window_origin_offset_ws;
-                    ImVec2 closest = ImBezierClosestPointCasteljau(p0, p1, p2, p3, test, 10);
+                    ImVec2 closest = ImBezierCubicClosestPointCasteljau(p0, p1, p2, p3, test, 10);
                     
                     ImVec2 delta = test - closest;
                     float d = delta.x * delta.x + delta.y * delta.y;
                     if (d < 100)
                     {
-                        hover.connection_id = entity;
+                        hover.connection_id = ln_Connection{ entity };
                         break;
                     }
                 }
@@ -1390,9 +1390,10 @@ namespace noodle {
         // Create a canvas
 
         float height = edit_rect.Max.y - edit_rect.Min.y;
+        float width = edit_rect.Max.x - edit_rect.Min.y;
         //- ImGui::GetTextLineHeightWithSpacing()   // space for the time bar
         //- ImGui::GetTextLineHeightWithSpacing();  // space for horizontal scroller
-
+        
         ImGui::BeginChild(main_window_id, ImVec2(0, height), false,
             ImGuiWindowFlags_NoBringToFrontOnFocus |
             ImGuiWindowFlags_NoMove |
@@ -1442,27 +1443,27 @@ namespace noodle {
             if (imgui_business)
             {
                 mouse.dragging = false;
-                hover.node_id = entt::null;
+                hover.node_id = ln_Node{ entt::null };
                 hover.reset(entt::null);
-                edit.selected_pin = entt::null;
+                edit.selected_pin = ln_Pin{ entt::null };
             }
-            else if (edit.selected_pin != entt::null)
+            else if (edit.selected_pin.id != entt::null)
             {
                 ImGui::SetNextWindowPos(mouse.initial_click_pos_ws);
                 edit.edit_pin(provider, root, edit.selected_pin, pending_work);
                 mouse.dragging = false;
-                hover.node_id = entt::null;
+                hover.node_id = ln_Node{ entt::null };
                 hover.reset(entt::null);
             }
-            else if (edit.selected_connection != entt::null)
+            else if (edit.selected_connection.id != entt::null)
             {
                 ImGui::SetNextWindowPos(mouse.initial_click_pos_ws);
                 edit.edit_connection(provider, root, edit.selected_connection, pending_work);
                 mouse.dragging = false;
-                hover.node_id = entt::null;
+                hover.node_id = ln_Node{ entt::null };
                 hover.reset(entt::null);
             }
-            else if (edit.selected_node != entt::null)
+            else if (edit.selected_node.id != entt::null)
             {
                 ImGui::SetNextWindowPos(mouse.initial_click_pos_ws);
                 edit.edit_node(provider, root, edit.selected_node, pending_work);
@@ -1481,11 +1482,11 @@ namespace noodle {
         {
             // if dragging a wire, check for disallowed connections so they wire can turn red
             hover.valid_connection = true;
-            if (hover.originating_pin_id != entt::null && hover.pin_id != entt::null && 
-                registry.valid(hover.originating_pin_id) && registry.valid(hover.pin_id))
+            if (hover.originating_pin_id.id != entt::null && hover.pin_id.id != entt::null && 
+                registry.valid(hover.originating_pin_id.id) && registry.valid(hover.pin_id.id))
             {
-                Pin from_pin = registry.get<Pin>(hover.originating_pin_id);
-                Pin to_pin = registry.get<Pin>(hover.pin_id);
+                Pin from_pin = registry.get<Pin>(hover.originating_pin_id.id);
+                Pin to_pin = registry.get<Pin>(hover.pin_id.id);
 
                 if (from_pin.kind == Pin::Kind::BusIn || from_pin.kind == Pin::Kind::Param)
                 {
@@ -1501,17 +1502,17 @@ namespace noodle {
                     from_kind == Pin::Kind::Setting);
 
                 // disallow connecting a node to itself
-                hover.valid_connection &= from_pin.node_id != to_pin.node_id;
+                hover.valid_connection &= from_pin.node_id.id != to_pin.node_id.id;
             }
         }
         else if (!mouse.dragging && mouse.dragging_wire)
         {
             hover.valid_connection = true;
-            if (hover.originating_pin_id != entt::null && hover.pin_id != entt::null && 
-                registry.valid(hover.originating_pin_id) && registry.valid(hover.pin_id))
+            if (hover.originating_pin_id.id != entt::null && hover.pin_id.id != entt::null && 
+                registry.valid(hover.originating_pin_id.id) && registry.valid(hover.pin_id.id))
             {
-                Pin from_pin = registry.get<Pin>(hover.originating_pin_id);
-                Pin to_pin = registry.get<Pin>(hover.pin_id);
+                Pin from_pin = registry.get<Pin>(hover.originating_pin_id.id);
+                Pin to_pin = registry.get<Pin>(hover.pin_id.id);
 
                 if (from_pin.kind == Pin::Kind::BusIn || from_pin.kind == Pin::Kind::Param)
                 {
@@ -1528,7 +1529,7 @@ namespace noodle {
                     from_kind == Pin::Kind::Setting);
 
                 // disallow connecting a node to itself
-                hover.valid_connection &= from_pin.node_id != to_pin.node_id;
+                hover.valid_connection &= from_pin.node_id.id != to_pin.node_id.id;
 
                 if (!hover.valid_connection)
                 {
@@ -1550,11 +1551,11 @@ namespace noodle {
             }
             mouse.resizing_node = false;
             mouse.dragging_wire = false;
-            hover.originating_pin_id = entt::null;
+            hover.originating_pin_id = ln_Pin{ entt::null };
         }
         else if (mouse.click_ended)
         {
-            if (hover.connection_id != entt::null)
+            if (hover.connection_id.id != entt::null)
             {
                 edit.selected_connection = hover.connection_id;
             }
@@ -1564,7 +1565,7 @@ namespace noodle {
             }
         }
 
-        mouse.interacting_with_canvas = hover.node_id == entt::null && !mouse.dragging_wire;
+        mouse.interacting_with_canvas = hover.node_id.id == entt::null && !mouse.dragging_wire;
         if (!mouse.interacting_with_canvas)
         {
             // nodes and wires
@@ -1584,21 +1585,21 @@ namespace noodle {
                     work.input_node = hover.node_id;
                     pending_work.emplace_back(std::move(work));
                 }
-                if (hover.pin_id != entt::null)
+                if (hover.pin_id.id != entt::null)
                 {
                     mouse.dragging_wire = true;
                     mouse.resizing_node = false;
                     mouse.dragging_node = false;
-                    if (hover.originating_pin_id == entt::null)
+                    if (hover.originating_pin_id.id == entt::null)
                         hover.originating_pin_id = hover.pin_id;
-                    GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id);
+                    GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id.id);
                     gnl.initial_pos_cs = mouse.mouse_cs;
                 }
-                else if (hover.pin_label_id != entt::null)
+                else if (hover.pin_label_id.id != entt::null)
                 {
                     // set mode to edit the value of the hovered pin
                     edit.selected_pin = hover.pin_label_id;
-                    Pin& pin = registry.get<Pin>(edit.selected_pin);
+                    Pin& pin = registry.get<Pin>(edit.selected_pin.id);
                     if (pin.dataType == Pin::DataType::Float)
                     {
                         edit.pin_float = provider.pin_float_value(edit.selected_pin);
@@ -1612,12 +1613,12 @@ namespace noodle {
                         edit.pin_bool = provider.pin_bool_value(edit.selected_pin);
                     }
                 }
-                else if (hover.size_widget_node_id != entt::null)
+                else if (hover.size_widget_node_id.id != entt::null)
                 {
                     mouse.dragging_wire = false;
                     mouse.dragging_node = false;
                     mouse.resizing_node = true;
-                    GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id);
+                    GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id.id);
                     gnl.initial_pos_cs = gnl.lr_cs;
                 }
                 else
@@ -1626,13 +1627,13 @@ namespace noodle {
                     mouse.resizing_node = false;
                     mouse.dragging_node = true;
 
-                    GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id);
+                    GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id.id);
                     gnl.initial_pos_cs = gnl.ul_cs;
 
                     // set up initials for group dragging
-                    if (hover.group_id != entt::null)
+                    if (hover.group_id.id != entt::null)
                     {
-                        CanvasNode& cn = registry.get<CanvasNode>(hover.group_id);
+                        CanvasNode& cn = registry.get<CanvasNode>(hover.group_id.id);
                         for (auto en : cn.nodes)
                         {
                             GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(en);
@@ -1646,7 +1647,7 @@ namespace noodle {
             {
                 ImVec2 delta = mouse.mouse_cs - mouse.canvas_clickpos_cs;
 
-                GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id);
+                GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id.id);
                 ImVec2 sz = gnl.lr_cs - gnl.ul_cs;
                 ImVec2 new_pos = gnl.initial_pos_cs + delta;
                 gnl.ul_cs = new_pos;
@@ -1656,7 +1657,7 @@ namespace noodle {
 
                 if (gnl.group)
                 {
-                    CanvasNode& cn = registry.get<CanvasNode>(hover.node_id);
+                    CanvasNode& cn = registry.get<CanvasNode>(hover.node_id.id);
                     for (entt::entity i : cn.nodes)
                     {
                         GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(i);
@@ -1671,7 +1672,7 @@ namespace noodle {
             {
                 ImVec2 delta = mouse.mouse_cs - mouse.canvas_clickpos_cs;
 
-                GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id);
+                GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id.id);
                 ImVec2 new_pos = gnl.initial_pos_cs + delta;
                 gnl.lr_cs = new_pos;
                 gnl.lr_cs.x = std::max(gnl.ul_cs.x + 100, gnl.lr_cs.x);
@@ -1730,13 +1731,13 @@ namespace noodle {
         for (const auto entity : registry.view<lab::noodle::Connection>())
         {
             lab::noodle::Connection& i = registry.get<lab::noodle::Connection>(entity);
-            entt::entity from_pin = i.pin_from;
-            entt::entity to_pin = i.pin_to;
-            if (from_pin == entt::null || to_pin == entt::null)
+            ln_Pin from_pin = provider.copy(i.pin_from);
+            ln_Pin to_pin = provider.copy(i.pin_to);
+            if (!from_pin.valid || !to_pin.valid)
                 continue;
 
-            GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(from_pin);
-            GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(to_pin);
+            GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(from_pin.id);
+            GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(to_pin.id);
             ImVec2 from_pos = from_gpl.ul_ws(root.canvas) + ImVec2(style_padding_y, style_padding_x) * root.canvas.scale;
             ImVec2 to_pos = to_gpl.ul_ws(root.canvas) + ImVec2(0, style_padding_x) * root.canvas.scale;
 
@@ -1744,13 +1745,13 @@ namespace noodle {
             ImVec2 p3 = to_pos;
             ImVec2 p1, p2;
             noodle_bezier(p0, p1, p2, p3, root.canvas.scale);
-            ImU32 color = entity == hover.connection_id ? noodle_bezier_hovered : noodle_bezier_neutral;
+            ImU32 color = entity == hover.connection_id.id ? noodle_bezier_hovered : noodle_bezier_neutral;
             drawList->AddBezierCurve(p0, p1, p2, p3, color, 2.f);
         }
 
         if (mouse.dragging_wire)
         {
-            GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(hover.originating_pin_id);
+            GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(hover.originating_pin_id.id);
             ImVec2 p0 = from_gpl.ul_ws(root.canvas) + ImVec2(style_padding_y, style_padding_x) * root.canvas.scale;
             ImVec2 p3 = mouse.mouse_ws + root.canvas.window_origin_offset_ws;
             ImVec2 p1, p2;
@@ -1763,14 +1764,14 @@ namespace noodle {
         //   Node Body / Drawing / Profiler  //
         ///////////////////////////////////////
 
-        if (!registry.valid(edit._device_node))
-            edit._device_node = entt::null;
+        if (!registry.valid(edit._device_node.id))
+            edit._device_node = ln_Node{ entt::null };
 
         total_profile_duration = provider.node_get_timing(edit._device_node);
 
         for (auto entity : registry.view<lab::noodle::Node>())
         {
-            float node_profile_duration = provider.node_get_self_timing(entity);
+            float node_profile_duration = provider.node_get_self_timing(ln_Node{ entity });
             node_profile_duration = std::abs(node_profile_duration); /// @TODO, the destination node doesn't yet have a totalTime, so abs is a hack in the nonce
 
             Name& name = registry.get<Name>(entity);
@@ -1790,7 +1791,7 @@ namespace noodle {
 
             // draw node
             drawList->AddRectFilled(ul_ws, lr_ws, node_background_fill, node_border_radius);
-            drawList->AddRect(ul_ws, lr_ws, (hover.node_id == entity) ? node_outline_hovered : node_outline_neutral, node_border_radius, 15, 2);
+            drawList->AddRect(ul_ws, lr_ws, (hover.node_id.id == entity) ? node_outline_hovered : node_outline_neutral, node_border_radius, 15, 2);
 
             if (gnl.group)
             {
@@ -1832,7 +1833,7 @@ namespace noodle {
                 {
                     auto label = std::string(ICON_FAD_PLAY);
                     drawList->AddText(NULL, label_font_size, label_pos,
-                        (hover.play && entity == hover.node_id) ? text_color_highlighted : text_color,
+                        (hover.play && entity == hover.node_id.id) ? text_color_highlighted : text_color,
                         label.c_str(), label.c_str() + label.length());
                     label_pos.x += 20;
                 }
@@ -1841,7 +1842,7 @@ namespace noodle {
                 {
                     auto label = std::string(ICON_FAD_HARDCLIP);
                     drawList->AddText(NULL, label_font_size, label_pos,
-                        (hover.bang && entity == hover.node_id) ? text_color_highlighted : text_color,
+                        (hover.bang && entity == hover.node_id.id) ? text_color_highlighted : text_color,
                         label.c_str(), label.c_str() + label.length());
                     label_pos.x += 20;
                 }
@@ -1850,7 +1851,7 @@ namespace noodle {
                 Name& name = registry.get<Name>(entity);
                 label_pos.x += 5;
                 drawList->AddText(io.FontDefault, label_font_size, label_pos,
-                    (hover.node_menu && entity == hover.node_id) ? text_color_highlighted : text_color,
+                    (hover.node_menu && entity == hover.node_id.id) ? text_color_highlighted : text_color,
                     name.name.c_str(), name.name.c_str() + name.name.size());
 
                 if (show_ids)
@@ -1863,7 +1864,7 @@ namespace noodle {
                     char buff[32];
                     sprintf(buff, "(%d)", entity);
                     drawList->AddText(io.FontDefault, label_font_size, label_pos,
-                        (hover.node_menu && entity == hover.node_id) ? text_color_highlighted : text_color,
+                        (hover.node_menu && entity == hover.node_id.id) ? text_color_highlighted : text_color,
                         buff, buff + strlen(buff));
                 }
             }
@@ -1904,7 +1905,7 @@ namespace noodle {
 
                 GraphPinLayout& pin_gpl = registry.get<GraphPinLayout>(j);
                 ImVec2 pin_ul = pin_gpl.ul_ws(root.canvas);
-                uint32_t fill = (j == hover.pin_id || j == hover.originating_pin_id) ? 0xffffff : 0x000000;
+                uint32_t fill = (j == hover.pin_id.id || j == hover.originating_pin_id.id) ? 0xffffff : 0x000000;
                 fill |= (uint32_t)(128 + 128 * sinf(pulse * 8)) << 24;
 
                 DrawIcon(drawList, pin_ul,
@@ -1923,7 +1924,7 @@ namespace noodle {
                         char buff[32];
                         sprintf(buff, "(%d)", j);
                         drawList->AddText(io.FontDefault, font_size, pos,
-                            (hover.node_menu && entity == hover.node_id) ? text_color_highlighted : text_color,
+                            (hover.node_menu && entity == hover.node_id.id) ? text_color_highlighted : text_color,
                             buff, buff + strlen(buff));
                     }
 
@@ -1991,18 +1992,18 @@ namespace noodle {
 
             ImGui::Separator();
             ImGui::TextUnformatted("Hover");
-            ImGui::Text("node hovered: %s", hover.node_id != entt::null ? "*" : ".");
-            ImGui::Text("group hovered: %d", hover.group_id);
-            ImGui::Text("originating pin id: %d", hover.originating_pin_id);
-            ImGui::Text("hovered pin id: %d", hover.pin_id);
-            ImGui::Text("hovered pin label: %d", hover.pin_label_id);
-            ImGui::Text("hovered connection: %d", hover.connection_id);
+            ImGui::Text("node hovered: %s", hover.node_id.id != entt::null ? "*" : ".");
+            ImGui::Text("group hovered: %d", hover.group_id.id);
+            ImGui::Text("originating pin id: %d", hover.originating_pin_id.id);
+            ImGui::Text("hovered pin id: %d", hover.pin_id.id);
+            ImGui::Text("hovered pin label: %d", hover.pin_label_id.id);
+            ImGui::Text("hovered connection: %d", hover.connection_id.id);
             ImGui::Text("hovered node menu: %s", hover.node_menu ? "*" : ".");
-            ImGui::Text("hovered size widget: %d", hover.size_widget_node_id);
+            ImGui::Text("hovered size widget: %d", hover.size_widget_node_id.id);
 
             ImGui::Separator();
             ImGui::TextUnformatted("Edit");
-            ImGui::Text("edit connection: %d", edit.selected_connection);
+            ImGui::Text("edit connection: %d", edit.selected_connection.id);
             ImGui::Separator();
             ImGui::Text("quantum time: %f uS", total_profile_duration * 1e6f);
 
@@ -2110,7 +2111,7 @@ void create_graph(lab::AudioContext& ctx)
                     continue;
 
                 Pin pin = reg.get<Pin>(entity);
-                if (!reg.valid(pin.node_id))
+                if (!reg.valid(pin.node_id.id))
                     continue;
 
                 Name& name = reg.get<Name>(entity);
@@ -2154,16 +2155,16 @@ void create_graph(lab::AudioContext& ctx)
         for (const auto entity : reg.view<lab::noodle::Connection>())
         {
             lab::noodle::Connection& connection = reg.get<lab::noodle::Connection>(entity);
-            entt::entity from_pin = connection.pin_from;
-            entt::entity to_pin = connection.pin_to;
-            if (!reg.valid(from_pin) || !reg.valid(to_pin))
+            ln_Pin from_pin = provider.copy(connection.pin_from);
+            ln_Pin to_pin = provider.copy(connection.pin_to);
+            if (!from_pin.valid || !to_pin.valid)
                 continue;
 
             using lab::noodle::Name;
-            Name& from_node_name = reg.get<Name>(connection.node_from);
+            Name& from_node_name = reg.get<Name>(connection.node_from.id);
             //Name& from_pin_name = reg.get<Name>(from_pin);
-            Name& to_node_name = reg.get<Name>(connection.node_to);
-            Name& to_pin_name = reg.get<Name>(to_pin);
+            Name& to_node_name = reg.get<Name>(connection.node_to.id);
+            Name& to_pin_name = reg.get<Name>(to_pin.id);
 
             if (connection.kind == Connection::Kind::ToParam)
             {
@@ -2214,7 +2215,7 @@ void create_graph(lab::AudioContext& ctx)
                     continue;
 
                 Pin pin = reg.get<Pin>(entity);
-                if (!reg.valid(pin.node_id))
+                if (!reg.valid(pin.node_id.id))
                     continue;
 
                 Name& name = reg.get<Name>(entity);
@@ -2250,16 +2251,16 @@ void create_graph(lab::AudioContext& ctx)
         for (const auto entity : reg.view<lab::noodle::Connection>())
         {
             lab::noodle::Connection& connection = reg.get<lab::noodle::Connection>(entity);
-            entt::entity from_pin = connection.pin_from;
-            entt::entity to_pin = connection.pin_to;
-            if (!reg.valid(from_pin) || !reg.valid(to_pin))
+            ln_Pin from_pin = provider.copy(connection.pin_from);
+            ln_Pin to_pin = provider.copy(connection.pin_to);
+            if (!from_pin.valid || !to_pin.valid)
                 continue;
 
             using lab::noodle::Name;
-            Name& from_pin_name = reg.get<Name>(from_pin);
-            //Name& to_pin_name = reg.get<Name>(from_pin);
-            Name& from_node_name = reg.get<Name>(connection.node_from);
-            Name& to_node_name = reg.get<Name>(connection.node_to);
+            Name& from_pin_name = reg.get<Name>(from_pin.id);
+            //Name& to_pin_name = reg.get<Name>(from_pin.id);
+            Name& from_node_name = reg.get<Name>(connection.node_from.id);
+            Name& to_node_name = reg.get<Name>(connection.node_to.id);
 
             file << " + " << from_node_name.name << ":" << from_pin_name.name <<
                 " -> " << to_node_name.name << ":" << to_node_name.name << "\n";
@@ -2319,7 +2320,7 @@ void create_graph(lab::AudioContext& ctx)
                     continue;
 
                 Pin pin = reg.get<Pin>(entity);
-                if (!reg.valid(pin.node_id))
+                if (!reg.valid(pin.node_id.id))
                     continue;
 
                 Name& name = reg.get<Name>(entity);
@@ -2384,16 +2385,16 @@ void create_graph(lab::AudioContext& ctx)
         for (const auto entity : reg.view<lab::noodle::Connection>())
         {
             lab::noodle::Connection& connection = reg.get<lab::noodle::Connection>(entity);
-            entt::entity from_pin = connection.pin_from;
-            entt::entity to_pin = connection.pin_to;
-            if (!reg.valid(from_pin) || !reg.valid(to_pin))
+            ln_Pin from_pin = provider.copy(connection.pin_from);
+            ln_Pin to_pin = provider.copy(connection.pin_to);
+            if (!from_pin.valid || !to_pin.valid)
                 continue;
 
             using lab::noodle::Name;
-            Name& from_node_name = reg.get<Name>(connection.node_from);
-            Name& from_pin_name = reg.get<Name>(from_pin);
-            Name& to_node_name = reg.get<Name>(connection.node_to);
-            Name& to_pin_name = reg.get<Name>(to_pin);
+            Name& from_node_name = reg.get<Name>(connection.node_from.id);
+            Name& from_pin_name = reg.get<Name>(from_pin.id);
+            Name& to_node_name = reg.get<Name>(connection.node_to.id);
+            Name& to_pin_name = reg.get<Name>(to_pin.id);
 
             writer.StartObject();
             writer.Key("from_node");
@@ -2454,7 +2455,7 @@ void create_graph(lab::AudioContext& ctx)
                 work.type = WorkType::CreateNode;
                 work.name = node_name;
                 work.kind = node["kind"].GetString();
-                work.group_node = entt::null;
+                work.group_node = ln_Node{ entt::null };
                 auto pos_array = node["pos"].GetArray();
                 float x = pos_array[0].GetFloat();
                 float y = pos_array[1].GetFloat();
@@ -2480,7 +2481,7 @@ void create_graph(lab::AudioContext& ctx)
                         Work work(provider, _s->root);
                         work.name = name;
                         work.kind = node_name;
-                        work.param_pin = entt::null;
+                        work.param_pin = ln_Pin{ entt::null };
                         work.type = WorkType::SetParam;
                         work.float_value = static_cast<float>(std::atof(value.c_str()));
                         _s->pending_work.emplace_back(std::move(work));
@@ -2498,7 +2499,7 @@ void create_graph(lab::AudioContext& ctx)
                             Work work(provider, _s->root);
                             work.name = name;
                             work.kind = node_name;
-                            work.setting_pin = entt::null;
+                            work.setting_pin = ln_Pin{ entt::null };
                             work.type = WorkType::SetBoolSetting;
                             work.bool_value = value == "True";
                             _s->pending_work.emplace_back(std::move(work));
@@ -2508,7 +2509,7 @@ void create_graph(lab::AudioContext& ctx)
                             Work work(provider, _s->root);
                             work.name = name;
                             work.kind = node_name;
-                            work.setting_pin = entt::null;
+                            work.setting_pin = ln_Pin{ entt::null };
                             work.type = WorkType::SetIntSetting;
                             work.int_value = std::atoi(value.c_str());
                             _s->pending_work.emplace_back(std::move(work));
@@ -2518,7 +2519,7 @@ void create_graph(lab::AudioContext& ctx)
                             Work work(provider, _s->root);
                             work.name = name;
                             work.kind = node_name;
-                            work.setting_pin = entt::null;
+                            work.setting_pin = ln_Pin{ entt::null };
                             work.type = WorkType::SetEnumerationSetting;
                             work.string_value = value;
                             _s->pending_work.emplace_back(std::move(work));
@@ -2528,7 +2529,7 @@ void create_graph(lab::AudioContext& ctx)
                             Work work(provider, _s->root);
                             work.name = name;
                             work.kind = node_name;
-                            work.setting_pin = entt::null;
+                            work.setting_pin = ln_Pin{ entt::null };
                             work.type = WorkType::SetFloatSetting;
                             work.float_value = static_cast<float>(std::atof(value.c_str()));
                             _s->pending_work.emplace_back(std::move(work));
@@ -2543,7 +2544,7 @@ void create_graph(lab::AudioContext& ctx)
                     Work work(provider, _s->root);
                     work.name = name;
                     work.kind = node_name;
-                    work.setting_pin = entt::null;
+                    work.setting_pin = ln_Pin{ entt::null };
                     work.type = WorkType::CreateOutput;
                     work.int_value = 1;     /// @TODO save the channel count in the save path
                     _s->pending_work.emplace_back(std::move(work));

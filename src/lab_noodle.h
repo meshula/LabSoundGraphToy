@@ -7,30 +7,57 @@
 #include <string>
 #include <map>
 
+typedef struct { entt::entity id; } ln_Context;
+typedef struct { entt::entity id; } ln_Connection;
+typedef struct { entt::entity id; bool valid; } ln_Node;
+typedef struct { entt::entity id; bool valid; } ln_Pin;
+
 namespace lab { namespace noodle {
 
     struct vec2 { float x, y; };
 
     class Provider
     {
-        std::map<std::string, entt::entity> _name_to_entity;
+        std::map<std::string, ln_Node> _name_to_entity;
 
     public:
         virtual ~Provider() = default;
+        
+        inline ln_Node copy(ln_Node n)
+        {
+            if (registry().valid(n.id))
+                return n;
+            return ln_Node{ entt::null, false };
+        }
+
+        inline ln_Pin copy(ln_Pin n)
+        {
+            if (registry().valid(n.id))
+                return n;
+            return ln_Pin{ entt::null, false };
+        }
 
         virtual entt::registry& registry() const = 0;
-        virtual entt::entity create_runtime_context(entt::entity id) = 0;
+        virtual ln_Context create_runtime_context(ln_Node id) = 0;
 
-        void associate(entt::entity node, const std::string& name)
+        void associate(ln_Node node, const std::string& name)
         {
             _name_to_entity[name] = node;
         }
-        entt::entity entity_for_node_named(const std::string& name)
+        ln_Node entity_for_node_named(const std::string& name)
         {
             auto it = _name_to_entity.find(name);
             if (it == _name_to_entity.end())
-                return entt::null;
-            return it->second;
+                return ln_Node{ entt::null, false };
+            
+            bool valid = registry().valid(it->second.id);
+            if (!valid)
+            {
+                _name_to_entity.erase(it);
+                return ln_Node{ entt::null, false };
+            }
+            
+            return { it->second.id, true };
         }
         void clear_entity_node_associations()
         {
@@ -39,43 +66,43 @@ namespace lab { namespace noodle {
 
         // node creation and deletion
         virtual char const* const* node_names() const = 0;
-        virtual entt::entity node_create(const std::string& name, entt::entity id) = 0;
-        virtual void node_delete(entt::entity node) = 0;
+        virtual ln_Node node_create(const std::string& name, ln_Node id) = 0;
+        virtual void node_delete(ln_Node node) = 0;
 
         // node access
-        virtual float node_get_timing(entt::entity node) = 0;
-        virtual float node_get_self_timing(entt::entity node) = 0;
-        virtual void  node_start_stop(entt::entity node, float when) = 0;
-        virtual void  node_bang(entt::entity node) = 0;
+        virtual float node_get_timing(ln_Node node) = 0;
+        virtual float node_get_self_timing(ln_Node node) = 0;
+        virtual void  node_start_stop(ln_Node node, float when) = 0;
+        virtual void  node_bang(ln_Node node) = 0;
 
-        virtual entt::entity node_input_with_index(entt::entity node, int output) = 0;
-        virtual entt::entity node_output_named(entt::entity node, const std::string& output_name) = 0;
-        virtual entt::entity node_output_with_index(entt::entity node, int output) = 0;
-        virtual entt::entity node_param_named(entt::entity node, const std::string& output_name) = 0;
+        virtual ln_Pin node_input_with_index(ln_Node node, int output) = 0;
+        virtual ln_Pin node_output_named(ln_Node node, const std::string& output_name) = 0;
+        virtual ln_Pin node_output_with_index(ln_Node node, int output) = 0;
+        virtual ln_Pin node_param_named(ln_Node node, const std::string& output_name) = 0;
 
         // pins
         virtual void  pin_set_param_value(const std::string& node_name, const std::string& param_name, float) = 0;
         virtual void  pin_set_setting_float_value(const std::string& node_name, const std::string& setting_name, float) = 0;
-        virtual void  pin_set_float_value(entt::entity pin, float) = 0;
-        virtual float pin_float_value(entt::entity pin) = 0;
+        virtual void  pin_set_float_value(ln_Pin pin, float) = 0;
+        virtual float pin_float_value(ln_Pin pin) = 0;
         virtual void  pin_set_setting_int_value(const std::string& node_name, const std::string& setting_name, int) = 0;
-        virtual void  pin_set_int_value(entt::entity pin, int) = 0;
-        virtual int   pin_int_value(entt::entity pin) = 0;
+        virtual void  pin_set_int_value(ln_Pin pin, int) = 0;
+        virtual int   pin_int_value(ln_Pin pin) = 0;
         virtual void  pin_set_setting_bool_value(const std::string& node_name, const std::string& setting_name, bool) = 0;
-        virtual void  pin_set_bool_value(entt::entity pin, bool) = 0;
-        virtual bool  pin_bool_value(entt::entity pin) = 0;
+        virtual void  pin_set_bool_value(ln_Pin pin, bool) = 0;
+        virtual bool  pin_bool_value(ln_Pin pin) = 0;
         virtual void  pin_set_setting_bus_value(const std::string& node_name, const std::string& setting_name, const std::string& path) = 0;
-        virtual void  pin_set_bus_from_file(entt::entity pin, const std::string& path) = 0;
-        virtual void  pin_set_enumeration_value(entt::entity pin, const std::string& value) = 0;
+        virtual void  pin_set_bus_from_file(ln_Pin pin, const std::string& path) = 0;
+        virtual void  pin_set_enumeration_value(ln_Pin pin, const std::string& value) = 0;
         virtual void  pin_set_setting_enumeration_value(const std::string& node_name, const std::string& setting_name, const std::string& value) = 0;
 
         // string based interfaces
         virtual void pin_create_output(const std::string& node_name, const std::string& output_name, int channel) = 0;
 
         // connections
-        virtual void connect_bus_out_to_bus_in(entt::entity node_out_id, entt::entity output_pin_id, entt::entity node_in_id) = 0;
-        virtual void connect_bus_out_to_param_in(entt::entity output_node_id, entt::entity output_pin_id, entt::entity pin_id) = 0;
-        virtual void disconnect(entt::entity connection_id) = 0;
+        virtual void connect_bus_out_to_bus_in(ln_Node node_out_id, ln_Pin output_pin_id, ln_Node node_in_id) = 0;
+        virtual void connect_bus_out_to_param_in(ln_Node output_node_id, ln_Pin output_pin_id, ln_Pin pin_id) = 0;
+        virtual void disconnect(ln_Connection connection_id) = 0;
     };
 
 
@@ -138,20 +165,20 @@ namespace lab { namespace noodle {
         Kind         kind = Kind::Setting;
         DataType     dataType = DataType::None;
         std::string  shortName;
-        entt::entity pin_id = entt::null;
-        entt::entity node_id = entt::null;
+        ln_Pin       pin_id = { entt::null, false };
+        ln_Node      node_id = { entt::null, false };
         std::string  value_as_string;
         char const* const* names = nullptr; // if an DataType is Enumeration, they'll be here
     };
 
-    // PinEdit, if it exists, is a mechanism by which a pin can 
+    // PinEdit provides a mechanism by which a pin can
     // accept a value in the form of a string, or get a value as a string.
     // A custom edit routine could go here as well, as for the renderer.
     /// @TODO hook them up
     struct PinEdit
     {
-        std::function<void(entt::entity, std::string)> set;
-        std::function<std::string(entt::entity)> get;
+        std::function<void(ln_Pin, std::string)> set;
+        std::function<std::string(ln_Pin)> get;
     };
  
     // Schematic nodes may be connected from a pin on one node to a pin on another
@@ -161,14 +188,14 @@ namespace lab { namespace noodle {
 
         Connection() = delete;
 
-        explicit Connection(entt::entity id, entt::entity pin_from, entt::entity node_from, entt::entity pin_to, entt::entity node_to, Kind kind)
+        explicit Connection(ln_Connection id, ln_Pin pin_from, ln_Node node_from, ln_Pin pin_to, ln_Node node_to, Kind kind)
             : id(id), pin_from(pin_from), node_from(node_from), pin_to(pin_to), node_to(node_to), kind(kind) {}
 
-        entt::entity id = entt::null;
-        entt::entity pin_from = entt::null;
-        entt::entity node_from = entt::null;
-        entt::entity pin_to = entt::null;
-        entt::entity node_to = entt::null;
+        ln_Connection id = { entt::null };
+        ln_Pin  pin_from = { entt::null, false };
+        ln_Node node_from = { entt::null, false };
+        ln_Pin  pin_to = { entt::null, false };
+        ln_Node node_to = { entt::null, false };
 
         Kind kind = Kind::ToBus;
     };

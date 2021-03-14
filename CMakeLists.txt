@@ -73,6 +73,7 @@ set(IMGUI_SRC
     third/imgui/imgui_demo.cpp
     third/imgui/imgui_draw.cpp
     third/imgui/imgui_internal.h
+    third/imgui/imgui_tables.cpp
     third/imgui/imgui_widgets.cpp
     ${IMGUI_EXTRA}
 )

@@ -3,9 +3,9 @@
 #include "lab_imgui_ext.hpp"
 
 #include <LabSound/LabSound.h>
+#include "OSCNode.h"
 
 #include <stdio.h>
-
 
 using std::shared_ptr;
 using std::string;
@@ -24,9 +24,9 @@ struct AudioPin
 
 struct NodeReverseLookup
 {
-    std::map<std::string, entt::entity> input_pin_map;
-    std::map<std::string, entt::entity> output_pin_map;
-    std::map<std::string, entt::entity> param_pin_map;
+    std::map<std::string, ln_Pin> input_pin_map;
+    std::map<std::string, ln_Pin> output_pin_map;
+    std::map<std::string, ln_Pin> param_pin_map;
 };
 
 std::map<entt::entity, NodeReverseLookup> g_node_reverse_lookups;
@@ -195,13 +195,13 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::Node& no
         entt::entity pin_id = registry.create();
         node.pins.push_back(pin_id);
         std::string name = ""; // audio_node->input(i)->name(); @TODO an IDL for all the things
-        reverse.input_pin_map[name] = pin_id;
+        reverse.input_pin_map[name] = ln_Pin{ pin_id };
         registry.emplace<lab::noodle::Name>(pin_id, name);
         registry.emplace<lab::noodle::Pin>(pin_id, lab::noodle::Pin{
             lab::noodle::Pin::Kind::BusIn,
             lab::noodle::Pin::DataType::Bus,
             "",
-            pin_id, audio_node_id,
+            { pin_id, true }, { audio_node_id, true },
             });
         registry.emplace<AudioPin>(pin_id, AudioPin{ 0 });
     }
@@ -214,13 +214,13 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::Node& no
         entt::entity pin_id = registry.create();
         node.pins.push_back(pin_id);
         std::string name = audio_node->output(i)->name();
-        reverse.output_pin_map[name] = pin_id;
+        reverse.output_pin_map[name] = ln_Pin{ pin_id };
         registry.emplace<lab::noodle::Name>(pin_id, name);
         registry.emplace<lab::noodle::Pin>(pin_id, lab::noodle::Pin{
             lab::noodle::Pin::Kind::BusOut,
             lab::noodle::Pin::DataType::Bus,
             "",
-            pin_id, audio_node_id,
+            { pin_id, true }, { audio_node_id, true },
             });
         registry.emplace<AudioPin>(pin_id, AudioPin{ i });
     }
@@ -273,8 +273,8 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::Node& no
             lab::noodle::Pin::Kind::Setting,
             dataType,
             shortNames[i],
-            pin_id, audio_node_id,
-            buff,
+            { pin_id, true }, { audio_node_id, true },
+            std::string{ buff },
             enums
             });
     }
@@ -290,7 +290,7 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::Node& no
         char buff[64];
         sprintf(buff, "%f", params[i]->value());
         entt::entity pin_id = registry.create();
-        reverse.param_pin_map[names[i]] = pin_id;
+        reverse.param_pin_map[names[i]] = ln_Pin{pin_id};
         node.pins.push_back(pin_id);
         registry.emplace<AudioPin>(pin_id, AudioPin{ 0,
             shared_ptr<lab::AudioSetting>(),
@@ -301,7 +301,7 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::Node& no
             lab::noodle::Pin::Kind::Param,
             lab::noodle::Pin::DataType::Float,
             shortNames[i],
-            pin_id, audio_node_id,
+            { pin_id, true }, { audio_node_id, true },
             buff
             });
     }
@@ -309,11 +309,11 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::Node& no
 
 void LabSoundProvider::pin_set_setting_bus_value(const std::string& node_name, const std::string& setting_name, const std::string& path)
 {
-    entt::entity node = entity_for_node_named(node_name);
-    if (node == entt::null || !registry().valid(node))
+    ln_Node node = entity_for_node_named(node_name);
+    if (!node.valid)
         return;
 
-    auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node);
+    auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node.id);
     if (!n)
         return;
 
@@ -326,99 +326,92 @@ void LabSoundProvider::pin_set_setting_bus_value(const std::string& node_name, c
     }
 }
 
-void LabSoundProvider::pin_set_bus_from_file(entt::entity pin_id, const std::string& path)
+void LabSoundProvider::pin_set_bus_from_file(ln_Pin pin_id, const std::string& path)
 {
+    if (!pin_id.valid || !path.length())
+        return;
+
     entt::registry& registry = Registry();
-    if (pin_id != entt::null && path.length() > 0)
+    lab::noodle::Pin& pin = registry.get<lab::noodle::Pin>(pin_id.id);
+    AudioPin& a_pin = registry.get<AudioPin>(pin_id.id);
+    if (pin.kind == lab::noodle::Pin::Kind::Setting && a_pin.setting)
     {
-        lab::noodle::Pin& pin = registry.get<lab::noodle::Pin>(pin_id);
-        AudioPin& a_pin = registry.get<AudioPin>(pin_id);
-        if (pin.kind == lab::noodle::Pin::Kind::Setting && a_pin.setting)
-        {
-            auto soundClip = lab::MakeBusFromFile(path.c_str(), false);
-            a_pin.setting->setBus(soundClip.get());
-            printf("SetBusSetting %d %s\n", pin_id, path.c_str());
-        }
+        auto soundClip = lab::MakeBusFromFile(path.c_str(), false);
+        a_pin.setting->setBus(soundClip.get());
+        printf("SetBusSetting %d %s\n", pin_id.id, path.c_str());
     }
 }
 
-void LabSoundProvider::connect_bus_out_to_bus_in(entt::entity output_node_id, entt::entity output_pin_id, entt::entity input_node_id)
+void LabSoundProvider::connect_bus_out_to_bus_in(ln_Node output_node_id, ln_Pin output_pin_id, ln_Node input_node_id)
 {
-    entt::registry& registry = Registry();
-    if (!registry.valid(input_node_id) || !registry.valid(output_node_id))
+    if (!output_node_id.valid || !output_pin_id.valid || !input_node_id.valid)
         return;
 
-    shared_ptr<lab::AudioNode> in = registry.get<shared_ptr<lab::AudioNode>>(input_node_id);
-    shared_ptr<lab::AudioNode> out = registry.get<shared_ptr<lab::AudioNode>>(output_node_id);
+    entt::registry& registry = Registry();
+    shared_ptr<lab::AudioNode> in = registry.get<shared_ptr<lab::AudioNode>>(input_node_id.id);
+    shared_ptr<lab::AudioNode> out = registry.get<shared_ptr<lab::AudioNode>>(output_node_id.id);
     if (!in || !out)
         return;
 
     g_audio_context->connect(in, out, 0, 0);
-    printf("ConnectBusOutToBusIn %d %d\n", input_node_id, output_node_id);
+    printf("ConnectBusOutToBusIn %d %d\n", input_node_id.id, output_node_id.id);
 }
 
-void LabSoundProvider::connect_bus_out_to_param_in(entt::entity output_node_id, entt::entity output_pin_id, entt::entity param_pin_id)
+void LabSoundProvider::connect_bus_out_to_param_in(ln_Node output_node_id, ln_Pin output_pin_id, ln_Pin param_pin_id)
 {
+    if (!output_node_id.valid || !output_pin_id.valid || !param_pin_id.valid)
+        return;
+
     entt::registry& registry = Registry();
-    if (!registry.valid(param_pin_id))
+    AudioPin& param_pin = registry.get<AudioPin>(param_pin_id.id);
+    lab::noodle::Pin& param_noodle_pin = registry.get<lab::noodle::Pin>(param_pin_id.id);
+    if (!registry.valid(param_noodle_pin.node_id.id) || !param_pin.param)
         return;
 
-    if (output_pin_id != entt::null && !registry.valid(output_pin_id))
-        return;
-
-    if (!registry.valid(output_node_id))
-        return;
-
-    AudioPin& param_pin = registry.get<AudioPin>(param_pin_id);
-    lab::noodle::Pin& param_noodle_pin = registry.get<lab::noodle::Pin>(param_pin_id);
-    if (!registry.valid(param_noodle_pin.node_id) || !param_pin.param)
-        return;
-
-    shared_ptr<lab::AudioNode> out = registry.get<shared_ptr<lab::AudioNode>>(output_node_id);
+    shared_ptr<lab::AudioNode> out = registry.get<shared_ptr<lab::AudioNode>>(output_node_id.id);
     if (!out)
         return;
 
     int output_index = 0;
-    if (output_pin_id != entt::null)
+    if (output_pin_id.id != entt::null)
     {
-        AudioPin& output_pin = registry.get<AudioPin>(output_pin_id);
+        AudioPin& output_pin = registry.get<AudioPin>(output_pin_id.id);
         output_index = output_pin.output_index;
     }
 
     g_audio_context->connectParam(param_pin.param, out, output_index);
-    printf("ConnectBusOutToParamIn %d %d, index %d\n", param_pin_id, output_node_id, output_index);
+    printf("ConnectBusOutToParamIn %d %d, index %d\n", param_pin_id.id, output_node_id.id, output_index);
 }
 
-void LabSoundProvider::disconnect(entt::entity connection_id)
+void LabSoundProvider::disconnect(ln_Connection connection_id_)
 {
     entt::registry& registry = Registry();
-    if (!registry.valid(connection_id))
-        return;
+    entt::entity& connection_id = connection_id_.id;
+    if (!registry.valid(connection_id)) return;
 
     lab::noodle::Connection& conn = registry.get<lab::noodle::Connection>(connection_id);
-    entt::entity input_node_id = conn.node_to;
-    entt::entity output_node_id = conn.node_from;
-    entt::entity input_pin = conn.pin_to;
-    entt::entity output_pin = conn.pin_from;
-
-    if (registry.valid(input_node_id) && registry.valid(output_node_id) && registry.valid(input_pin) && registry.valid(output_pin))
+    ln_Node input_node_id = copy(conn.node_to);
+    ln_Node output_node_id = copy(conn.node_from);
+    ln_Pin input_pin = copy(conn.pin_to);
+    ln_Pin output_pin = copy(conn.pin_from);
+    if (input_node_id.valid && output_node_id.valid && input_pin.valid && output_pin.valid)
     {
-        shared_ptr<lab::AudioNode> input_node = registry.get<shared_ptr<lab::AudioNode>>(output_node_id);
-        shared_ptr<lab::AudioNode> output_node = registry.get<shared_ptr<lab::AudioNode>>(output_node_id);
+        shared_ptr<lab::AudioNode> input_node = registry.get<shared_ptr<lab::AudioNode>>(output_node_id.id);
+        shared_ptr<lab::AudioNode> output_node = registry.get<shared_ptr<lab::AudioNode>>(output_node_id.id);
         if (input_node && output_node)
         {
-            AudioPin& a_in_pin = registry.get<AudioPin>(input_pin);
-            lab::noodle::Pin& in_pin = registry.get<lab::noodle::Pin>(input_pin);
-            lab::noodle::Pin& out_pin = registry.get<lab::noodle::Pin>(output_pin);
+            AudioPin& a_in_pin = registry.get<AudioPin>(input_pin.id);
+            lab::noodle::Pin& in_pin = registry.get<lab::noodle::Pin>(input_pin.id);
+            lab::noodle::Pin& out_pin = registry.get<lab::noodle::Pin>(output_pin.id);
             if ((in_pin.kind == lab::noodle::Pin::Kind::BusIn) && (out_pin.kind == lab::noodle::Pin::Kind::BusOut))
             {
                 g_audio_context->disconnect(input_node, output_node, 0, 0);
-                printf("DisconnectInFromOut (bus from bus) %d %d\n", input_node_id, output_node_id);
+                printf("DisconnectInFromOut (bus from bus) %d %d\n", input_node_id.id, output_node_id.id);
             }
             else if ((in_pin.kind == lab::noodle::Pin::Kind::Param) && (out_pin.kind == lab::noodle::Pin::Kind::BusOut))
             {
                 g_audio_context->disconnectParam(a_in_pin.param, output_node, 0);
-                printf("DisconnectInFromOut (param from bus) %d %d\n", input_node_id, output_node_id);
+                printf("DisconnectInFromOut (param from bus) %d %d\n", input_node_id.id, output_node_id.id);
             }
         }
     }
@@ -429,7 +422,7 @@ void LabSoundProvider::disconnect(entt::entity connection_id)
     return;
 }
 
-entt::entity LabSoundProvider::create_runtime_context(entt::entity id)
+ln_Context LabSoundProvider::create_runtime_context(ln_Node id)
 {
     entt::registry& registry = Registry();
     const auto defaultAudioDeviceConfigurations = GetDefaultAudioDeviceConfiguration(true, false);
@@ -437,21 +430,21 @@ entt::entity LabSoundProvider::create_runtime_context(entt::entity id)
     if (!g_audio_context)
         g_audio_context = lab::MakeRealtimeAudioContext(defaultAudioDeviceConfigurations.second, defaultAudioDeviceConfigurations.first);
 
-    registry.emplace<shared_ptr<lab::AudioNode>>(id, g_audio_context->device());
+    registry.emplace<shared_ptr<lab::AudioNode>>(id.id, g_audio_context->device());
 
-    lab::noodle::Node& node = registry.get<lab::noodle::Node>(id);
-    CreateEntities(g_audio_context->device(), node, id);
-    printf("CreateRuntimeContext %d\n", id);
-    return id;
+    lab::noodle::Node& node = registry.get<lab::noodle::Node>(id.id);
+    CreateEntities(g_audio_context->device(), node, id.id);
+    printf("CreateRuntimeContext %d\n", id.id);
+    return ln_Context{id.id};
 }
 
-void LabSoundProvider::node_start_stop(entt::entity node_id, float when)
+void LabSoundProvider::node_start_stop(ln_Node node_id, float when)
 {
     entt::registry& registry = Registry();
-    if (node_id == entt::null)
+    if (node_id.id == entt::null)
         return;
 
-    shared_ptr<lab::AudioNode> in_node = registry.get<shared_ptr<lab::AudioNode>>(node_id);
+    shared_ptr<lab::AudioNode> in_node = registry.get<shared_ptr<lab::AudioNode>>(node_id.id);
     if (!in_node)
         return;
 
@@ -464,16 +457,16 @@ void LabSoundProvider::node_start_stop(entt::entity node_id, float when)
             n->start(when);
     }
 
-    printf("Start %d\n", node_id);
+    printf("Start %d\n", node_id.id);
 }
 
-void LabSoundProvider::node_bang(entt::entity node_id)
+void LabSoundProvider::node_bang(ln_Node node_id)
 {
     entt::registry& registry = Registry();
-    if (node_id == entt::null)
+    if (node_id.id == entt::null)
         return;
 
-    shared_ptr<lab::AudioNode> in_node = registry.get<shared_ptr<lab::AudioNode>>(node_id);
+    shared_ptr<lab::AudioNode> in_node = registry.get<shared_ptr<lab::AudioNode>>(node_id.id);
     if (!in_node)
         return;
 
@@ -484,105 +477,121 @@ void LabSoundProvider::node_bang(entt::entity node_id)
         gate->setValueAtTime(0.f, static_cast<float>(g_audio_context->currentTime()) + 1.f);
     }
 
-    printf("Bang %d\n", node_id);
+    printf("Bang %d\n", node_id.id);
 }
 
-entt::entity LabSoundProvider::node_output_named(entt::entity node_id, const std::string& output_name)
+ln_Pin LabSoundProvider::node_output_named(ln_Node node_id, const std::string& output_name)
 {
+    if (!node_id.valid)
+        return { entt::null, false };
+
     entt::registry& registry = Registry();
-    if (node_id == entt::null)
-        return entt::null;
-
-    shared_ptr<lab::AudioNode> node = registry.get<shared_ptr<lab::AudioNode>>(node_id);
+    shared_ptr<lab::AudioNode> node = registry.get<shared_ptr<lab::AudioNode>>(node_id.id);
     if (!node)
-        return entt::null;
+        return { entt::null, false };
 
-    auto reverse_it = g_node_reverse_lookups.find(node_id);
+    auto reverse_it = g_node_reverse_lookups.find(node_id.id);
     if (reverse_it == g_node_reverse_lookups.end())
-        return entt::null;
+        return { entt::null, false };
 
     auto& reverse = reverse_it->second;
     auto output_it = reverse.output_pin_map.find(output_name);
     if (output_it == reverse.output_pin_map.end())
-        return entt::null;
+        return { entt::null, false };
 
-    return output_it->second;
+    ln_Pin result = copy(output_it->second);
+    if (!result.valid)
+        reverse.output_pin_map.erase(output_it);
+    
+    return result;
 }
 
-entt::entity LabSoundProvider::node_input_with_index(entt::entity node_id, int output)
+ln_Pin LabSoundProvider::node_input_with_index(ln_Node node_id, int output)
 {
+    if (!node_id.valid)
+        return { entt::null, false };
+
     entt::registry& registry = Registry();
-    if (node_id == entt::null)
-        return entt::null;
-
-    shared_ptr<lab::AudioNode> node = registry.get<shared_ptr<lab::AudioNode>>(node_id);
+    shared_ptr<lab::AudioNode> node = registry.get<shared_ptr<lab::AudioNode>>(node_id.id);
     if (!node)
-        return entt::null;
+        return { entt::null, false };
 
-    auto reverse_it = g_node_reverse_lookups.find(node_id);
+    auto reverse_it = g_node_reverse_lookups.find(node_id.id);
     if (reverse_it == g_node_reverse_lookups.end())
-        return entt::null;
+        return { entt::null, false };
 
     auto& reverse = reverse_it->second;
     auto input_it = reverse.input_pin_map.find("");
     if (input_it == reverse.input_pin_map.end())
-        return entt::null;
+        return { entt::null, false };
 
-    return input_it->second;
+    ln_Pin result = copy(input_it->second);
+    if (!result.valid)
+        reverse.input_pin_map.erase(input_it);
+    
+    return result;
 }
 
-entt::entity LabSoundProvider::node_output_with_index(entt::entity node_id, int output)
+ln_Pin LabSoundProvider::node_output_with_index(ln_Node node_id, int output)
 {
+    if (!node_id.valid)
+        return { entt::null, false };
+
     entt::registry& registry = Registry();
-    if (node_id == entt::null)
-        return entt::null;
-
-    shared_ptr<lab::AudioNode> node = registry.get<shared_ptr<lab::AudioNode>>(node_id);
+    shared_ptr<lab::AudioNode> node = registry.get<shared_ptr<lab::AudioNode>>(node_id.id);
     if (!node)
-        return entt::null;
+        return { entt::null, false };
 
-    auto reverse_it = g_node_reverse_lookups.find(node_id);
+    auto reverse_it = g_node_reverse_lookups.find(node_id.id);
     if (reverse_it == g_node_reverse_lookups.end())
-        return entt::null;
+        return { entt::null, false };
 
     auto& reverse = reverse_it->second;
     auto output_it = reverse.output_pin_map.find("");
     if (output_it == reverse.output_pin_map.end())
-        return entt::null;
+        return { entt::null, false };
 
-    return output_it->second;
+    ln_Pin result = copy(output_it->second);
+    if (!result.valid)
+        reverse.output_pin_map.erase(output_it);
+    
+    return result;
 }
 
-entt::entity LabSoundProvider::node_param_named(entt::entity node_id, const std::string& output_name)
+ln_Pin LabSoundProvider::node_param_named(ln_Node node_id, const std::string& output_name)
 {
+    if (!node_id.valid)
+        return { entt::null, false };
+
     entt::registry& registry = Registry();
-    if (node_id == entt::null)
-        return entt::null;
-
-    shared_ptr<lab::AudioNode> node = registry.get<shared_ptr<lab::AudioNode>>(node_id);
+    shared_ptr<lab::AudioNode> node = registry.get<shared_ptr<lab::AudioNode>>(node_id.id);
     if (!node)
-        return entt::null;
+        return { entt::null, false };
 
-    auto reverse_it = g_node_reverse_lookups.find(node_id);
+    auto reverse_it = g_node_reverse_lookups.find(node_id.id);
     if (reverse_it == g_node_reverse_lookups.end())
-        return entt::null;
+        return { entt::null, false };
 
     auto& reverse = reverse_it->second;
     auto output_it = reverse.param_pin_map.find(output_name);
     if (output_it == reverse.param_pin_map.end())
-        return entt::null;
+        return { entt::null, false };
 
-    return output_it->second;
+    ln_Pin result = copy(output_it->second);
+    if (!result.valid)
+        reverse.param_pin_map.erase(output_it);
+    
+    return result;
 }
 
-entt::entity LabSoundProvider::node_create(const std::string& kind, entt::entity id)
+ln_Node LabSoundProvider::node_create(const std::string& kind, ln_Node id)
 {
     entt::registry& registry = Registry();
     if (kind == "OSC")
     {
         shared_ptr<OSCNode> n = std::make_shared<OSCNode>(*g_audio_context.get());
-        registry.emplace<shared_ptr<OSCNode>>(id, n);
-        registry.emplace<shared_ptr<lab::AudioNode>>(id, n);
+        registry.emplace<shared_ptr<OSCNode>>(id.id, n);
+        registry.emplace<shared_ptr<lab::AudioNode>>(id.id, n);
         _osc_node = id;
         return id;
     }
@@ -590,32 +599,32 @@ entt::entity LabSoundProvider::node_create(const std::string& kind, entt::entity
     shared_ptr<lab::AudioNode> n = NodeFactory(kind);
     if (n)
     {
-        lab::noodle::Node& node = registry.get<lab::noodle::Node>(id);
+        lab::noodle::Node& node = registry.get<lab::noodle::Node>(id.id);
         node.play_controller = n->isScheduledNode();
         node.bang_controller = !!n->param("gate");
-        registry.emplace<shared_ptr<lab::AudioNode>>(id, n);
-        CreateEntities(n, node, id);
-        printf("CreateNode [%s] %d\n", kind.c_str(), id);
+        registry.emplace<shared_ptr<lab::AudioNode>>(id.id, n);
+        CreateEntities(n, node, id.id);
+        printf("CreateNode [%s] %d\n", kind.c_str(), id.id);
     }
     else
     {
         printf("Could not CreateNode [%s]\n", kind.c_str());
     }
 
-    return id;
+    return ln_Node{ id };
 }
 
-void LabSoundProvider::node_delete(entt::entity node_id)
+void LabSoundProvider::node_delete(ln_Node node_id)
 {
     entt::registry& registry = Registry();
-    if (node_id != entt::null && registry.valid(node_id))
+    if (node_id.id != entt::null && registry.valid(node_id.id))
     {
-        printf("DeleteNode %d\n", node_id);
+        printf("DeleteNode %d\n", node_id.id);
 
         // force full disconnection
-        if (registry.has<shared_ptr<lab::AudioNode>>(node_id))
+        if (registry.has<shared_ptr<lab::AudioNode>>(node_id.id))
         {
-            shared_ptr<lab::AudioNode> in_node = registry.get<shared_ptr<lab::AudioNode>>(node_id);
+            shared_ptr<lab::AudioNode> in_node = registry.get<shared_ptr<lab::AudioNode>>(node_id.id);
             g_audio_context->disconnect(in_node);
         }
 
@@ -624,7 +633,7 @@ void LabSoundProvider::node_delete(entt::entity node_id)
         for (const auto entity : registry.view<lab::noodle::Pin>())
         {
             lab::noodle::Pin& pin = registry.get<lab::noodle::Pin>(entity);
-            if (pin.node_id == entity)
+            if (pin.node_id.id == entity)
                 registry.destroy(entity);
         }
 
@@ -633,13 +642,13 @@ void LabSoundProvider::node_delete(entt::entity node_id)
         for (const auto entity : registry.view<lab::noodle::Connection>())
         {
             lab::noodle::Connection& conn = registry.get<lab::noodle::Connection>(entity);
-            if (conn.node_from == node_id || conn.node_to == node_id)
+            if (conn.node_from.id == node_id.id || conn.node_to.id == node_id.id)
                 registry.destroy(entity);
         }
 
         /// @TODO end plumbing
 
-        auto reverse_it = g_node_reverse_lookups.find(node_id);
+        auto reverse_it = g_node_reverse_lookups.find(node_id.id);
         if (reverse_it != g_node_reverse_lookups.end())
             g_node_reverse_lookups.erase(reverse_it);
 
@@ -676,11 +685,11 @@ char const* const* LabSoundProvider::node_names() const
 
 void LabSoundProvider::pin_set_param_value(const std::string& node_name, const std::string& param_name, float v)
 {
-    entt::entity node = entity_for_node_named(node_name);
-    if (node == entt::null || !registry().valid(node))
+    ln_Node node = entity_for_node_named(node_name);
+    if (!node.valid)
         return;
 
-    auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node);
+    auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node.id);
     if (!n)
         return;
 
@@ -691,11 +700,11 @@ void LabSoundProvider::pin_set_param_value(const std::string& node_name, const s
 
 void LabSoundProvider::pin_set_setting_float_value(const std::string& node_name, const std::string& setting_name, float v)
 {
-    entt::entity node = entity_for_node_named(node_name);
-    if (node == entt::null || !registry().valid(node))
+    ln_Node node = entity_for_node_named(node_name);
+    if (!node.valid)
         return;
 
-    auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node);
+    auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node.id);
     if (!n)
         return;
 
@@ -704,28 +713,31 @@ void LabSoundProvider::pin_set_setting_float_value(const std::string& node_name,
         s->setFloat(v);
 }
 
-void LabSoundProvider::pin_set_float_value(entt::entity pin, float v)
+void LabSoundProvider::pin_set_float_value(ln_Pin pin, float v)
 {
+    if (!pin.valid)
+        return;
+    
     entt::registry& registry = Registry();
-    if (pin != entt::null && registry.valid(pin))
+    AudioPin& a_pin = registry.get<AudioPin>(pin.id);
+    if (a_pin.param)
     {
-        AudioPin& a_pin = registry.get<AudioPin>(pin);
-        if (a_pin.param)
-        {
-            a_pin.param->setValue(v);
-            printf("SetParam(%f) %d\n", v, pin);
-        }
-        else if (a_pin.setting)
-        {
-            a_pin.setting->setFloat(v);
-            printf("SetFloatSetting(%f) %d\n", v, pin);
-        }
+        a_pin.param->setValue(v);
+        printf("SetParam(%f) %d\n", v, pin.id);
+    }
+    else if (a_pin.setting)
+    {
+        a_pin.setting->setFloat(v);
+        printf("SetFloatSetting(%f) %d\n", v, pin.id);
     }
 }
 
-float LabSoundProvider::pin_float_value(entt::entity pin)
+float LabSoundProvider::pin_float_value(ln_Pin pin)
 {
-    AudioPin& a_pin = registry().get<AudioPin>(pin);
+    if (!pin.valid)
+        return;
+
+    AudioPin& a_pin = registry().get<AudioPin>(pin.id);
     if (a_pin.param)
         return a_pin.param->value();
     else if (a_pin.setting)
@@ -736,11 +748,11 @@ float LabSoundProvider::pin_float_value(entt::entity pin)
 
 void LabSoundProvider::pin_set_setting_int_value(const std::string& node_name, const std::string& setting_name, int v)
 {
-    entt::entity node = entity_for_node_named(node_name);
-    if (node == entt::null || !registry().valid(node))
+    ln_Node node = entity_for_node_named(node_name);
+    if (!node.valid)
         return;
 
-    auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node);
+    auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node.id);
     if (!n)
         return;
 
@@ -749,28 +761,31 @@ void LabSoundProvider::pin_set_setting_int_value(const std::string& node_name, c
         s->setUint32(v);
 }
 
-void LabSoundProvider::pin_set_int_value(entt::entity pin, int v)
+void LabSoundProvider::pin_set_int_value(ln_Pin pin, int v)
 {
+    if (!pin.valid)
+        return;
+
     entt::registry& registry = Registry();
-    if (pin != entt::null && registry.valid(pin))
+    AudioPin& a_pin = registry.get<AudioPin>(pin.id);
+    if (a_pin.param)
     {
-        AudioPin& a_pin = registry.get<AudioPin>(pin);
-        if (a_pin.param)
-        {
-            a_pin.param->setValue(static_cast<float>(v));
-            printf("SetParam(%d) %d\n", v, pin);
-        }
-        else if (a_pin.setting)
-        {
-            a_pin.setting->setUint32(v);
-            printf("SetIntSetting(%d) %d\n", v, pin);
-        }
+        a_pin.param->setValue(static_cast<float>(v));
+        printf("SetParam(%d) %d\n", v, pin.id);
+    }
+    else if (a_pin.setting)
+    {
+        a_pin.setting->setUint32(v);
+        printf("SetIntSetting(%d) %d\n", v, pin.id);
     }
 }
 
-int LabSoundProvider::pin_int_value(entt::entity pin)
+int LabSoundProvider::pin_int_value(ln_Pin pin)
 {
-    AudioPin& a_pin = registry().get<AudioPin>(pin);
+    if (!pin.valid)
+        return 0;
+
+    AudioPin& a_pin = registry().get<AudioPin>(pin.id);
     if (a_pin.param)
         return static_cast<int>(a_pin.param->value());
     else if (a_pin.setting)
@@ -780,31 +795,31 @@ int LabSoundProvider::pin_int_value(entt::entity pin)
 }
 
 
-void LabSoundProvider::pin_set_enumeration_value(entt::entity pin, const std::string& value)
+void LabSoundProvider::pin_set_enumeration_value(ln_Pin pin, const std::string& value)
 {
+    if (!pin.valid)
+        return;
+
     entt::registry& registry = Registry();
-    if (pin != entt::null && registry.valid(pin))
+    AudioPin& a_pin = registry.get<AudioPin>(pin.id);
+    if (a_pin.setting)
     {
-        AudioPin& a_pin = registry.get<AudioPin>(pin);
-        if (a_pin.setting)
+        int e = a_pin.setting->enumFromName(value.c_str());
+        if (e >= 0)
         {
-            int e = a_pin.setting->enumFromName(value.c_str());
-            if (e >= 0)
-            {
-                a_pin.setting->setUint32(e);
-                printf("SetEnumSetting(%d) %d\n", e, pin);
-            }
+            a_pin.setting->setUint32(e);
+            printf("SetEnumSetting(%d) %d\n", e, pin.id);
         }
     }
 }
 
 void LabSoundProvider::pin_set_setting_enumeration_value(const std::string& node_name, const std::string& setting_name, const std::string& value)
 {
-    entt::entity node = entity_for_node_named(node_name);
-    if (node == entt::null || !registry().valid(node))
+    ln_Node node = entity_for_node_named(node_name);
+    if (!node.valid)
         return;
 
-    auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node);
+    auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node.id);
     if (!n)
         return;
 
@@ -822,11 +837,11 @@ void LabSoundProvider::pin_set_setting_enumeration_value(const std::string& node
 
 void LabSoundProvider::pin_set_setting_bool_value(const std::string& node_name, const std::string& setting_name, bool v)
 {
-    entt::entity node = entity_for_node_named(node_name);
-    if (node == entt::null || !registry().valid(node))
+    ln_Node node = entity_for_node_named(node_name);
+    if (!node.valid)
         return;
 
-    auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node);
+    auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node.id);
     if (!n)
         return;
 
@@ -835,68 +850,71 @@ void LabSoundProvider::pin_set_setting_bool_value(const std::string& node_name, 
         s->setBool(v);
 }
 
-void  LabSoundProvider::pin_set_bool_value(entt::entity pin, bool v)
+void LabSoundProvider::pin_set_bool_value(ln_Pin pin, bool v)
 {
+    if (!pin.valid)
+        return;
+
     entt::registry& registry = Registry();
-    if (pin != entt::null && registry.valid(pin))
+    AudioPin& a_pin = registry.get<AudioPin>(pin.id);
+    if (a_pin.param)
     {
-        AudioPin& a_pin = registry.get<AudioPin>(pin);
-        if (a_pin.param)
-        {
-            a_pin.param->setValue(v? 1.f : 0.f);
-            printf("SetParam(%d) %d\n", v, pin);
-        }
-        else if (a_pin.setting)
-        {
-            a_pin.setting->setBool(v);
-            printf("SetBoolSetting(%s) %d\n", v ? "true": "false", pin);
-        }
+        a_pin.param->setValue(v? 1.f : 0.f);
+        printf("SetParam(%d) %d\n", v, pin.id);
+    }
+    else if (a_pin.setting)
+    {
+        a_pin.setting->setBool(v);
+        printf("SetBoolSetting(%s) %d\n", v ? "true": "false", pin.id);
     }
 }
 
-bool LabSoundProvider::pin_bool_value(entt::entity pin)
+bool LabSoundProvider::pin_bool_value(ln_Pin pin)
 {
-    AudioPin& a_pin = registry().get<AudioPin>(pin);
+    if (!pin.valid)
+        return false;
+    
+    AudioPin& a_pin = registry().get<AudioPin>(pin.id);
     if (a_pin.param)
         return a_pin.param->value() != 0.f;
     else if (a_pin.setting)
         return a_pin.setting->valueBool();
     else
-        return 0;
+        return false;
 }
 
 void LabSoundProvider::pin_create_output(const std::string& node_name, const std::string& output_name, int channels)
 {
-    entt::entity node_e = entity_for_node_named(node_name);
-    if (node_e == entt::null || !registry().valid(node_e))
+    ln_Node node_e = entity_for_node_named(node_name);
+    if (!node_e.valid)
         return;
 
-    auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node_e);
+    auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node_e.id);
     if (!n)
         return;
 
     if (!n->output(output_name.c_str()))
     {
-        auto reverse_it = g_node_reverse_lookups.find(node_e);
+        auto reverse_it = g_node_reverse_lookups.find(node_e.id);
         if (reverse_it == g_node_reverse_lookups.end())
         {
-            g_node_reverse_lookups[node_e] = NodeReverseLookup{};
-            reverse_it = g_node_reverse_lookups.find(node_e);
+            g_node_reverse_lookups[node_e.id] = NodeReverseLookup{};
+            reverse_it = g_node_reverse_lookups.find(node_e.id);
         }
         auto& reverse = reverse_it->second;
 
         entt::entity pin_id = registry().create();
 
-        lab::noodle::Node& node = registry().get<lab::noodle::Node>(node_e);
+        lab::noodle::Node& node = registry().get<lab::noodle::Node>(node_e.id);
 
         node.pins.push_back(pin_id);
-        reverse.output_pin_map[output_name] = pin_id;
+        reverse.output_pin_map[output_name] = ln_Pin{ pin_id };
         registry().emplace<lab::noodle::Name>(pin_id, output_name);
         registry().emplace<lab::noodle::Pin>(pin_id, lab::noodle::Pin{
             lab::noodle::Pin::Kind::BusOut,
             lab::noodle::Pin::DataType::Bus,
             "",
-            pin_id, node_e,
+            { pin_id, true }, node_e,
             });
         registry().emplace<AudioPin>(pin_id, n->numberOfOutputs() - 1);
 
@@ -905,26 +923,26 @@ void LabSoundProvider::pin_create_output(const std::string& node_name, const std
     }
 }
 
-float LabSoundProvider::node_get_timing(entt::entity node)
+float LabSoundProvider::node_get_timing(ln_Node node)
 {
-    if (!registry().valid(node))
+    if (!registry().valid(node.id))
         return 0;
 
-    auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node);
+    auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node.id);
     if (!n)
         return 0;
     return n->graphTime.microseconds.count() * 1.e-6f;
 }
 
-float LabSoundProvider::node_get_self_timing(entt::entity node)
+float LabSoundProvider::node_get_self_timing(ln_Node node)
 {
-    if (!registry().valid(node))
+    if (!registry().valid(node.id))
         return 0;
 
-    if (!registry().has<std::shared_ptr<lab::AudioNode>>(node))
+    if (!registry().has<std::shared_ptr<lab::AudioNode>>(node.id))
         return 0;
 
-    auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node);
+    auto n = registry().get<std::shared_ptr<lab::AudioNode>>(node.id);
     if (!n)
         return 0;
 
@@ -933,18 +951,18 @@ float LabSoundProvider::node_get_self_timing(entt::entity node)
 
 void LabSoundProvider::add_osc_addr(char const* const addr, int addr_id, int channels, float* data)
 {
-    if (_osc_node == entt::null)
+    if (_osc_node.id == entt::null)
         return;
 
     entt::registry& registry = Registry();
-    shared_ptr<OSCNode> n = registry.get<shared_ptr<OSCNode>>(_osc_node);
+    shared_ptr<OSCNode> n = registry.get<shared_ptr<OSCNode>>(_osc_node.id);
     if (!n->addAddress(addr, addr_id, channels, data))
         return;
 
     auto it = n->key_to_addrData.find(addr_id);
     if (it != n->key_to_addrData.end())
     {
-        lab::noodle::Node& node = registry.get<lab::noodle::Node>(_osc_node);
+        lab::noodle::Node& node = registry.get<lab::noodle::Node>(_osc_node.id);
         entt::entity pin_id = registry.create();
         node.pins.push_back(pin_id);
         registry.emplace<lab::noodle::Name>(pin_id, addr);
@@ -952,7 +970,7 @@ void LabSoundProvider::add_osc_addr(char const* const addr, int addr_id, int cha
             lab::noodle::Pin::Kind::BusOut,
             lab::noodle::Pin::DataType::Bus,
             "",
-            pin_id, _osc_node,
+            { pin_id, true }, _osc_node,
             });
         registry.emplace<AudioPin>(pin_id, AudioPin{ it->second.output_index });
     }
