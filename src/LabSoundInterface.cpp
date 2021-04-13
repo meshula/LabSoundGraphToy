@@ -3,9 +3,9 @@
 #include "lab_imgui_ext.hpp"
 
 #include <LabSound/LabSound.h>
+#include "OSCNode.hpp"
 
 #include <stdio.h>
-
 
 using std::shared_ptr;
 using std::string;
