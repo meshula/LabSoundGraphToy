@@ -330,7 +330,9 @@ namespace noodle {
         : provider(rh.provider), root(rh.root)
         , type(rh.type), kind(rh.kind), name(rh.name)
         , group_node(rh.group_node), input_node(rh.input_node), output_node(rh.output_node)
-        , param_pin(rh.param_pin), setting_pin(rh.setting_pin), output_pin(rh.output_pin)
+        , output_pin(rh.output_pin)
+        , param_pin(rh.param_pin)
+        , setting_pin(rh.setting_pin)
         , connection_id(rh.connection_id)
         , float_value(rh.float_value), int_value(rh.int_value), bool_value(rh.bool_value)
         , string_value(rh.string_value), canvas_pos(rh.canvas_pos)
@@ -922,8 +924,6 @@ namespace noodle {
             return;
         }
 
-        lab::noodle::Connection& conn = reg.get<lab::noodle::Connection>(connection);
-
         ImGui::OpenPopup("Connection");
         if (ImGui::BeginPopupModal("Connection", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize))
         {
@@ -1397,7 +1397,7 @@ namespace noodle {
         //- ImGui::GetTextLineHeightWithSpacing()   // space for the time bar
         //- ImGui::GetTextLineHeightWithSpacing();  // space for horizontal scroller
 
-        bool rv = ImGui::BeginChild(main_window_id, ImVec2(0, height), false,
+        ImGui::BeginChild(main_window_id, ImVec2(0, height), false,
             ImGuiWindowFlags_NoBringToFrontOnFocus |
             ImGuiWindowFlags_NoMove |
             ImGuiWindowFlags_NoScrollbar |
@@ -1488,9 +1488,6 @@ namespace noodle {
             if (hover.originating_pin_id != entt::null && hover.pin_id != entt::null && 
                 registry.valid(hover.originating_pin_id) && registry.valid(hover.pin_id))
             {
-                GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(hover.originating_pin_id);
-                GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(hover.pin_id);
-
                 Pin from_pin = registry.get<Pin>(hover.originating_pin_id);
                 Pin to_pin = registry.get<Pin>(hover.pin_id);
 
@@ -1517,9 +1514,6 @@ namespace noodle {
             if (hover.originating_pin_id != entt::null && hover.pin_id != entt::null && 
                 registry.valid(hover.originating_pin_id) && registry.valid(hover.pin_id))
             {
-                GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(hover.originating_pin_id);
-                GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(hover.pin_id);
-
                 Pin from_pin = registry.get<Pin>(hover.originating_pin_id);
                 Pin to_pin = registry.get<Pin>(hover.pin_id);
 
@@ -1682,7 +1676,6 @@ namespace noodle {
                 ImVec2 delta = mouse.mouse_cs - mouse.canvas_clickpos_cs;
 
                 GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id);
-                ImVec2 sz = gnl.lr_cs - gnl.ul_cs;
                 ImVec2 new_pos = gnl.initial_pos_cs + delta;
                 gnl.lr_cs = new_pos;
                 gnl.lr_cs.x = std::max(gnl.ul_cs.x + 100, gnl.lr_cs.x);
@@ -2058,6 +2051,132 @@ namespace noodle {
     {
         save_json(path);
     }
+    
+    void Context::export_cpp(const std::string& path)
+    {
+        using lab::noodle::Name;
+        using lab::noodle::Pin;
+        
+        auto clean_name = [](const std::string& s) -> std::string
+        {
+            std::string res = s;
+            int len = s.size();
+            for (int i = 0; i < len; ++i)
+            {
+                char c = s[i];
+                if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))
+                    continue;
+                res[i] = '_';
+            }
+            return res;
+        };
+        
+        entt::registry& reg = provider.registry();
+        std::ofstream file(path, std::ios::binary);
+        
+        file << "// " << path << "\n";
+        file << "// Automatic export from LabSoundGraphToy, output is licensed under BSD-2 clause.\n\n";
+
+        file << "#include <LabSound/LabSound.h>\n";
+        file << "#include <memory>\n\n";
+        file << "void create_graph(lab::AudioContext& ctx)\n{\n";
+        file << "    // Nodes:\n\n";
+
+        for (auto node_entity : reg.view<lab::noodle::Node>())
+        {
+            if (!reg.valid(node_entity))
+                continue;
+
+            lab::noodle::Node& node = reg.get<lab::noodle::Node>(node_entity);
+            lab::noodle::Name& node_name = reg.get<lab::noodle::Name>(node_entity);
+            std::string node_name_clean = clean_name(node_name.name);
+            file << "\n    //--------------------\n    // Node: "
+                 << node_name.name << " Kind: " << node.kind << "\n";
+            file << "    std::shared_ptr<" << node.kind << "Node> "
+                 << node_name_clean << " = std::make_shared<" << node.kind << "Node>(ac);\n";
+
+            if (reg.any<GraphNodeLayout>(node_entity))
+            {
+                GraphNodeLayout& gnl = reg.get<GraphNodeLayout>(node_entity);
+                file << "    // position: " << gnl.ul_cs.x << ", " << gnl.ul_cs.y << "\n\n";
+            }
+
+            file << "    // Pins:\n\n";
+            for (const entt::entity entity : node.pins)
+            {
+                if (!reg.valid(entity))
+                    continue;
+
+                Pin pin = reg.get<Pin>(entity);
+                if (!reg.valid(pin.node_id))
+                    continue;
+
+                Name& name = reg.get<Name>(entity);
+                switch (pin.kind)
+                {
+                case Pin::Kind::BusIn:
+                    break;
+
+                case Pin::Kind::BusOut:
+                    file << "    // bus out: " << name.name << "\n";
+                    break;
+
+                case Pin::Kind::Param:
+                    file << "    // param\n";
+                    file << "    {\n        auto param = " << node_name_clean << "->param(" << name.name << ");\n";
+                    file << "        if (param)\n        {\n            param->setValue(" << pin.value_as_string << ");\n        }\n    }\n";
+                    break;
+
+                case Pin::Kind::Setting:
+                    file << "    // setting\n";
+                    file << "    {\n        auto setting = " << node_name_clean << "->setting(" << name.name << ");\n";
+                    file << "        if (setting)\n        {\n";
+                    switch (pin.dataType)
+                    {
+                    default:
+                    case Pin::DataType::None: break;
+                    case Pin::DataType::Bus: break;
+                    case Pin::DataType::Bool: file <<        "            setting->setBool(" << pin.value_as_string << ");\n        }\n"; break;
+                    case Pin::DataType::Integer: file <<     "            setting->setUint32(" << pin.value_as_string << ");\n        }\n"; break;
+                    case Pin::DataType::Enumeration: file << "            setting->setEnumeration(\"" << pin.value_as_string << "\");\n        }\n"; break;
+                    case Pin::DataType::Float: file <<       "            setting->setFloat(" << pin.value_as_string << ");\n        }\n"; break;
+                    case Pin::DataType::String: file <<      "            setting->setString(\"" << pin.value_as_string << "\");\n        }\n"; break;
+                    }
+                    file << "    }\n";
+                    break;
+                }
+            }
+        } // node loop
+
+        file << "    // Connections:\n\n";
+        for (const auto entity : reg.view<lab::noodle::Connection>())
+        {
+            lab::noodle::Connection& connection = reg.get<lab::noodle::Connection>(entity);
+            entt::entity from_pin = connection.pin_from;
+            entt::entity to_pin = connection.pin_to;
+            if (!reg.valid(from_pin) || !reg.valid(to_pin))
+                continue;
+
+            using lab::noodle::Name;
+            Name& from_node_name = reg.get<Name>(connection.node_from);
+            //Name& from_pin_name = reg.get<Name>(from_pin);
+            Name& to_node_name = reg.get<Name>(connection.node_to);
+            Name& to_pin_name = reg.get<Name>(to_pin);
+
+            if (connection.kind == Connection::Kind::ToParam)
+            {
+                // @TODO - the context needs a named output -> param API
+                file << "    ctx->connectParam(" << clean_name(from_node_name.name) << ", \"" << to_pin_name.name << "\", " << clean_name(to_node_name.name) << ", 0);\n";
+            }
+            else
+            {
+                // @TODO - the context needs a named output -> input connection API
+                file << "    ctx->connect(" << clean_name(from_node_name.name) << ", " << clean_name(to_node_name.name) << ", 0, 0);\n";
+            }
+        }
+        file << "}\n" << std::endl;
+        file.close();
+    }
 
     void Context::save_test(const std::string& path)
     {
@@ -2136,7 +2255,7 @@ namespace noodle {
 
             using lab::noodle::Name;
             Name& from_pin_name = reg.get<Name>(from_pin);
-            Name& to_pin_name = reg.get<Name>(from_pin);
+            //Name& to_pin_name = reg.get<Name>(from_pin);
             Name& from_node_name = reg.get<Name>(connection.node_from);
             Name& to_node_name = reg.get<Name>(connection.node_to);
 
@@ -2432,7 +2551,6 @@ namespace noodle {
 
         // make all the connections
 
-        auto& registry = provider.registry();
         auto& connections_root = root["connections"];
         auto connections_array = connections_root.GetArray();
         for (auto& node : connections_array)

@@ -12,6 +12,10 @@
 #include "LabSoundInterface.h"
 #include "lab_noodle.h"
 
+#define MESHULA_LAB_DRY
+#include "meshula_lab.hpp"
+#undef MESHULA_LAB_DRY
+
 #include "nfd.h"
 
 #include <tinyosc.hpp>
@@ -116,6 +120,7 @@ enum class Command
     New,
     Open,
     Save,
+    ExportCpp,
     Quit
 };
 
@@ -168,7 +173,18 @@ void init(void) {
     g_cousine = io.Fonts->AddFontFromMemoryCompressedTTF(imgui_fonts::getCousineRegularCompressedData(), imgui_fonts::getCousineRegularCompressedSize(), 15.0f, &config);
     assert(g_cousine != nullptr);
 
-    const auto font_audio_ttf = read_file_binary("../resources/fontaudio.ttf");
+    ml_String* app_path = ml_application_directory_path();
+    if (!ml_String_length(app_path))
+    {
+        printf("Could not find application path\n");
+        exit(0);
+    }
+
+    std::string rsrc_path = std::string(ml_String_cstr(app_path)) + "/LabSoundGraphToy_rsrc";
+    ml_String_release(&app_path);
+    
+    std::string font_path = rsrc_path + "/fontaudio.ttf";
+    std::vector<uint8_t> font_audio_ttf = read_file_binary(font_path.c_str());
     g_audio_icon = append_audio_icon_font(font_audio_ttf);
 
     // Upload new font texture atlas
@@ -204,8 +220,8 @@ void frame()
 {
     const int width = sapp_width();
     const int height = sapp_height();
-    const float w = (float)sapp_width();
-    const float h = (float)sapp_height();
+    //const float w = (float)sapp_width();
+    //const float h = (float)sapp_height();
     const double delta_time = stm_sec(stm_laptime(&last_time));
 
     sg_begin_default_pass(&pass_action, width, height);
@@ -236,6 +252,7 @@ void frame()
             bool save = false;
             bool new_file = false;
             bool load = false;
+            bool export_cpp = false;
             bool quit = false;
             ImGui::MenuItem("New", 0, &new_file);
             if (new_file)
@@ -246,6 +263,9 @@ void frame()
             ImGui::MenuItem("Save", 0, &save);
             if (save)
                 command = Command::Save;
+            ImGui::MenuItem("Export as C++", 0, &export_cpp);
+            if (export_cpp)
+                command = Command::ExportCpp;
             ImGui::MenuItem("Quit", 0, &quit);
             if (quit)
                 command = Command::Quit;
@@ -264,6 +284,9 @@ void frame()
 
     switch (command)
     {
+    case Command::None:
+        break;
+            
     case Command::Quit:
         if (config.needs_saving())
         {
@@ -342,10 +365,21 @@ void frame()
 
     case Command::Save:
     {
-        const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_SAVE, "*.ls", ".", "*.*");
+        const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_SAVE, "*.ls\0", ".", "*.*");
         if (file)
         {
             config.save(file);
+        }
+        command = Command::None;
+        break;
+    }
+            
+    case Command::ExportCpp:
+    {
+        const char* file = noc_file_dialog_open(NOC_FILE_DIALOG_SAVE, "*.cpp\0", ".", "*.*");
+        if (file)
+        {
+            config.export_cpp(file);
         }
         command = Command::None;
         break;
