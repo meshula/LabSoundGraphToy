@@ -43,47 +43,24 @@ entt::registry& Registry()
     return *g_ls_registry.get();
 }
 
+
 // Returns input, output
-std::pair<lab::AudioStreamConfig, lab::AudioStreamConfig> GetDefaultAudioDeviceConfiguration(bool with_input, bool throw_if_no_input)
+inline std::pair<lab::AudioStreamConfig, lab::AudioStreamConfig> GetDefaultAudioDeviceConfiguration(const bool with_input = false)
 {
-    using namespace lab;
-    AudioStreamConfig inputConfig;
-    AudioStreamConfig outputConfig;
-
-    const std::vector<AudioDeviceInfo> audioDevices = lab::MakeAudioDeviceList();
-    AudioDeviceIndex default_output_device = lab::GetDefaultOutputAudioDeviceIndex();
-    AudioDeviceIndex default_input_device = lab::GetDefaultInputAudioDeviceIndex();
-
-    AudioDeviceInfo defaultOutputInfo, defaultInputInfo;
-    for (auto& info : audioDevices)
-    {
-        if (info.index == default_output_device.index) defaultOutputInfo = info;
-        else if (info.index == default_input_device.index) defaultInputInfo = info;
-    }
-
-    if (defaultOutputInfo.index != -1)
-    {
-        outputConfig.device_index = defaultOutputInfo.index;
-        outputConfig.desired_channels = std::min(uint32_t(2), defaultOutputInfo.num_output_channels);
-        outputConfig.desired_samplerate = defaultOutputInfo.nominal_samplerate;
-    }
-
     if (with_input)
+        return
     {
-        if (defaultInputInfo.index != -1)
-        {
-            inputConfig.device_index = defaultInputInfo.index;
-            inputConfig.desired_channels = std::min(uint32_t(1), defaultInputInfo.num_input_channels);
-            inputConfig.desired_samplerate = defaultInputInfo.nominal_samplerate;
-        }
-        else if (throw_if_no_input)
-        {
-            throw std::invalid_argument("the default audio input device was requested but none were found");
-        }
-    }
+        lab::GetDefaultInputAudioDeviceConfiguration(),
+        lab::GetDefaultOutputAudioDeviceConfiguration()
+    };
 
-    return { inputConfig, outputConfig };
+    return
+    {
+        lab::AudioStreamConfig(),
+        lab::GetDefaultOutputAudioDeviceConfiguration()
+    };
 }
+
 
 shared_ptr<lab::AudioNode> NodeFactory(const string& n)
 {
@@ -432,7 +409,7 @@ void LabSoundProvider::disconnect(entt::entity connection_id)
 entt::entity LabSoundProvider::create_runtime_context(entt::entity id)
 {
     entt::registry& registry = Registry();
-    const auto defaultAudioDeviceConfigurations = GetDefaultAudioDeviceConfiguration(true, false);
+    const auto defaultAudioDeviceConfigurations = GetDefaultAudioDeviceConfiguration(true);
 
     if (!g_audio_context)
         g_audio_context = lab::MakeRealtimeAudioContext(defaultAudioDeviceConfigurations.second, defaultAudioDeviceConfigurations.first);
