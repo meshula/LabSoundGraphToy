@@ -12,7 +12,8 @@ struct MidiNode : public lab::AudioNode
     MidiNode(lab::AudioContext& ac)
         : AudioNode(ac)
     {
-        initialize();
+        if (s_registered)
+            initialize();
     }
     virtual ~MidiNode() = default;
 
@@ -52,7 +53,8 @@ struct MidiNode : public lab::AudioNode
     //--------------------------------------------------
     // required interface
     //
-    virtual const char* name() const override { return "OSC"; }
+    static const char* static_name() { return "Midi"; }
+    virtual const char* name() const override { return static_name(); }
 
     // The AudioNodeInput(s) (if any) will already have their input data available when process() is called.
     // Subclasses will take this input data and put the results in the AudioBus(s) of its AudioNodeOutput(s) (if any).
@@ -86,4 +88,6 @@ struct MidiNode : public lab::AudioNode
     // processing delay which is an artifact of the processing algorithm chosen and is *not* part of the intrinsic desired effect. For
     // example, a "delay" effect is expected to delay the signal, and thus would not be considered latency.
     virtual double latencyTime(lab::ContextRenderLock& r) const override { return 0.; }
+
+    static bool s_registered;
 };

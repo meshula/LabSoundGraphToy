@@ -1,5 +1,6 @@
 
 #include "MidiNode.hpp"
+#include "LabSound/extended/Registry.h"
 
 #include <LabMidi/LabMidi.h>
 #include <array>
@@ -164,3 +165,8 @@ public:
     }
 
 };
+
+bool MidiNode::s_registered = lab::NodeRegistry::Register(MidiNode::static_name(),
+    [](lab::AudioContext& ac)->lab::AudioNode* { return new MidiNode(ac); },
+    [](lab::AudioNode* n) { delete n; });
+

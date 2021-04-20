@@ -29,6 +29,7 @@ set(PLAYGROUND_SRC
     src/MidiNode.hpp
     src/OSCMsg.hpp
     src/OSCNode.hpp
+    src/OSCNode.cpp
     src/queue_spsc.hpp
 )
 
@@ -211,13 +212,54 @@ elseif (APPLE)
 #    endif()
 endif()
 
-target_link_libraries(LabSoundGraphToy
-    ${PLATFORM_LIBS}
-    imgui
-    Lab::Sound
-    Lab::Midi
-    Tiny::OSC
-    sokol)
+# In order to use the LabSound Registry, and LabSound as a static library,
+# whole archive needs to be specified in order not to deadstrip the static
+# initializers.
+# Unfortunately, the developers of cmake have yet to agree that a
+# whole archive flag is in order, and so this terrible contraption is
+# necessary.
+#
+if(MSVC)
+    target_link_libraries(LabSoundGraphToy
+        ${PLATFORM_LIBS}
+        imgui
+        Lab::Midi
+        Tiny::OSC
+        sokol    
+        -WHOLEARCHIVE:$<TARGET_FILE:Lab::Sound>
+        )
+elseif(CMAKE_COMPILER_IS_GNUCXX)
+    target_link_libraries(LabSoundGraphToy
+        ${PLATFORM_LIBS}
+        imgui
+        Lab::Midi
+        Tiny::OSC
+        sokol
+        -Wl,--whole-archive $<TARGET_FILE:Lab::Sound> -Wl,--no-whole-archive
+        )
+elseif("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
+    target_link_libraries(usd_ms
+        PRIVATE
+    )
+    target_link_libraries(LabSoundGraphToy
+        ${PLATFORM_LIBS}
+        imgui
+        Lab::Midi
+        Tiny::OSC
+        sokol
+        -Wl,-force_load $<TARGET_FILE:Lab::Sound>
+        )
+else()
+    target_link_libraries(LabSoundGraphToy
+        ${PLATFORM_LIBS}
+        imgui
+        Lab::Sound
+        Lab::Midi
+        Tiny::OSC
+        sokol
+        )
+endif()
+
 
 #-------------------------------------------------------------------------------
 # Installer
