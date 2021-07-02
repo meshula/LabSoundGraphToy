@@ -14,9 +14,6 @@
 #include <string>
 #include <vector>
 
-//--------------------------------------------------------------
-
-
 class LabSoundProvider final : public lab::noodle::Provider
 {
 public:

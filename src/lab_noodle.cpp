@@ -2057,7 +2057,7 @@ namespace noodle {
         auto clean_name = [](const std::string& s) -> std::string
         {
             std::string res = s;
-            int len = s.size();
+            int len = (int) s.size();
             for (int i = 0; i < len; ++i)
             {
                 char c = s[i];

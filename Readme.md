@@ -7,6 +7,8 @@ License: MIT
 
 The submodules are licensed under their respective terms.
 
+## LabSound GraphToy has moved here: https://github.com/LabSound/LabSoundGraphToy
+
 **LabSound GraphToy** is a workspace for exploring **LabSound** nodes and their properties.
 
 ![Example](resources/preview.png)

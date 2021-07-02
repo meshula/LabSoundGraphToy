@@ -3,7 +3,7 @@
 #include "lab_imgui_ext.hpp"
 
 #include <LabSound/LabSound.h>
-#include "OSCNode.h"
+#include "OSCNode.hpp"
 
 #include <stdio.h>
 
@@ -43,91 +43,31 @@ entt::registry& Registry()
     return *g_ls_registry.get();
 }
 
+
 // Returns input, output
-std::pair<lab::AudioStreamConfig, lab::AudioStreamConfig> GetDefaultAudioDeviceConfiguration(bool with_input, bool throw_if_no_input)
+inline std::pair<lab::AudioStreamConfig, lab::AudioStreamConfig> GetDefaultAudioDeviceConfiguration(const bool with_input = false)
 {
-    using namespace lab;
-    AudioStreamConfig inputConfig;
-    AudioStreamConfig outputConfig;
-
-    const std::vector<AudioDeviceInfo> audioDevices = lab::MakeAudioDeviceList();
-    AudioDeviceIndex default_output_device = lab::GetDefaultOutputAudioDeviceIndex();
-    AudioDeviceIndex default_input_device = lab::GetDefaultInputAudioDeviceIndex();
-
-    AudioDeviceInfo defaultOutputInfo, defaultInputInfo;
-    for (auto& info : audioDevices)
-    {
-        if (info.index == default_output_device.index) defaultOutputInfo = info;
-        else if (info.index == default_input_device.index) defaultInputInfo = info;
-    }
-
-    if (defaultOutputInfo.index != -1)
-    {
-        outputConfig.device_index = defaultOutputInfo.index;
-        outputConfig.desired_channels = std::min(uint32_t(2), defaultOutputInfo.num_output_channels);
-        outputConfig.desired_samplerate = defaultOutputInfo.nominal_samplerate;
-    }
-
     if (with_input)
+        return
     {
-        if (defaultInputInfo.index != -1)
-        {
-            inputConfig.device_index = defaultInputInfo.index;
-            inputConfig.desired_channels = std::min(uint32_t(1), defaultInputInfo.num_input_channels);
-            inputConfig.desired_samplerate = defaultInputInfo.nominal_samplerate;
-        }
-        else if (throw_if_no_input)
-        {
-            throw std::invalid_argument("the default audio input device was requested but none were found");
-        }
-    }
+        lab::GetDefaultInputAudioDeviceConfiguration(),
+        lab::GetDefaultOutputAudioDeviceConfiguration()
+    };
 
-    return { inputConfig, outputConfig };
+    return
+    {
+        lab::AudioStreamConfig(),
+        lab::GetDefaultOutputAudioDeviceConfiguration()
+    };
 }
+
 
 shared_ptr<lab::AudioNode> NodeFactory(const string& n)
 {
     lab::AudioContext& ac = *g_audio_context.get();
-    if (n == "ADSR") return std::make_shared<lab::ADSRNode>(ac);
-    if (n == "Analyser") return std::make_shared<lab::AnalyserNode>(ac);
-    //if (n == "AudioBasicProcessor") return std::make_shared<lab::AudioBasicProcessorNode>(ac);
-    //if (n == "AudioHardwareSource") return std::make_shared<lab::ADSRNode>(ac);
-    if (n == "BiquadFilter") return std::make_shared<lab::BiquadFilterNode>(ac);
-    if (n == "ChannelMerger") return std::make_shared<lab::ChannelMergerNode>(ac);
-    if (n == "ChannelSplitter") return std::make_shared<lab::ChannelSplitterNode>(ac);
-    if (n == "Clip") return std::make_shared<lab::ClipNode>(ac);
-    if (n == "Convolver") return std::make_shared<lab::ConvolverNode>(ac);
-    //if (n == "DefaultAudioDestination") return std::make_shared<lab::DefaultAudioDestinationNode>(ac);
-    if (n == "Delay") return std::make_shared<lab::DelayNode>(ac);
-    if (n == "Diode") return std::make_shared<lab::DiodeNode>(ac);
-    if (n == "DynamicsCompressor") return std::make_shared<lab::DynamicsCompressorNode>(ac);
-    //if (n == "Function") return std::make_shared<lab::FunctionNode>(ac);
-    if (n == "Gain") return std::make_shared<lab::GainNode>(ac);
-    if (n == "Granulation") return std::make_shared<lab::GranulationNode>(ac);
-    if (n == "Noise") return std::make_shared<lab::NoiseNode>(ac);
-    //if (n == "OfflineAudioDestination") return std::make_shared<lab::OfflineAudioDestinationNode>(ac);
-    if (n == "Oscillator") return std::make_shared<lab::OscillatorNode>(ac);
-    if (n == "Panner") return std::make_shared<lab::PannerNode>(ac);
-#ifdef PD
-    if (n == "PureData") return std::make_shared<lab::PureDataNode>(ac);
-#endif
-    if (n == "PeakCompressor") return std::make_shared<lab::PeakCompNode>(ac);
-    //if (n == "PingPongDelay") return std::make_shared<lab::PingPongDelayNode>(ac);
-    if (n == "PolyBLEP") return std::make_shared<lab::PolyBLEPNode>(ac);
-    if (n == "PowerMonitor") return std::make_shared<lab::PowerMonitorNode>(ac);
-    if (n == "PWM") return std::make_shared<lab::PWMNode>(ac);
-    if (n == "Recorder") return std::make_shared<lab::RecorderNode>(ac);
-    if (n == "SampledAudio") return std::make_shared<lab::SampledAudioNode>(ac);
-    if (n == "Sfxr") return std::make_shared<lab::SfxrNode>(ac);
-    if (n == "Spatialization") return std::make_shared<lab::SpatializationNode>(ac);
-    if (n == "SpectralMonitor") return std::make_shared<lab::SpectralMonitorNode>(ac);
-    if (n == "StereoPanner") return std::make_shared<lab::StereoPannerNode>(ac);
-    if (n == "SuperSaw") return std::make_shared<lab::SupersawNode>(ac);
-    if (n == "WaveShaper") return std::make_shared<lab::WaveShaperNode>(ac);
-    return {};
+    lab::AudioNode* node = lab::NodeRegistry::Instance().Create(n, ac);
+    return std::shared_ptr<lab::AudioNode>(node);
 }
-
-
 
 
 static constexpr float node_border_radius = 4.f;
@@ -425,7 +365,7 @@ void LabSoundProvider::disconnect(ln_Connection connection_id_)
 ln_Context LabSoundProvider::create_runtime_context(ln_Node id)
 {
     entt::registry& registry = Registry();
-    const auto defaultAudioDeviceConfigurations = GetDefaultAudioDeviceConfiguration(true, false);
+    const auto defaultAudioDeviceConfigurations = GetDefaultAudioDeviceConfiguration(true);
 
     if (!g_audio_context)
         g_audio_context = lab::MakeRealtimeAudioContext(defaultAudioDeviceConfigurations.second, defaultAudioDeviceConfigurations.first);
@@ -663,21 +603,17 @@ entt::registry& LabSoundProvider::registry() const
 
 char const* const* LabSoundProvider::node_names() const
 {
-    static char const** names = nullptr;
+    static const char** names = nullptr;
     if (!names)
     {
-        int count = 0;
-        char const* const* src_names = lab::AudioNodeNames();
-        for (; *src_names != nullptr; ++src_names, ++count)
-        {
-        }
-        names = reinterpret_cast<char const**>(malloc(sizeof(char*) * (count + 2)));
+        static auto src_names = lab::NodeRegistry::Instance().Names();
+        names = reinterpret_cast<const char**>(malloc(sizeof(char*) * (src_names.size() + 1)));
         if (names)
         {
-            static const char* osc_name = "OSC";
-            names[0] = osc_name;
-            memcpy(&names[1], lab::AudioNodeNames(), sizeof(char*) * count);
-            names[count + 1] = nullptr;
+            for (int i = 0; i < src_names.size(); ++i)
+                names[i] = src_names[i].c_str();
+
+            names[src_names.size()] = nullptr;
         }
     }
     return names;
