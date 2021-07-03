@@ -16,3 +16,6 @@
 [submodule "third/tinyosc"]
 	path = third/tinyosc
 	url = git@github.com:ddiakopoulos/tinyosc.git
+[submodule "third/rapidjson"]
+	path = third/rapidjson
+	url = https://github.com/Tencent/rapidjson.git
