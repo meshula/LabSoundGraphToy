@@ -180,6 +180,7 @@ target_compile_definitions(LabSoundGraphToy PRIVATE
 
 target_include_directories(LabSoundGraphToy SYSTEM
     PRIVATE third/imgui
+    PRIVATE third/LabSound/include
     PRIVATE ${RAPIDJSON_INCL}
     PRIVATE third/entt/single_include)
 
@@ -224,6 +225,8 @@ if(MSVC)
     target_link_libraries(LabSoundGraphToy
         ${PLATFORM_LIBS}
         imgui
+        libnyquist
+        samplerate
         Lab::Midi
         Tiny::OSC
         sokol    
@@ -233,6 +236,8 @@ elseif(CMAKE_COMPILER_IS_GNUCXX)
     target_link_libraries(LabSoundGraphToy
         ${PLATFORM_LIBS}
         imgui
+        libnyquist
+        samplerate
         Lab::Midi
         Tiny::OSC
         sokol
@@ -245,6 +250,8 @@ elseif("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
     target_link_libraries(LabSoundGraphToy
         ${PLATFORM_LIBS}
         imgui
+        libnyquist
+        samplerate
         Lab::Midi
         Tiny::OSC
         sokol
@@ -254,6 +261,8 @@ else()
     target_link_libraries(LabSoundGraphToy
         ${PLATFORM_LIBS}
         imgui
+        libnyquist
+        samplerate
         Lab::Sound
         Lab::Midi
         Tiny::OSC

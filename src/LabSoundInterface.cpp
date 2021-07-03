@@ -671,7 +671,7 @@ void LabSoundProvider::pin_set_float_value(ln_Pin pin, float v)
 float LabSoundProvider::pin_float_value(ln_Pin pin)
 {
     if (!pin.valid)
-        return;
+        return 0.f;
 
     AudioPin& a_pin = registry().get<AudioPin>(pin.id);
     if (a_pin.param)
