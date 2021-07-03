@@ -128,7 +128,7 @@ namespace lab { namespace noodle {
         bool play_controller = false;
         bool bang_controller = false;
         std::string kind;
-        std::vector<entt::entity> pins;
+        std::vector<ln_Pin> pins;
     };
 
     // Some nodes may have overridden draw methods, such as the LabSound 

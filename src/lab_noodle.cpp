@@ -1096,20 +1096,20 @@ namespace noodle {
             Node& node = registry.get<Node>(node_entity);
 
             // calculate column heights
-            for (const entt::entity entity : node.pins)
+            for (const ln_Pin& entity : node.pins)
             {
-                if (!registry.valid(entity))
+                if (!registry.valid(entity.id))
                     continue;
 
-                Pin pin = registry.get<Pin>(entity);
+                Pin pin = registry.get<Pin>(entity.id);
                 if (!registry.valid(pin.node_id.id))
                     continue;
 
                 // lazily create the layouts on demand.
-                if (!registry.any<GraphPinLayout>(entity))
-                    registry.emplace<GraphPinLayout>(entity, GraphPinLayout{});
+                if (!registry.any<GraphPinLayout>(entity.id))
+                    registry.emplace<GraphPinLayout>(entity.id, GraphPinLayout{});
 
-                GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity);
+                GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity.id);
                 pnl.node_origin_cs = node_pos;
 
                 switch (pin.kind)
@@ -1143,16 +1143,16 @@ namespace noodle {
             gnl.out_height = 0;
 
             // assign columns
-            for (const entt::entity entity : node.pins)
+            for (const ln_Pin& entity : node.pins)
             {
-                if (!registry.valid(entity))
+                if (!registry.valid(entity.id))
                     continue;
 
-                Pin& pin = registry.get<Pin>(entity);
+                Pin& pin = registry.get<Pin>(entity.id);
                 if (!registry.valid(pin.node_id.id))
                     continue;
 
-                GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity);
+                GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity.id);
 
                 switch (pin.kind)
                 {
@@ -1874,9 +1874,9 @@ namespace noodle {
             ///////////////////////////////////////////
 
             Node& node = registry.get<Node>(entity);
-            for (entt::entity j : node.pins)
+            for (const ln_Pin& j : node.pins)
             {
-                Pin& pin_it = registry.get<Pin>(j);
+                Pin& pin_it = registry.get<Pin>(j.id);
 
                 IconType icon_type;
                 bool has_value = false;
@@ -1903,9 +1903,9 @@ namespace noodle {
                     break;
                 }
 
-                GraphPinLayout& pin_gpl = registry.get<GraphPinLayout>(j);
+                GraphPinLayout& pin_gpl = registry.get<GraphPinLayout>(j.id);
                 ImVec2 pin_ul = pin_gpl.ul_ws(root.canvas);
-                uint32_t fill = (j == hover.pin_id.id || j == hover.originating_pin_id.id) ? 0xffffff : 0x000000;
+                uint32_t fill = (j.id == hover.pin_id.id || j.id == hover.originating_pin_id.id) ? 0xffffff : 0x000000;
                 fill |= (uint32_t)(128 + 128 * sinf(pulse * 8)) << 24;
 
                 DrawIcon(drawList, pin_ul,
@@ -1922,7 +1922,7 @@ namespace noodle {
                     {
                         ImVec2 pos = label_pos - ImVec2(50, 0);
                         char buff[32];
-                        sprintf(buff, "(%d)", j);
+                        sprintf(buff, "(%d)", j.id);
                         drawList->AddText(io.FontDefault, font_size, pos,
                             (hover.node_menu && entity == hover.node_id.id) ? text_color_highlighted : text_color,
                             buff, buff + strlen(buff));
@@ -1941,9 +1941,9 @@ namespace noodle {
                     else
                     {
                         // if there's a long name, use it
-                        if (registry.has<Name>(j))
+                        if (registry.has<Name>(j.id))
                         {
-                            auto& name = registry.get<Name>(j);
+                            auto& name = registry.get<Name>(j.id);
                             if (name.name.size())
                             {
                                 if (pin_it.kind == Pin::Kind::BusOut)
@@ -2105,16 +2105,16 @@ void create_graph(lab::AudioContext& ctx)
             }
 
             file << "    // Pins:\n\n";
-            for (const entt::entity entity : node.pins)
+            for (const ln_Pin& entity : node.pins)
             {
-                if (!reg.valid(entity))
+                if (!reg.valid(entity.id))
                     continue;
 
-                Pin pin = reg.get<Pin>(entity);
+                Pin pin = reg.get<Pin>(entity.id);
                 if (!reg.valid(pin.node_id.id))
                     continue;
 
-                Name& name = reg.get<Name>(entity);
+                Name& name = reg.get<Name>(entity.id);
                 switch (pin.kind)
                 {
                 case Pin::Kind::BusIn:
@@ -2209,16 +2209,16 @@ void create_graph(lab::AudioContext& ctx)
                 file << " pos: " << gnl.ul_cs.x << " " << gnl.ul_cs.y << "\n";
             }
 
-            for (const entt::entity entity : node.pins)
+            for (const ln_Pin& entity : node.pins)
             {
-                if (!reg.valid(entity))
+                if (!reg.valid(entity.id))
                     continue;
 
-                Pin pin = reg.get<Pin>(entity);
+                Pin pin = reg.get<Pin>(entity.id);
                 if (!reg.valid(pin.node_id.id))
                     continue;
 
-                Name& name = reg.get<Name>(entity);
+                Name& name = reg.get<Name>(entity.id);
                 switch (pin.kind)
                 {
                 case Pin::Kind::BusIn:
@@ -2314,16 +2314,16 @@ void create_graph(lab::AudioContext& ctx)
 
             writer.Key("pins");
             writer.StartArray();
-            for (const entt::entity entity : node.pins)
+            for (const ln_Pin& entity : node.pins)
             {
-                if (!reg.valid(entity))
+                if (!reg.valid(entity.id))
                     continue;
 
-                Pin pin = reg.get<Pin>(entity);
+                Pin pin = reg.get<Pin>(entity.id);
                 if (!reg.valid(pin.node_id.id))
                     continue;
 
-                Name& name = reg.get<Name>(entity);
+                Name& name = reg.get<Name>(entity.id);
                 switch (pin.kind)
                 {
                 case Pin::Kind::BusIn:
