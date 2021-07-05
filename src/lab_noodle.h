@@ -40,33 +40,6 @@ namespace lab { namespace noodle {
 
     struct ProviderHarness;
 
-    //--------------------------------------------------------------------------
-    // Schematic
-    //
-    // A schematic is comprised of nodes; nodes have collections of pins;
-    // and connections connect a pin in one node to a pin in another.
-    //
-    // Any element in a schematic may have a name.
-    //
-    //--------------------------------------------------------------------------
-
-    // The node is a primary entity
-    // every AudioNode is a Node, but not every Node is an AudioNode.
-    // for example, a Documentation node might be known only to lab noodle.
-    struct NoodleNode
-    {
-        NoodleNode() = default;
-        NoodleNode(const std::string& k, const std::string& n, ln_Node id) noexcept 
-            : name(n), kind(k), id(id) {}
-        ~NoodleNode() = default;
-
-        ln_Node id;
-        std::string name;
-        std::string kind;
-        std::vector<ln_Pin> pins;
-        bool play_controller = false;
-        bool bang_controller = false;
-    };
 
     // Some nodes may have overridden draw methods, such as the LabSound 
     // AnalyserNode. If such exists, the associated NodeRender will have a 
@@ -80,6 +53,26 @@ namespace lab { namespace noodle {
     {
         // entity, ul_ws, lr_ws, scale, drawlist (typically ImGui::DrawList)
         std::function<void(ln_Node, vec2, vec2, float, void*)> render;
+    };
+
+
+    // NoodleNode contains all UX affordances for a node
+    //
+    struct NoodleNode
+    {
+        NoodleNode() = default;
+        NoodleNode(const std::string& k, const std::string& n, ln_Node id) noexcept 
+            : name(n), kind(k), id(id) {}
+        ~NoodleNode() = default;
+
+        ln_Node id;
+        std::string name;
+        std::string kind;
+        std::vector<ln_Pin> pins;
+        bool play_controller = false;
+        bool bang_controller = false;
+
+        NodeRender render;
     };
 
     // given a proposed name, of the form name, or name-1 create a new
@@ -156,20 +149,6 @@ namespace lab { namespace noodle {
         std::set<ln_Node, cmp_ln_Node> nodes;
     };
 
-    struct GraphPinLayout
-    {
-        inline constexpr static float k_height() { return 20.f; }
-        inline constexpr static float k_width() { return 20.f; }
-
-        vec2 node_origin_cs = { 0, 0 };
-        float pos_y_cs = 0.f;
-        float column_number = 0;
-        vec2 ul_ws(Canvas& canvas) const;
-        bool pin_contains_cs_point(Canvas& canvas, float x, float y) const;
-        bool label_contains_cs_point(Canvas& canvas, float x, float y) const;
-    };
-
-
     // channels for layering the graphics
     enum class NoodleGraphicLayer : int {
         Content = 0,
@@ -179,9 +158,26 @@ namespace lab { namespace noodle {
         Count = 4
     };
 
-    struct GraphNodeLayout
+    // dynamic graphic state for a Pin
+    //
+    struct NoodlePinGraphic
     {
-        static constexpr float k_column_width() { return 180.f; }
+        constexpr static float k_height() { return 20.f; }
+        constexpr static float k_width() { return 20.f; }
+
+        vec2 node_origin_cs = { 0, 0 };
+        float pos_y_cs = 0.f;
+        float column_number = 0;
+        vec2 ul_ws(Canvas& canvas) const;
+        bool pin_contains_cs_point(Canvas& canvas, float x, float y) const;
+        bool label_contains_cs_point(Canvas& canvas, float x, float y) const;
+    };
+
+    // dynamic graphic state for a Node
+    //
+    struct NoodleNodeGraphic
+    {
+        constexpr static float k_column_width() { return 180.f; }
 
         // position and shape
 
@@ -208,7 +204,7 @@ namespace lab { namespace noodle {
         std::map<ln_Node, CanvasGroup, cmp_ln_Node> _canvasNodes;
         std::map<ln_Node, NoodleNode, cmp_ln_Node> _noodleNodes;
         std::map<ln_Connection, NoodleConnection, cmp_ln_Connection> _connections;
-        std::map<ln_Pin, GraphPinLayout, cmp_ln_Pin> _pinLayouts;
+        std::map<ln_Pin, NoodlePinGraphic, cmp_ln_Pin> _pinLayouts;
 
         virtual ~Provider() = default;
         

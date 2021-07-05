@@ -90,9 +90,9 @@ namespace noodle {
 
 
 
-    vec2 GraphPinLayout::ul_ws(Canvas& canvas) const
+    vec2 NoodlePinGraphic::ul_ws(Canvas& canvas) const
     {
-        float x = column_number * GraphNodeLayout::k_column_width();
+        float x = column_number * NoodleNodeGraphic::k_column_width();
         ImVec2 no = { node_origin_cs.x, node_origin_cs.y };
         ImVec2 res = (no + ImVec2{ x, pos_y_cs }) * canvas.scale;
         ImVec2 o_off = { canvas.origin_offset_ws.x, canvas.origin_offset_ws.y };
@@ -100,18 +100,18 @@ namespace noodle {
         res = res + o_off + w_off;
         return { res.x, res.y };
     }
-    bool GraphPinLayout::pin_contains_cs_point(Canvas& canvas, float x, float y) const
+    bool NoodlePinGraphic::pin_contains_cs_point(Canvas& canvas, float x, float y) const
     {
         ImVec2 no = { node_origin_cs.x, node_origin_cs.y };
-        ImVec2 ul = (no + ImVec2{ column_number * GraphNodeLayout::k_column_width(), pos_y_cs });
+        ImVec2 ul = (no + ImVec2{ column_number * NoodleNodeGraphic::k_column_width(), pos_y_cs });
         ImVec2 lr = { ul.x + k_width(), ul.y + k_height() };
         return x >= ul.x && x <= lr.x && y >= ul.y && y <= lr.y;
     }
-    bool GraphPinLayout::label_contains_cs_point(Canvas& canvas, float x, float y) const
+    bool NoodlePinGraphic::label_contains_cs_point(Canvas& canvas, float x, float y) const
     {
         ImVec2 no = { node_origin_cs.x, node_origin_cs.y };
-        ImVec2 ul = (no + ImVec2{ column_number * GraphNodeLayout::k_column_width(), pos_y_cs });
-        ImVec2 lr = { ul.x + GraphNodeLayout::k_column_width(), ul.y + k_height() };
+        ImVec2 ul = (no + ImVec2{ column_number * NoodleNodeGraphic::k_column_width(), pos_y_cs });
+        ImVec2 lr = { ul.x + NoodleNodeGraphic::k_column_width(), ul.y + k_height() };
         ul.x += k_width();
         //printf("m(%0.1f, %0.1f) ul(%0.1f, %0.1f) lr(%01.f, %0.1f)\n", x, y, ul.x, ul.y, lr.x, lr.y);
         return x >= ul.x && x <= lr.x && y >= ul.y && y <= lr.y;
@@ -327,8 +327,8 @@ namespace noodle {
                     provider._noodleNodes[edit._device_node] = NoodleNode("Device", conformed_name, edit._device_node);
 
                     provider.create_runtime_context(edit._device_node);
-                    registry.emplace<GraphNodeLayout>(edit._device_node.id,
-                        GraphNodeLayout{ nullptr, NoodleGraphicLayer::Nodes, { canvas_pos.x, canvas_pos.y } });
+                    registry.emplace<NoodleNodeGraphic>(edit._device_node.id,
+                        NoodleNodeGraphic{ nullptr, NoodleGraphicLayer::Nodes, { canvas_pos.x, canvas_pos.y } });
 
                     provider.associate(edit._device_node, conformed_name);
 
@@ -349,8 +349,8 @@ namespace noodle {
                         cn = &it->second;
                 }
 
-                registry.emplace<GraphNodeLayout>(new_node.id,
-                    GraphNodeLayout{cn, NoodleGraphicLayer::Nodes, { canvas_pos.x, canvas_pos.y } });
+                registry.emplace<NoodleNodeGraphic>(new_node.id,
+                    NoodleNodeGraphic{cn, NoodleGraphicLayer::Nodes, { canvas_pos.x, canvas_pos.y } });
 
                 provider.associate(new_node, conformed_name);
 
@@ -379,10 +379,10 @@ namespace noodle {
                 entt::entity new_node = provider.registry().create();
                 ln_Node new_ln_node = { new_node, true };
                 provider._noodleNodes[new_ln_node] = NoodleNode(kind, conformed_name, new_ln_node);
-                registry.emplace<GraphNodeLayout>(new_node,
-                    GraphNodeLayout{ nullptr, NoodleGraphicLayer::Groups, 
+                registry.emplace<NoodleNodeGraphic>(new_node,
+                    NoodleNodeGraphic{ nullptr, NoodleGraphicLayer::Groups, 
                         { canvas_pos.x, canvas_pos.y },
-                        { canvas_pos.x + GraphNodeLayout::k_column_width() * 2, canvas_pos.y + GraphPinLayout::k_height() * 8},
+                        { canvas_pos.x + NoodleNodeGraphic::k_column_width() * 2, canvas_pos.y + NoodlePinGraphic::k_height() * 8},
                         true });
 
                 provider._canvasNodes[new_ln_node] = CanvasGroup{};
@@ -563,7 +563,7 @@ namespace noodle {
                 }
                 else
                 {
-                    GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(input_node.id);
+                    NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(input_node.id);
                     if (gnl.parent_canvas)
                     {
                         auto it = gnl.parent_canvas->nodes.find(input_node);
@@ -603,7 +603,7 @@ namespace noodle {
                         }
                         else
                         {
-                            GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(en);
+                            NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(en);
                             if (gnl.parent_canvas)
                             {
                                 auto it = gnl.parent_canvas->nodes.find(noodleNode.second.id);
@@ -1029,7 +1029,7 @@ namespace noodle {
             if (!registry.valid(en))
                 continue;
 
-            GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(en);
+            NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(en);
             if (gnl.group)
                 continue;
 
@@ -1053,7 +1053,7 @@ namespace noodle {
                 // lazily create the layouts on demand.
                 auto pnl = provider._pinLayouts.find(entity);
                 if (pnl == provider._pinLayouts.end()) {
-                    provider._pinLayouts[entity] = GraphPinLayout{};
+                    provider._pinLayouts[entity] = NoodlePinGraphic{};
                     pnl = provider._pinLayouts.find(entity);
                 }
 
@@ -1082,8 +1082,8 @@ namespace noodle {
             if (gnl.out_height > height)
                 height = gnl.out_height;
 
-            float width = GraphNodeLayout::k_column_width() * gnl.column_count;
-            ImVec2 new_node_pos = node_pos + ImVec2{ width, GraphPinLayout::k_height() * (1.5f + (float)height) };
+            float width = NoodleNodeGraphic::k_column_width() * gnl.column_count;
+            ImVec2 new_node_pos = node_pos + ImVec2{ width, NoodlePinGraphic::k_height() * (1.5f + (float)height) };
             gnl.lr_cs = { new_node_pos.x, new_node_pos.y };
 
             gnl.in_height = 0;
@@ -1106,22 +1106,22 @@ namespace noodle {
                 {
                 case NoodlePin::Kind::BusIn:
                     pnl->second.column_number = 0;
-                    pnl->second.pos_y_cs = style_padding_y + GraphPinLayout::k_height() * static_cast<float>(gnl.in_height);
+                    pnl->second.pos_y_cs = style_padding_y + NoodlePinGraphic::k_height() * static_cast<float>(gnl.in_height);
                     gnl.in_height += 1;
                     break;
                 case NoodlePin::Kind::BusOut:
                     pnl->second.column_number = static_cast<float>(gnl.column_count);
-                    pnl->second.pos_y_cs = style_padding_y + GraphPinLayout::k_height() * static_cast<float>(gnl.out_height);
+                    pnl->second.pos_y_cs = style_padding_y + NoodlePinGraphic::k_height() * static_cast<float>(gnl.out_height);
                     gnl.out_height += 1;
                     break;
                 case NoodlePin::Kind::Param:
                     pnl->second.column_number = 0;
-                    pnl->second.pos_y_cs = style_padding_y + GraphPinLayout::k_height() * static_cast<float>(gnl.in_height);
+                    pnl->second.pos_y_cs = style_padding_y + NoodlePinGraphic::k_height() * static_cast<float>(gnl.in_height);
                     gnl.in_height += 1;
                     break;
                 case NoodlePin::Kind::Setting:
                     pnl->second.column_number = 1;
-                    pnl->second.pos_y_cs = style_padding_y + GraphPinLayout::k_height() * static_cast<float>(gnl.mid_height);
+                    pnl->second.pos_y_cs = style_padding_y + NoodlePinGraphic::k_height() * static_cast<float>(gnl.mid_height);
                     gnl.mid_height += 1;
                     break;
                 }
@@ -1208,10 +1208,10 @@ namespace noodle {
             for (auto const& node : provider._noodleNodes)
             {
                 entt::entity entity = node.second.id.id;
-                GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(entity);
+                NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(entity);
                 ImVec2 ul = { gnl.ul_cs.x, gnl.ul_cs.y };
                 ImVec2 lr = { gnl.lr_cs.x, gnl.lr_cs.y };
-                if (mouse_x_cs >= ul.x && mouse_x_cs <= (lr.x + GraphPinLayout::k_width()) && mouse_y_cs >= (ul.y - 20) && mouse_y_cs <= lr.y)
+                if (mouse_x_cs >= ul.x && mouse_x_cs <= (lr.x + NoodlePinGraphic::k_width()) && mouse_y_cs >= (ul.y - 20) && mouse_y_cs <= lr.y)
                 {
                     // traditional UI heuristic:
                     // always pick the box with least area in the case of overlaps
@@ -1547,7 +1547,7 @@ namespace noodle {
                     mouse.dragging_node = false;
                     if (hover.originating_pin_id.id == ln_Pin_null().id)
                         hover.originating_pin_id = hover.pin_id;
-                    GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id.id);
+                    NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(hover.node_id.id);
                     gnl.initial_pos_cs = { mouse.mouse_cs.x, mouse.mouse_cs.y };
                 }
                 else if (hover.pin_label_id.id != ln_Pin_null().id)
@@ -1573,7 +1573,7 @@ namespace noodle {
                     mouse.dragging_wire = false;
                     mouse.dragging_node = false;
                     mouse.resizing_node = true;
-                    GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id.id);
+                    NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(hover.node_id.id);
                     gnl.initial_pos_cs = gnl.lr_cs;
                 }
                 else
@@ -1582,7 +1582,7 @@ namespace noodle {
                     mouse.resizing_node = false;
                     mouse.dragging_node = true;
 
-                    GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id.id);
+                    NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(hover.node_id.id);
                     gnl.initial_pos_cs = gnl.ul_cs;
 
                     // set up initials for group dragging
@@ -1592,7 +1592,7 @@ namespace noodle {
                         if (cg != provider._canvasNodes.end()) {
                             for (auto en : cg->second.nodes)
                             {
-                                GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(en.id);
+                                NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(en.id);
                                 gnl.initial_pos_cs = gnl.ul_cs;
                             }
                         }
@@ -1604,7 +1604,7 @@ namespace noodle {
             {
                 ImVec2 delta = mouse.mouse_cs - mouse.canvas_clickpos_cs;
 
-                GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id.id);
+                NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(hover.node_id.id);
                 ImVec2 sz = ImVec2{ gnl.lr_cs.x, gnl.lr_cs.y } - ImVec2{ gnl.ul_cs.x, gnl.ul_cs.y };
                 ImVec2 new_pos = ImVec2{ gnl.initial_pos_cs.x, gnl.initial_pos_cs.y } + delta;
                 gnl.ul_cs = { new_pos.x, new_pos.y };
@@ -1619,7 +1619,7 @@ namespace noodle {
                     if (cg != provider._canvasNodes.end()) {
                         for (ln_Node i : cg->second.nodes)
                         {
-                            GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(i.id);
+                            NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(i.id);
                             ImVec2 sz = ImVec2{ gnl.lr_cs.x, gnl.lr_cs.y } - ImVec2{ gnl.ul_cs.x, gnl.ul_cs.y };
                             ImVec2 new_pos = ImVec2{ gnl.initial_pos_cs.x, gnl.initial_pos_cs.y } + delta;
                             gnl.ul_cs = { new_pos.x, new_pos.y };
@@ -1633,7 +1633,7 @@ namespace noodle {
             {
                 ImVec2 delta = mouse.mouse_cs - mouse.canvas_clickpos_cs;
 
-                GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id.id);
+                NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(hover.node_id.id);
                 ImVec2 new_pos = ImVec2{ gnl.initial_pos_cs.x, gnl.initial_pos_cs.y } + delta;
                 gnl.lr_cs = { new_pos.x, new_pos.y };
                 gnl.lr_cs.x = std::max(gnl.ul_cs.x + 100, gnl.lr_cs.x);
@@ -1754,7 +1754,7 @@ namespace noodle {
             profiler_data[profile_idx].endTime = profiler_data[profile_idx].startTime + provider.node_get_self_timing(edit._device_node);
             profile_idx = (profile_idx + 1) % profiler_data.size();
 
-            GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(entity);
+            NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(entity);
             drawList->ChannelsSetCurrent((int)gnl.channel);
 
             ImVec2 ul_ws = { gnl.ul_cs.x, gnl.ul_cs.y };
@@ -1783,11 +1783,11 @@ namespace noodle {
                 drawList->AddRectFilled(p1, p2, ImColor(255, 255, 255, 128));
             }
 
-            if (registry.any<NodeRender>(entity))
+            if (node.second.render.render)
             {
-                NodeRender& render = registry.get<NodeRender>(entity);
-                if (render.render)
-                    render.render(node.second.id, { ul_ws.x, ul_ws.y }, { lr_ws.x, lr_ws.y }, root.canvas.scale, drawList);
+                node.second.render.render(node.second.id, 
+                    { ul_ws.x, ul_ws.y }, { lr_ws.x, lr_ws.y }, 
+                    root.canvas.scale, drawList);
             }
 
             ///////////////////////////////////////////
@@ -1881,7 +1881,7 @@ namespace noodle {
                 fill |= (uint32_t)(128 + 128 * sinf(pulse * 8)) << 24;
 
                 DrawIcon(drawList, pin_ul,
-                    ImVec2{ pin_ul.x + GraphPinLayout::k_width() * root.canvas.scale, pin_ul.y + GraphPinLayout::k_height() * root.canvas.scale },
+                    ImVec2{ pin_ul.x + NoodlePinGraphic::k_width() * root.canvas.scale, pin_ul.y + NoodlePinGraphic::k_height() * root.canvas.scale },
                     icon_type, false, color, fill);
 
                 // Only draw text if we can likely see it
@@ -2057,9 +2057,9 @@ void create_graph(lab::AudioContext& ctx)
             file << "    std::shared_ptr<" << node.second.kind << "Node> "
                  << node_name_clean << " = std::make_shared<" << node.second.kind << "Node>(ac);\n";
 
-            if (reg.any<GraphNodeLayout>(node_entity))
+            if (reg.any<NoodleNodeGraphic>(node_entity))
             {
-                GraphNodeLayout& gnl = reg.get<GraphNodeLayout>(node_entity);
+                NoodleNodeGraphic& gnl = reg.get<NoodleNodeGraphic>(node_entity);
                 file << "    // position: " << gnl.ul_cs.x << ", " << gnl.ul_cs.y << "\n\n";
             }
 
@@ -2168,9 +2168,9 @@ void create_graph(lab::AudioContext& ctx)
 
             file << "node: " << node.second.kind << " name: " << node.second.name << "\n";
 
-            if (reg.any<GraphNodeLayout>(node_entity))
+            if (reg.any<NoodleNodeGraphic>(node_entity))
             {
-                GraphNodeLayout& gnl = reg.get<GraphNodeLayout>(node_entity);
+                NoodleNodeGraphic& gnl = reg.get<NoodleNodeGraphic>(node_entity);
                 file << " pos: " << gnl.ul_cs.x << " " << gnl.ul_cs.y << "\n";
             }
 
@@ -2271,9 +2271,9 @@ void create_graph(lab::AudioContext& ctx)
             writer.Key("kind");
             writer.String(node.second.kind.c_str());
 
-            if (reg.any<GraphNodeLayout>(node_entity))
+            if (reg.any<NoodleNodeGraphic>(node_entity))
             {
-                GraphNodeLayout& gnl = reg.get<GraphNodeLayout>(node_entity);
+                NoodleNodeGraphic& gnl = reg.get<NoodleNodeGraphic>(node_entity);
                 writer.Key("pos");
                 writer.StartArray();
                 writer.Double(gnl.ul_cs.x);

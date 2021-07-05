@@ -123,12 +123,12 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::NoodleNo
     if (nullptr != dynamic_cast<lab::AnalyserNode*>(audio_node.get()))
     {
         g_audio_context->addAutomaticPullNode(audio_node);
-        registry.emplace<lab::noodle::NodeRender>(audio_node_id.id, 
+        node.render = 
             lab::noodle::NodeRender{
                 [](ln_Node id, lab::noodle::vec2 ul_ws, lab::noodle::vec2 lr_ws, float scale, void* drawList) {
                     DrawSpectrum(id.id, {ul_ws.x, ul_ws.y}, {lr_ws.x, lr_ws.y}, scale, reinterpret_cast<ImDrawList*>(drawList));
                 } 
-            });
+            };
     }
 
     //---------- inputs
