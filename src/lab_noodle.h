@@ -45,14 +45,16 @@ namespace lab { namespace noodle {
     struct NoodleNode
     {
         NoodleNode() = default;
-        NoodleNode(const std::string& n, ln_Node id) noexcept : kind(n), id(id) {}
+        NoodleNode(const std::string& k, const std::string& n, ln_Node id) noexcept 
+            : name(n), kind(k), id(id) {}
         ~NoodleNode() = default;
 
         ln_Node id;
-        bool play_controller = false;
-        bool bang_controller = false;
+        std::string name;
         std::string kind;
         std::vector<ln_Pin> pins;
+        bool play_controller = false;
+        bool bang_controller = false;
     };
 
     // Some nodes may have overridden draw methods, such as the LabSound 
@@ -69,13 +71,6 @@ namespace lab { namespace noodle {
         std::function<void(ln_Node, vec2, vec2, float, void*)> render;
     };
 
-    // every entity may have a name, Pins, Nodes, are typical. A scenegraph
-    // might name connections as well, with terms such as "is parent of".
-    struct Name
-    {
-        std::string name;
-    };
-
     // given a proposed name, of the form name, or name-1 create a new
     // unique name of the form name-2.
     std::string unique_name(std::string proposed_name);
@@ -86,11 +81,13 @@ namespace lab { namespace noodle {
     struct Pin
     {
         Pin() = default;
+
         ~Pin() = default;
         enum class Kind { Setting, Param, BusIn, BusOut };
         enum class DataType { None, Bus, Bool, Integer, Enumeration, Float, String };
         Kind         kind = Kind::Setting;
         DataType     dataType = DataType::None;
+        std::string  name;
         std::string  shortName;
         ln_Pin       pin_id = ln_Pin_null();
         ln_Node      node_id = ln_Node_null();

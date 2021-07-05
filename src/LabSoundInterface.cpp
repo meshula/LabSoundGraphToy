@@ -140,10 +140,10 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::NoodleNo
         node.pins.push_back(pin_id);
         std::string name = ""; // audio_node->input(i)->name(); @TODO an IDL for all the things
         reverse.input_pin_map[name] = pin_id;
-        registry.emplace<lab::noodle::Name>(pin_id.id, name);
         registry.emplace<lab::noodle::Pin>(pin_id.id, lab::noodle::Pin{
             lab::noodle::Pin::Kind::BusIn,
             lab::noodle::Pin::DataType::Bus,
+            name,
             "",
             pin_id, audio_node_id,
             });
@@ -159,10 +159,10 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::NoodleNo
         node.pins.push_back(pin_id);
         std::string name = audio_node->output(i)->name();
         reverse.output_pin_map[name] = ln_Pin{ pin_id };
-        registry.emplace<lab::noodle::Name>(pin_id.id, name);
         registry.emplace<lab::noodle::Pin>(pin_id.id, lab::noodle::Pin{
             lab::noodle::Pin::Kind::BusOut,
             lab::noodle::Pin::DataType::Bus,
+            name,
             "",
             pin_id, audio_node_id,
             });
@@ -212,10 +212,10 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::NoodleNo
         ln_Pin pin_id{ registry.create(), true };
         node.pins.push_back(pin_id);
         registry.emplace<AudioPin>(pin_id.id, AudioPin{ 0, settings[i] });
-        registry.emplace<lab::noodle::Name>(pin_id.id, names[i]);
         registry.emplace<lab::noodle::Pin>(pin_id.id, lab::noodle::Pin {
             lab::noodle::Pin::Kind::Setting,
             dataType,
+            names[i],
             shortNames[i],
             pin_id, audio_node_id,
             std::string{ buff },
@@ -240,10 +240,10 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::NoodleNo
             shared_ptr<lab::AudioSetting>(),
             params[i],
             });
-        registry.emplace<lab::noodle::Name>(pin_id.id, names[i]);
         registry.emplace<lab::noodle::Pin>(pin_id.id, lab::noodle::Pin{
             lab::noodle::Pin::Kind::Param,
             lab::noodle::Pin::DataType::Float,
+            names[i],
             shortNames[i],
             pin_id, audio_node_id,
             buff
@@ -862,10 +862,10 @@ void LabSoundProvider::pin_create_output(const std::string& node_name, const std
 
         node->second.pins.push_back(pin_id);
         reverse.output_pin_map[output_name] = ln_Pin{ pin_id };
-        registry().emplace<lab::noodle::Name>(pin_id.id, output_name);
         registry().emplace<lab::noodle::Pin>(pin_id.id, lab::noodle::Pin{
             lab::noodle::Pin::Kind::BusOut,
             lab::noodle::Pin::DataType::Bus,
+            output_name,
             "",
             pin_id, node_e,
             });
@@ -921,10 +921,10 @@ void LabSoundProvider::add_osc_addr(char const* const addr, int addr_id, int cha
 
         ln_Pin pin_id{ registry.create(), true };
         node->second.pins.push_back(pin_id);
-        registry.emplace<lab::noodle::Name>(pin_id.id, addr);
         registry.emplace<lab::noodle::Pin>(pin_id.id, lab::noodle::Pin{
             lab::noodle::Pin::Kind::BusOut,
             lab::noodle::Pin::DataType::Bus,
+            addr,
             "",
             pin_id, _osc_node,
             });

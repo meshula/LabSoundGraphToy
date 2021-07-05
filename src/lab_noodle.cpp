@@ -359,28 +359,24 @@ namespace noodle {
             }
             case WorkType::CreateNode:
             {
+                std::string conformed_name;
+                if (name.length())
+                    conformed_name = name;
+                else
+                    conformed_name = unique_name(kind);
+
                 if (kind == "Device")
                 {
                     if (!edit._device_node.valid)
                         edit._device_node = ln_Node{ provider.registry().create(), true };
 
-                    provider._noodleNodes[edit._device_node] = NoodleNode("Device", edit._device_node);
+                    provider._noodleNodes[edit._device_node] = NoodleNode("Device", conformed_name, edit._device_node);
 
                     provider.create_runtime_context(edit._device_node);
                     registry.emplace<GraphNodeLayout>(edit._device_node.id,
                         GraphNodeLayout{ nullptr, Channel::Nodes, { canvas_pos.x, canvas_pos.y } });
 
-                    if (name.length())
-                    {
-                        registry.emplace<Name>(edit._device_node.id, name);
-                        provider.associate(edit._device_node, name);
-                    }
-                    else
-                    {
-                        std::string n = unique_name(kind);
-                        registry.emplace<Name>(edit._device_node.id, n);
-                        provider.associate(edit._device_node, n);
-                    }
+                    provider.associate(edit._device_node, conformed_name);
 
                     root.nodes.insert(edit._device_node);
                     edit.incr_work_epoch();
@@ -388,7 +384,7 @@ namespace noodle {
                 }
 
                 ln_Node new_node = ln_Node{ provider.registry().create(), true };
-                provider._noodleNodes[new_node] = NoodleNode(kind, new_node);
+                provider._noodleNodes[new_node] = NoodleNode(kind, conformed_name, new_node);
                 provider.node_create(kind, new_node);
 
                 CanvasNode* cn = nullptr;
@@ -400,17 +396,7 @@ namespace noodle {
                 registry.emplace<GraphNodeLayout>(new_node.id,
                     GraphNodeLayout{cn, Channel::Nodes, { canvas_pos.x, canvas_pos.y } });
 
-                if (name.length())
-                {
-                    registry.emplace<Name>(new_node.id, name);
-                    provider.associate(new_node, name);
-                }
-                else
-                {
-                    std::string n = unique_name(kind);
-                    registry.emplace<Name>(new_node.id, n);
-                    provider.associate(new_node, n);
-                }
+                provider.associate(new_node, conformed_name);
 
                 if (group_node.id != ln_Node_null().id && registry.valid(group_node.id))
                 {
@@ -431,19 +417,20 @@ namespace noodle {
             }
             case WorkType::CreateGroup:
             {
+                std::string conformed_name;
+                if (name.length())
+                    conformed_name = name;
+                else
+                    conformed_name = unique_name(kind);
+
                 entt::entity new_node = provider.registry().create();
                 ln_Node new_ln_node = { new_node, true };
-                provider._noodleNodes[new_ln_node] = NoodleNode(kind, new_ln_node);
+                provider._noodleNodes[new_ln_node] = NoodleNode(kind, conformed_name, new_ln_node);
                 registry.emplace<GraphNodeLayout>(new_node,
                     GraphNodeLayout{ nullptr, Channel::Groups, 
                         { canvas_pos.x, canvas_pos.y },
                         { canvas_pos.x + GraphNodeLayout::k_column_width * 2, canvas_pos.y + GraphPinLayout::k_height * 8},
                         true });
-
-                if (name.length())
-                    registry.emplace<Name>(new_node, name);
-                else
-                    registry.emplace<Name>(new_node, unique_name(kind));
 
                 registry.emplace<CanvasNode>(new_node, CanvasNode{});
                 edit.incr_work_epoch();
@@ -765,15 +752,17 @@ namespace noodle {
         if (!pin.node_id.valid)
             return;
 
-        Name& name = registry.get<Name>(pin.node_id.id);
-        Name& pin_name = registry.get<Name>(pin_id.id);
+        auto node_it = provider._noodleNodes.find(pin.node_id);
+        if (node_it == provider._noodleNodes.end())
+            return;
+
         char buff[256];
-        sprintf(buff, "%s:%s", name.name.c_str(), pin_name.name.c_str());
+        sprintf(buff, "%s:%s", node_it->second.name.c_str(), pin.name.c_str());
 
         ImGui::OpenPopup(buff);
         if (ImGui::BeginPopupModal(buff, nullptr, ImGuiWindowFlags_NoCollapse))
         {
-            ImGui::TextUnformatted(pin_name.name.c_str());
+            ImGui::TextUnformatted(pin.name.c_str());
             ImGui::Separator();
 
             bool accept = false;
@@ -954,10 +943,12 @@ namespace noodle {
             return;
         }
 
-        Name& name = reg.get<Name>(node.id);
+        auto it = provider._noodleNodes.find(node);
+        if (it == provider._noodleNodes.end())
+            return;
 
         char buff[256];
-        sprintf(buff, "%s Node", name.name.c_str());
+        sprintf(buff, "%s Node", it->second.name.c_str());
         ImGui::OpenPopup(buff);
 
         if (ImGui::BeginPopupModal(buff, nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize))
@@ -1777,9 +1768,8 @@ namespace noodle {
             float node_profile_duration = provider.node_get_self_timing(node.second.id);
             node_profile_duration = std::abs(node_profile_duration); /// @TODO, the destination node doesn't yet have a totalTime, so abs is a hack in the nonce
 
-            Name& name = registry.get<Name>(entity);
             profiler_data[profile_idx].color = legit::colors[((profile_idx + 4 * profile_idx) & 0xf)]; // shuffle the colors so like colors are not together
-            profiler_data[profile_idx].name = name.name;
+            profiler_data[profile_idx].name = node.second.name;
             profiler_data[profile_idx].startTime = (profile_idx > 0) ? profiler_data[profile_idx - 1].endTime : 0;
             profiler_data[profile_idx].endTime = profiler_data[profile_idx].startTime + provider.node_get_self_timing(edit._device_node);
             profile_idx = (profile_idx + 1) % profiler_data.size();
@@ -1849,16 +1839,15 @@ namespace noodle {
                 }
 
                 // Name
-                Name& name = registry.get<Name>(entity);
                 label_pos.x += 5;
                 drawList->AddText(io.FontDefault, label_font_size, label_pos,
                     (hover.node_menu && entity == hover.node_id.id) ? text_color_highlighted : text_color,
-                    name.name.c_str(), name.name.c_str() + name.name.size());
+                    node.second.name.c_str(), node.second.name.c_str() + node.second.name.size());
 
                 if (show_ids)
                 {
                     ImVec2 text_size = io.Fonts->Fonts[0]->CalcTextSizeA(label_font_size, FLT_MAX, 0.f, 
-                        name.name.c_str(), name.name.c_str() + name.name.size(), NULL);
+                        node.second.name.c_str(), node.second.name.c_str() + node.second.name.size(), NULL);
 
                     label_pos.x += text_size.x + 5.f;
 
@@ -1938,22 +1927,14 @@ namespace noodle {
                         drawList->AddText(NULL, font_size, label_pos, text_color,
                             pin_it.shortName.c_str(), pin_it.shortName.c_str() + pin_it.shortName.length());
                     }
-                    else
+                    else if (pin_it.name.size())
                     {
-                        // if there's a long name, use it
-                        if (registry.has<Name>(j.id))
+                        if (pin_it.kind == Pin::Kind::BusOut)
                         {
-                            auto& name = registry.get<Name>(j.id);
-                            if (name.name.size())
-                            {
-                                if (pin_it.kind == Pin::Kind::BusOut)
-                                {
-                                    label_pos.x -= (ImGui::CalcTextSize(name.name.c_str()).x + 30) * root.canvas.scale;
-                                }
-                                drawList->AddText(NULL, font_size, label_pos, text_color,
-                                    name.name.c_str(), name.name.c_str() + name.name.length());
-                            }
+                            label_pos.x -= (ImGui::CalcTextSize(pin_it.name.c_str()).x + 30) * root.canvas.scale;
                         }
+                        drawList->AddText(NULL, font_size, label_pos, text_color,
+                            pin_it.name.c_str(), pin_it.name.c_str() + pin_it.name.length());
                     }
 
                     if (has_value)
@@ -2051,7 +2032,6 @@ namespace noodle {
     
     void ProviderHarness::export_cpp(const std::string& path)
     {
-        using lab::noodle::Name;
         using lab::noodle::Pin;
         
         auto clean_name = [](const std::string& s) -> std::string
@@ -2090,10 +2070,9 @@ void create_graph(lab::AudioContext& ctx)
             if (!reg.valid(node_entity))
                 continue;
 
-            lab::noodle::Name& node_name = reg.get<lab::noodle::Name>(node_entity);
-            std::string node_name_clean = clean_name(node_name.name);
+            std::string node_name_clean = clean_name(node.second.name);
             file << "\n    //--------------------\n    // Node: "
-                 << node_name.name << " Kind: " << node.second.kind << "\n";
+                 << node.second.name << " Kind: " << node.second.kind << "\n";
             file << "    std::shared_ptr<" << node.second.kind << "Node> "
                  << node_name_clean << " = std::make_shared<" << node.second.kind << "Node>(ac);\n";
 
@@ -2113,25 +2092,24 @@ void create_graph(lab::AudioContext& ctx)
                 if (!reg.valid(pin.node_id.id))
                     continue;
 
-                Name& name = reg.get<Name>(entity.id);
                 switch (pin.kind)
                 {
                 case Pin::Kind::BusIn:
                     break;
 
                 case Pin::Kind::BusOut:
-                    file << "    // bus out: " << name.name << "\n";
+                    file << "    // bus out: " << pin.name << "\n";
                     break;
 
                 case Pin::Kind::Param:
                     file << "    // param\n";
-                    file << "    {\n        auto param = " << node_name_clean << "->param(" << name.name << ");\n";
+                    file << "    {\n        auto param = " << node_name_clean << "->param(" << pin.name << ");\n";
                     file << "        if (param)\n        {\n            param->setValue(" << pin.value_as_string << ");\n        }\n    }\n";
                     break;
 
                 case Pin::Kind::Setting:
                     file << "    // setting\n";
-                    file << "    {\n        auto setting = " << node_name_clean << "->setting(" << name.name << ");\n";
+                    file << "    {\n        auto setting = " << node_name_clean << "->setting(" << pin.name << ");\n";
                     file << "        if (setting)\n        {\n";
                     switch (pin.dataType)
                     {
@@ -2159,21 +2137,31 @@ void create_graph(lab::AudioContext& ctx)
             if (!from_pin.valid || !to_pin.valid)
                 continue;
 
-            using lab::noodle::Name;
-            Name& from_node_name = reg.get<Name>(connection.node_from.id);
-            //Name& from_pin_name = reg.get<Name>(from_pin);
-            Name& to_node_name = reg.get<Name>(connection.node_to.id);
-            Name& to_pin_name = reg.get<Name>(to_pin.id);
+            auto from_node = provider._noodleNodes.find(connection.node_from);
+            if (from_node == provider._noodleNodes.end())
+                continue;
+            std::string from_node_name = from_node->second.name;
+            auto to_node = provider._noodleNodes.find(connection.node_to);
+            if (to_node == provider._noodleNodes.end())
+                continue;
+            std::string to_node_name = to_node->second.name;
+
+            Pin pin = reg.get<Pin>(to_pin.id);
+            if (!reg.valid(pin.node_id.id))
+                continue;
+            std::string to_pin_name = pin.name;
 
             if (connection.kind == Connection::Kind::ToParam)
             {
                 // @TODO - the context needs a named output -> param API
-                file << "    ctx->connectParam(" << clean_name(from_node_name.name) << ", \"" << to_pin_name.name << "\", " << clean_name(to_node_name.name) << ", 0);\n";
+                file << "    ctx->connectParam(" << clean_name(from_node_name) 
+                     << ", \"" << to_pin_name << "\", " << clean_name(to_node_name) << ", 0);\n";
             }
             else
             {
                 // @TODO - the context needs a named output -> input connection API
-                file << "    ctx->connect(" << clean_name(from_node_name.name) << ", " << clean_name(to_node_name.name) << ", 0, 0);\n";
+                file << "    ctx->connect(" << clean_name(from_node_name) 
+                     << ", " << clean_name(to_node_name) << ", 0, 0);\n";
             }
         }
         file << "}\n" << std::endl;
@@ -2187,7 +2175,6 @@ void create_graph(lab::AudioContext& ctx)
         /// like a prototype template that can be duplicated for a new format.
 
         // Note: this code uses \n because std::endl has other behaviors
-        using lab::noodle::Name;
         using lab::noodle::Pin;
         entt::registry& reg = provider.registry();
         std::ofstream file(path, std::ios::binary);
@@ -2199,8 +2186,7 @@ void create_graph(lab::AudioContext& ctx)
             if (!reg.valid(node_entity))
                 continue;
 
-            lab::noodle::Name& name = reg.get<lab::noodle::Name>(node_entity);
-            file << "node: " << node.second.kind << " name: " << name.name << "\n";
+            file << "node: " << node.second.kind << " name: " << node.second.name << "\n";
 
             if (reg.any<GraphNodeLayout>(node_entity))
             {
@@ -2217,20 +2203,19 @@ void create_graph(lab::AudioContext& ctx)
                 if (!reg.valid(pin.node_id.id))
                     continue;
 
-                Name& name = reg.get<Name>(entity.id);
                 switch (pin.kind)
                 {
                 case Pin::Kind::BusIn:
                     break;
                 case Pin::Kind::BusOut:
-                    file << " out: " << name.name << "\n";
+                    file << " out: " << pin.name << "\n";
                     break;
 
                 case Pin::Kind::Param:
-                    file << " param: " << name.name << " " << pin.value_as_string << "\n";
+                    file << " param: " << pin.name << " " << pin.value_as_string << "\n";
                     break;
                 case Pin::Kind::Setting:
-                    file << " setting: " << name.name << " ";
+                    file << " setting: " << pin.name << " ";
                     switch (pin.dataType)
                     {
                     case Pin::DataType::None: file << "None "; break;
@@ -2255,14 +2240,23 @@ void create_graph(lab::AudioContext& ctx)
             if (!from_pin.valid || !to_pin.valid)
                 continue;
 
-            using lab::noodle::Name;
-            Name& from_pin_name = reg.get<Name>(from_pin.id);
-            //Name& to_pin_name = reg.get<Name>(from_pin.id);
-            Name& from_node_name = reg.get<Name>(connection.node_from.id);
-            Name& to_node_name = reg.get<Name>(connection.node_to.id);
 
-            file << " + " << from_node_name.name << ":" << from_pin_name.name <<
-                " -> " << to_node_name.name << ":" << to_node_name.name << "\n";
+            auto from_node = provider._noodleNodes.find(connection.node_from);
+            if (from_node == provider._noodleNodes.end())
+                continue;
+            std::string from_node_name = from_node->second.name;
+            auto to_node = provider._noodleNodes.find(connection.node_to);
+            if (to_node == provider._noodleNodes.end())
+                continue;
+            std::string to_node_name = to_node->second.name;
+
+            Pin pin = reg.get<Pin>(from_pin.id);
+            if (!reg.valid(pin.node_id.id))
+                continue;
+            std::string from_pin_name = pin.name;
+
+            file << " + " << from_node_name << ":" << from_pin_name <<
+                " -> " << to_node_name << ":" << to_node_name << "\n";
         }
 
         file.flush();
@@ -2271,7 +2265,6 @@ void create_graph(lab::AudioContext& ctx)
 
     void ProviderHarness::save_json(const std::string& path)
     {
-        using lab::noodle::Name;
         using lab::noodle::Pin;
         using StringBuffer = rapidjson::StringBuffer;
         using Writer = rapidjson::Writer<StringBuffer>;
@@ -2292,12 +2285,10 @@ void create_graph(lab::AudioContext& ctx)
             if (!reg.valid(node_entity))
                 continue;
 
-            lab::noodle::Name& name = reg.get<lab::noodle::Name>(node_entity);
-
             writer.StartObject();
 
             writer.Key("name");
-            writer.String(name.name.c_str());
+            writer.String(node.second.name.c_str());
             writer.Key("kind");
             writer.String(node.second.kind.c_str());
 
@@ -2322,7 +2313,6 @@ void create_graph(lab::AudioContext& ctx)
                 if (!reg.valid(pin.node_id.id))
                     continue;
 
-                Name& name = reg.get<Name>(entity.id);
                 switch (pin.kind)
                 {
                 case Pin::Kind::BusIn:
@@ -2333,7 +2323,7 @@ void create_graph(lab::AudioContext& ctx)
                     writer.Key("kind");
                     writer.String("bus_out");
                     writer.Key("name");
-                    writer.String(name.name.c_str());
+                    writer.String(pin.name.c_str());
                     writer.EndObject();
                     break;
 
@@ -2342,7 +2332,7 @@ void create_graph(lab::AudioContext& ctx)
                     writer.Key("kind");
                     writer.String("param");
                     writer.Key("name");
-                    writer.String(name.name.c_str());
+                    writer.String(pin.name.c_str());
                     writer.Key("value");
                     writer.String(pin.value_as_string.c_str());
                     writer.EndObject();
@@ -2353,7 +2343,7 @@ void create_graph(lab::AudioContext& ctx)
                     writer.Key("kind");
                     writer.String("setting");
                     writer.Key("name");
-                    writer.String(name.name.c_str());
+                    writer.String(pin.name.c_str());
                     writer.Key("value");
                     writer.String(pin.value_as_string.c_str());
                     writer.Key("type");
@@ -2389,21 +2379,34 @@ void create_graph(lab::AudioContext& ctx)
             if (!from_pin.valid || !to_pin.valid)
                 continue;
 
-            using lab::noodle::Name;
-            Name& from_node_name = reg.get<Name>(connection.node_from.id);
-            Name& from_pin_name = reg.get<Name>(from_pin.id);
-            Name& to_node_name = reg.get<Name>(connection.node_to.id);
-            Name& to_pin_name = reg.get<Name>(to_pin.id);
+            auto from_node = provider._noodleNodes.find(connection.node_from);
+            if (from_node == provider._noodleNodes.end())
+                continue;
+            std::string from_node_name = from_node->second.name;
+            auto to_node = provider._noodleNodes.find(connection.node_to);
+            if (to_node == provider._noodleNodes.end())
+                continue;
+            std::string to_node_name = to_node->second.name;
+
+            Pin to_pin_ = reg.get<Pin>(to_pin.id);
+            if (!reg.valid(to_pin_.node_id.id))
+                continue;
+            std::string to_pin_name = to_pin_.name;
+
+            Pin from_pin_ = reg.get<Pin>(from_pin.id);
+            if (!reg.valid(from_pin_.node_id.id))
+                continue;
+            std::string from_pin_name = from_pin_.name;
 
             writer.StartObject();
             writer.Key("from_node");
-            writer.String(from_node_name.name.c_str());
+            writer.String(from_node_name.c_str());
             writer.Key("from_pin");
-            writer.String(from_pin_name.name.c_str());
+            writer.String(from_pin_name.c_str());
             writer.Key("to_node");
-            writer.String(to_node_name.name.c_str());
+            writer.String(to_node_name.c_str());
             writer.Key("to_pin");
-            writer.String(to_pin_name.name.c_str());
+            writer.String(to_pin_name.c_str());
             writer.Key("to_pin_kind");
             if (connection.kind == Connection::Kind::ToParam)
                 writer.String("param");
