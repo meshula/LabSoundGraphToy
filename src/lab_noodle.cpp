@@ -102,7 +102,6 @@ namespace noodle {
 
         Canvas canvas;
         std::set<ln_Node, cmp_ln_Node> nodes;
-        std::unordered_set<entt::entity> groups;
     };
 
     // ImGui channels for layering the graphics
@@ -433,7 +432,8 @@ namespace noodle {
             case WorkType::CreateGroup:
             {
                 entt::entity new_node = provider.registry().create();
-                provider._noodleNodes[ln_Node{ new_node, true }] = NoodleNode(kind, ln_Node{ new_node, true });
+                ln_Node new_ln_node = { new_node, true };
+                provider._noodleNodes[new_ln_node] = NoodleNode(kind, new_ln_node);
                 registry.emplace<GraphNodeLayout>(new_node,
                     GraphNodeLayout{ nullptr, Channel::Groups, 
                         { canvas_pos.x, canvas_pos.y },
@@ -446,7 +446,6 @@ namespace noodle {
                     registry.emplace<Name>(new_node, unique_name(kind));
 
                 registry.emplace<CanvasNode>(new_node, CanvasNode{});
-                root.groups.insert(new_node);
                 edit.incr_work_epoch();
                 break;
             }
