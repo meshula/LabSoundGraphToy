@@ -23,6 +23,11 @@ struct cmp_ln_Node {
         return a.id < b.id;
     }
 };
+struct cmp_ln_Connection {
+    bool operator()(const ln_Connection& a, const ln_Connection& b) const {
+        return a.id < b.id;
+    }
+};
 
 namespace lab { namespace noodle {
 
@@ -79,11 +84,11 @@ namespace lab { namespace noodle {
     // pins have kind. Settings can't be connected to.
     // Busses carry signals, and parameters parameterize a node.
     // Busses can connect to parameters to drive them.
-    struct Pin
+    struct NoodlePin
     {
-        Pin() = default;
+        NoodlePin() = default;
+        ~NoodlePin() = default;
 
-        ~Pin() = default;
         enum class Kind { Setting, Param, BusIn, BusOut };
         enum class DataType { None, Bus, Bool, Integer, Enumeration, Float, String };
         Kind         kind = Kind::Setting;
@@ -107,13 +112,16 @@ namespace lab { namespace noodle {
     };
 
     // Schematic nodes may be connected from a pin on one node to a pin on another
-    struct Connection
+    struct NoodleConnection
     {
         enum class Kind { ToBus, ToParam };
 
-        Connection() = delete;
+        NoodleConnection() = default;
 
-        explicit Connection(ln_Connection id, ln_Pin pin_from, ln_Node node_from, ln_Pin pin_to, ln_Node node_to, Kind kind)
+        explicit NoodleConnection(ln_Connection id, 
+            ln_Pin pin_from, ln_Node node_from,
+            ln_Pin pin_to, ln_Node node_to, 
+            Kind kind)
             : id(id), pin_from(pin_from), node_from(node_from), pin_to(pin_to), node_to(node_to), kind(kind) {}
 
         ln_Connection id = ln_Connection_null();
@@ -151,8 +159,9 @@ namespace lab { namespace noodle {
 
     public:
 
-        std::map<ln_Node, NoodleNode, cmp_ln_Node> _noodleNodes;
         std::map<ln_Node, CanvasGroup, cmp_ln_Node> _canvasNodes;
+        std::map<ln_Node, NoodleNode, cmp_ln_Node> _noodleNodes;
+        std::map<ln_Connection, NoodleConnection, cmp_ln_Connection> _connections;
 
         virtual ~Provider() = default;
         

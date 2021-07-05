@@ -140,9 +140,9 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::NoodleNo
         node.pins.push_back(pin_id);
         std::string name = ""; // audio_node->input(i)->name(); @TODO an IDL for all the things
         reverse.input_pin_map[name] = pin_id;
-        registry.emplace<lab::noodle::Pin>(pin_id.id, lab::noodle::Pin{
-            lab::noodle::Pin::Kind::BusIn,
-            lab::noodle::Pin::DataType::Bus,
+        registry.emplace<lab::noodle::NoodlePin>(pin_id.id, lab::noodle::NoodlePin{
+            lab::noodle::NoodlePin::Kind::BusIn,
+            lab::noodle::NoodlePin::DataType::Bus,
             name,
             "",
             pin_id, audio_node_id,
@@ -159,9 +159,9 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::NoodleNo
         node.pins.push_back(pin_id);
         std::string name = audio_node->output(i)->name();
         reverse.output_pin_map[name] = ln_Pin{ pin_id };
-        registry.emplace<lab::noodle::Pin>(pin_id.id, lab::noodle::Pin{
-            lab::noodle::Pin::Kind::BusOut,
-            lab::noodle::Pin::DataType::Bus,
+        registry.emplace<lab::noodle::NoodlePin>(pin_id.id, lab::noodle::NoodlePin{
+            lab::noodle::NoodlePin::Kind::BusOut,
+            lab::noodle::NoodlePin::DataType::Bus,
             name,
             "",
             pin_id, audio_node_id,
@@ -180,40 +180,40 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::NoodleNo
         char buff[64] = { '\0' };
         char const* const* enums = nullptr;
 
-        lab::noodle::Pin::DataType dataType = lab::noodle::Pin::DataType::Float;
+        lab::noodle::NoodlePin::DataType dataType = lab::noodle::NoodlePin::DataType::Float;
         lab::AudioSetting::Type type = settings[i]->type();
         if (type == lab::AudioSetting::Type::Float)
         {
-            dataType = lab::noodle::Pin::DataType::Float;
+            dataType = lab::noodle::NoodlePin::DataType::Float;
             sprintf(buff, "%f", settings[i]->valueFloat());
         }
         else if (type == lab::AudioSetting::Type::Integer)
         {
-            dataType = lab::noodle::Pin::DataType::Integer;
+            dataType = lab::noodle::NoodlePin::DataType::Integer;
             sprintf(buff, "%d", settings[i]->valueUint32());
         }
         else if (type == lab::AudioSetting::Type::Bool)
         {
-            dataType = lab::noodle::Pin::DataType::Bool;
+            dataType = lab::noodle::NoodlePin::DataType::Bool;
             sprintf(buff, "%s", settings[i]->valueBool() ? "1" : "0");
         }
         else if (type == lab::AudioSetting::Type::Enumeration)
         {
-            dataType = lab::noodle::Pin::DataType::Enumeration;
+            dataType = lab::noodle::NoodlePin::DataType::Enumeration;
             enums = settings[i]->enums();
             sprintf(buff, "%s", enums[settings[i]->valueUint32()]);
         }
         else if (type == lab::AudioSetting::Type::Bus)
         {
-            dataType = lab::noodle::Pin::DataType::Bus;
+            dataType = lab::noodle::NoodlePin::DataType::Bus;
             strcpy(buff, "...");
         }
 
         ln_Pin pin_id{ registry.create(), true };
         node.pins.push_back(pin_id);
         registry.emplace<AudioPin>(pin_id.id, AudioPin{ 0, settings[i] });
-        registry.emplace<lab::noodle::Pin>(pin_id.id, lab::noodle::Pin {
-            lab::noodle::Pin::Kind::Setting,
+        registry.emplace<lab::noodle::NoodlePin>(pin_id.id, lab::noodle::NoodlePin {
+            lab::noodle::NoodlePin::Kind::Setting,
             dataType,
             names[i],
             shortNames[i],
@@ -240,9 +240,9 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::NoodleNo
             shared_ptr<lab::AudioSetting>(),
             params[i],
             });
-        registry.emplace<lab::noodle::Pin>(pin_id.id, lab::noodle::Pin{
-            lab::noodle::Pin::Kind::Param,
-            lab::noodle::Pin::DataType::Float,
+        registry.emplace<lab::noodle::NoodlePin>(pin_id.id, lab::noodle::NoodlePin{
+            lab::noodle::NoodlePin::Kind::Param,
+            lab::noodle::NoodlePin::DataType::Float,
             names[i],
             shortNames[i],
             pin_id, audio_node_id,
@@ -276,9 +276,9 @@ void LabSoundProvider::pin_set_bus_from_file(ln_Pin pin_id, const std::string& p
         return;
 
     entt::registry& registry = Registry();
-    lab::noodle::Pin& pin = registry.get<lab::noodle::Pin>(pin_id.id);
+    lab::noodle::NoodlePin& pin = registry.get<lab::noodle::NoodlePin>(pin_id.id);
     AudioPin& a_pin = registry.get<AudioPin>(pin_id.id);
-    if (pin.kind == lab::noodle::Pin::Kind::Setting && a_pin.setting)
+    if (pin.kind == lab::noodle::NoodlePin::Kind::Setting && a_pin.setting)
     {
         auto soundClip = lab::MakeBusFromFile(path.c_str(), false);
         a_pin.setting->setBus(soundClip.get());
@@ -308,7 +308,7 @@ void LabSoundProvider::connect_bus_out_to_param_in(ln_Node output_node_id, ln_Pi
 
     entt::registry& registry = Registry();
     AudioPin& param_pin = registry.get<AudioPin>(param_pin_id.id);
-    lab::noodle::Pin& param_noodle_pin = registry.get<lab::noodle::Pin>(param_pin_id.id);
+    lab::noodle::NoodlePin& param_noodle_pin = registry.get<lab::noodle::NoodlePin>(param_pin_id.id);
     if (!registry.valid(param_noodle_pin.node_id.id) || !param_pin.param)
         return;
 
@@ -330,14 +330,15 @@ void LabSoundProvider::connect_bus_out_to_param_in(ln_Node output_node_id, ln_Pi
 void LabSoundProvider::disconnect(ln_Connection connection_id_)
 {
     entt::registry& registry = Registry();
-    entt::entity& connection_id = connection_id_.id;
-    if (!registry.valid(connection_id)) return;
 
-    lab::noodle::Connection& conn = registry.get<lab::noodle::Connection>(connection_id);
-    ln_Node input_node_id = copy(conn.node_to);
-    ln_Node output_node_id = copy(conn.node_from);
-    ln_Pin input_pin = copy(conn.pin_to);
-    ln_Pin output_pin = copy(conn.pin_from);
+    auto conn = _connections.find(connection_id_);
+    if (conn == _connections.end())
+        return;
+
+    ln_Node input_node_id = copy(conn->second.node_to);
+    ln_Node output_node_id = copy(conn->second.node_from);
+    ln_Pin input_pin = copy(conn->second.pin_to);
+    ln_Pin output_pin = copy(conn->second.pin_from);
     if (input_node_id.valid && output_node_id.valid && input_pin.valid && output_pin.valid)
     {
         shared_ptr<lab::AudioNode> input_node = registry.get<shared_ptr<lab::AudioNode>>(output_node_id.id);
@@ -345,14 +346,14 @@ void LabSoundProvider::disconnect(ln_Connection connection_id_)
         if (input_node && output_node)
         {
             AudioPin& a_in_pin = registry.get<AudioPin>(input_pin.id);
-            lab::noodle::Pin& in_pin = registry.get<lab::noodle::Pin>(input_pin.id);
-            lab::noodle::Pin& out_pin = registry.get<lab::noodle::Pin>(output_pin.id);
-            if ((in_pin.kind == lab::noodle::Pin::Kind::BusIn) && (out_pin.kind == lab::noodle::Pin::Kind::BusOut))
+            lab::noodle::NoodlePin& in_pin = registry.get<lab::noodle::NoodlePin>(input_pin.id);
+            lab::noodle::NoodlePin& out_pin = registry.get<lab::noodle::NoodlePin>(output_pin.id);
+            if ((in_pin.kind == lab::noodle::NoodlePin::Kind::BusIn) && (out_pin.kind == lab::noodle::NoodlePin::Kind::BusOut))
             {
                 g_audio_context->disconnect(input_node, output_node, 0, 0);
                 printf("DisconnectInFromOut (bus from bus) %d %d\n", input_node_id.id, output_node_id.id);
             }
-            else if ((in_pin.kind == lab::noodle::Pin::Kind::Param) && (out_pin.kind == lab::noodle::Pin::Kind::BusOut))
+            else if ((in_pin.kind == lab::noodle::NoodlePin::Kind::Param) && (out_pin.kind == lab::noodle::NoodlePin::Kind::BusOut))
             {
                 g_audio_context->disconnectParam(a_in_pin.param, output_node, 0);
                 printf("DisconnectInFromOut (param from bus) %d %d\n", input_node_id.id, output_node_id.id);
@@ -361,7 +362,7 @@ void LabSoundProvider::disconnect(ln_Connection connection_id_)
     }
 
     //// @TODO this plumbing belongs in lab_noodle as it is audio-agnostic
-    registry.destroy(connection_id);
+    _connections.erase(conn);
     /// @TODO end
     return;
 }
@@ -583,22 +584,24 @@ void LabSoundProvider::node_delete(ln_Node node_id)
 
         /// @TODO this bit should be managed in lab_noodle
         // delete all the node's pins
-        for (const auto entity : registry.view<lab::noodle::Pin>())
+        for (const auto entity : registry.view<lab::noodle::NoodlePin>())
         {
-            lab::noodle::Pin& pin = registry.get<lab::noodle::Pin>(entity);
+            lab::noodle::NoodlePin& pin = registry.get<lab::noodle::NoodlePin>(entity);
             if (pin.node_id.id == entity)
                 registry.destroy(entity);
         }
 
         //// @TODO this plumbing belongs in lab_noodle as it is audio-agnostic
         // remove connections
-        for (const auto entity : registry.view<lab::noodle::Connection>())
-        {
-            lab::noodle::Connection& conn = registry.get<lab::noodle::Connection>(entity);
-            if (conn.node_from.id == node_id.id || conn.node_to.id == node_id.id)
-                registry.destroy(entity);
-        }
 
+        for (auto i = _connections.begin(), last = _connections.end(); i != last; ) {
+            if (i->second.node_from.id == node_id.id || i->second.node_to.id == node_id.id) {
+                i = _connections.erase(i);
+            }
+            else {
+                ++i;
+            }
+        }
         /// @TODO end plumbing
 
         auto reverse_it = g_node_reverse_lookups.find(node_id.id);
@@ -862,9 +865,9 @@ void LabSoundProvider::pin_create_output(const std::string& node_name, const std
 
         node->second.pins.push_back(pin_id);
         reverse.output_pin_map[output_name] = ln_Pin{ pin_id };
-        registry().emplace<lab::noodle::Pin>(pin_id.id, lab::noodle::Pin{
-            lab::noodle::Pin::Kind::BusOut,
-            lab::noodle::Pin::DataType::Bus,
+        registry().emplace<lab::noodle::NoodlePin>(pin_id.id, lab::noodle::NoodlePin{
+            lab::noodle::NoodlePin::Kind::BusOut,
+            lab::noodle::NoodlePin::DataType::Bus,
             output_name,
             "",
             pin_id, node_e,
@@ -921,9 +924,9 @@ void LabSoundProvider::add_osc_addr(char const* const addr, int addr_id, int cha
 
         ln_Pin pin_id{ registry.create(), true };
         node->second.pins.push_back(pin_id);
-        registry.emplace<lab::noodle::Pin>(pin_id.id, lab::noodle::Pin{
-            lab::noodle::Pin::Kind::BusOut,
-            lab::noodle::Pin::DataType::Bus,
+        registry.emplace<lab::noodle::NoodlePin>(pin_id.id, lab::noodle::NoodlePin{
+            lab::noodle::NoodlePin::Kind::BusOut,
+            lab::noodle::NoodlePin::DataType::Bus,
             addr,
             "",
             pin_id, _osc_node,
