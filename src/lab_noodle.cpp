@@ -230,13 +230,13 @@ namespace noodle {
 
     struct HoverState
     {
-        void reset(entt::entity en)
+        void reset_hover()
         {
-            node_id = ln_Node{ en, true };
-            pin_id = ln_Pin{ en };
-            pin_label_id = ln_Pin{ en };
-            connection_id = ln_Connection{ en };
-            size_widget_node_id = ln_Node{ en, true };
+            node_id = ln_Node_null();
+            pin_id = ln_Pin_null();
+            pin_label_id = ln_Pin_null();
+            connection_id = ln_Connection_null();
+            size_widget_node_id = ln_Node_null();
 
             node_menu = false;
             bang = false;
@@ -995,7 +995,7 @@ namespace noodle {
         once = false;
         main_window_id = ImGui::GetID(&main_window_id);
         graph_interactive_region_id = ImGui::GetID(&graph_interactive_region_id);
-        hover.reset(ln_Node_null().id);
+        hover.reset_hover();
 
         profiler_data.resize(1000);
 
@@ -1208,7 +1208,7 @@ namespace noodle {
         
         if (find_highlights)
         {
-            hover.reset(ln_Node_null().id);
+            hover.reset_hover();
             hover.group_id = ln_Node_null();
             float mouse_x_cs = mouse.mouse_cs.x;
             float mouse_y_cs = mouse.mouse_cs.y;
@@ -1446,7 +1446,7 @@ namespace noodle {
             {
                 mouse.dragging = false;
                 hover.node_id = ln_Node_null();
-                hover.reset(ln_Node_null().id);
+                hover.reset_hover();
                 edit.selected_pin = ln_Pin_null();
             }
             else if (edit.selected_pin.id != ln_Pin_null().id)
@@ -1455,7 +1455,7 @@ namespace noodle {
                 edit.edit_pin(provider, root, edit.selected_pin, pending_work);
                 mouse.dragging = false;
                 hover.node_id = ln_Node_null();
-                hover.reset(ln_Node_null().id);
+                hover.reset_hover();
             }
             else if (edit.selected_connection.id != ln_Connection_null().id)
             {
@@ -1463,7 +1463,7 @@ namespace noodle {
                 edit.edit_connection(provider, root, edit.selected_connection, pending_work);
                 mouse.dragging = false;
                 hover.node_id = ln_Node_null();
-                hover.reset(ln_Node_null().id);
+                hover.reset_hover();
             }
             else if (edit.selected_node.id != ln_Node_null().id)
             {
