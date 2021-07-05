@@ -317,7 +317,7 @@ void LabSoundProvider::connect_bus_out_to_param_in(ln_Node output_node_id, ln_Pi
         return;
 
     int output_index = 0;
-    if (output_pin_id.id != entt::null)
+    if (output_pin_id.id != ln_Pin_null().id)
     {
         AudioPin& output_pin = registry.get<AudioPin>(output_pin_id.id);
         output_index = output_pin.output_index;
@@ -379,7 +379,7 @@ ln_Context LabSoundProvider::create_runtime_context(ln_Node id)
     auto it = _noodleNodes.find(id);
     if (it == _noodleNodes.end()) {
         printf("Could not create runtime context\n");
-        return ln_Context{ entt::null };
+        return ln_Context_null();
     }
     lab::noodle::NoodleNode& node = it->second;
     CreateEntities(g_audio_context->device(), node, id);
@@ -390,7 +390,7 @@ ln_Context LabSoundProvider::create_runtime_context(ln_Node id)
 void LabSoundProvider::node_start_stop(ln_Node node_id, float when)
 {
     entt::registry& registry = Registry();
-    if (node_id.id == entt::null)
+    if (node_id.id == ln_Node_null().id)
         return;
 
     shared_ptr<lab::AudioNode> in_node = registry.get<shared_ptr<lab::AudioNode>>(node_id.id);
@@ -414,7 +414,7 @@ void LabSoundProvider::node_start_stop(ln_Node node_id, float when)
 void LabSoundProvider::node_bang(ln_Node node_id)
 {
     entt::registry& registry = Registry();
-    if (node_id.id == entt::null)
+    if (node_id.id == ln_Node_null().id)
         return;
 
     shared_ptr<lab::AudioNode> in_node = registry.get<shared_ptr<lab::AudioNode>>(node_id.id);
@@ -434,21 +434,21 @@ void LabSoundProvider::node_bang(ln_Node node_id)
 ln_Pin LabSoundProvider::node_output_named(ln_Node node_id, const std::string& output_name)
 {
     if (!node_id.valid)
-        return { entt::null, false };
+        return ln_Pin_null();
 
     entt::registry& registry = Registry();
     shared_ptr<lab::AudioNode> node = registry.get<shared_ptr<lab::AudioNode>>(node_id.id);
     if (!node)
-        return { entt::null, false };
+        return ln_Pin_null();
 
     auto reverse_it = g_node_reverse_lookups.find(node_id.id);
     if (reverse_it == g_node_reverse_lookups.end())
-        return { entt::null, false };
+        return ln_Pin_null();
 
     auto& reverse = reverse_it->second;
     auto output_it = reverse.output_pin_map.find(output_name);
     if (output_it == reverse.output_pin_map.end())
-        return { entt::null, false };
+        return ln_Pin_null();
 
     ln_Pin result = copy(output_it->second);
     if (!result.valid)
@@ -460,21 +460,21 @@ ln_Pin LabSoundProvider::node_output_named(ln_Node node_id, const std::string& o
 ln_Pin LabSoundProvider::node_input_with_index(ln_Node node_id, int output)
 {
     if (!node_id.valid)
-        return { entt::null, false };
+        return ln_Pin_null();
 
     entt::registry& registry = Registry();
     shared_ptr<lab::AudioNode> node = registry.get<shared_ptr<lab::AudioNode>>(node_id.id);
     if (!node)
-        return { entt::null, false };
+        return ln_Pin_null();
 
     auto reverse_it = g_node_reverse_lookups.find(node_id.id);
     if (reverse_it == g_node_reverse_lookups.end())
-        return { entt::null, false };
+        return ln_Pin_null();
 
     auto& reverse = reverse_it->second;
     auto input_it = reverse.input_pin_map.find("");
     if (input_it == reverse.input_pin_map.end())
-        return { entt::null, false };
+        return ln_Pin_null();
 
     ln_Pin result = copy(input_it->second);
     if (!result.valid)
@@ -486,21 +486,21 @@ ln_Pin LabSoundProvider::node_input_with_index(ln_Node node_id, int output)
 ln_Pin LabSoundProvider::node_output_with_index(ln_Node node_id, int output)
 {
     if (!node_id.valid)
-        return { entt::null, false };
+        return ln_Pin_null();
 
     entt::registry& registry = Registry();
     shared_ptr<lab::AudioNode> node = registry.get<shared_ptr<lab::AudioNode>>(node_id.id);
     if (!node)
-        return { entt::null, false };
+        return ln_Pin_null();
 
     auto reverse_it = g_node_reverse_lookups.find(node_id.id);
     if (reverse_it == g_node_reverse_lookups.end())
-        return { entt::null, false };
+        return ln_Pin_null();
 
     auto& reverse = reverse_it->second;
     auto output_it = reverse.output_pin_map.find("");
     if (output_it == reverse.output_pin_map.end())
-        return { entt::null, false };
+        return ln_Pin_null();
 
     ln_Pin result = copy(output_it->second);
     if (!result.valid)
@@ -512,21 +512,21 @@ ln_Pin LabSoundProvider::node_output_with_index(ln_Node node_id, int output)
 ln_Pin LabSoundProvider::node_param_named(ln_Node node_id, const std::string& output_name)
 {
     if (!node_id.valid)
-        return { entt::null, false };
+        return ln_Pin_null();
 
     entt::registry& registry = Registry();
     shared_ptr<lab::AudioNode> node = registry.get<shared_ptr<lab::AudioNode>>(node_id.id);
     if (!node)
-        return { entt::null, false };
+        return ln_Pin_null();
 
     auto reverse_it = g_node_reverse_lookups.find(node_id.id);
     if (reverse_it == g_node_reverse_lookups.end())
-        return { entt::null, false };
+        return ln_Pin_null();
 
     auto& reverse = reverse_it->second;
     auto output_it = reverse.param_pin_map.find(output_name);
     if (output_it == reverse.param_pin_map.end())
-        return { entt::null, false };
+        return ln_Pin_null();
 
     ln_Pin result = copy(output_it->second);
     if (!result.valid)
@@ -570,7 +570,7 @@ ln_Node LabSoundProvider::node_create(const std::string& kind, ln_Node id)
 void LabSoundProvider::node_delete(ln_Node node_id)
 {
     entt::registry& registry = Registry();
-    if (node_id.id != entt::null && registry.valid(node_id.id))
+    if (node_id.id != ln_Node_null().id && registry.valid(node_id.id))
     {
         printf("DeleteNode %d\n", node_id.id);
 
@@ -904,7 +904,7 @@ float LabSoundProvider::node_get_self_timing(ln_Node node)
 
 void LabSoundProvider::add_osc_addr(char const* const addr, int addr_id, int channels, float* data)
 {
-    if (_osc_node.id == entt::null)
+    if (_osc_node.id == ln_Node_null().id)
         return;
 
     entt::registry& registry = Registry();

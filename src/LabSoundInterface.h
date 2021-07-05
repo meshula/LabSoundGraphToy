@@ -65,7 +65,7 @@ public:
 
     void add_osc_addr(char const* const addr, int addr_id, int channels, float* data);
 
-    ln_Node _osc_node = { entt::null };
+    ln_Node _osc_node = ln_Node_null();
 };
 
 #endif

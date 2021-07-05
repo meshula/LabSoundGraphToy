@@ -12,6 +12,11 @@ typedef struct { entt::entity id; } ln_Connection;
 typedef struct { entt::entity id; bool valid; } ln_Node;
 typedef struct { entt::entity id; bool valid; } ln_Pin;
 
+constexpr inline ln_Context ln_Context_null() { return { entt::null }; }
+constexpr inline ln_Connection ln_Connection_null() { return { entt::null }; }
+constexpr inline ln_Node ln_Node_null() { return { entt::null, false }; }
+constexpr inline ln_Pin ln_Pin_null() { return { entt::null, false }; }
+
 struct cmp_ln_Node {
     bool operator()(const ln_Node& a, const ln_Node& b) const {
         return a.id < b.id;
@@ -87,8 +92,8 @@ namespace lab { namespace noodle {
         Kind         kind = Kind::Setting;
         DataType     dataType = DataType::None;
         std::string  shortName;
-        ln_Pin       pin_id = { entt::null, false };
-        ln_Node      node_id = { entt::null, false };
+        ln_Pin       pin_id = ln_Pin_null();
+        ln_Node      node_id = ln_Node_null();
         std::string  value_as_string;
         char const* const* names = nullptr; // if an DataType is Enumeration, they'll be here
     };
@@ -113,11 +118,11 @@ namespace lab { namespace noodle {
         explicit Connection(ln_Connection id, ln_Pin pin_from, ln_Node node_from, ln_Pin pin_to, ln_Node node_to, Kind kind)
             : id(id), pin_from(pin_from), node_from(node_from), pin_to(pin_to), node_to(node_to), kind(kind) {}
 
-        ln_Connection id = { entt::null };
-        ln_Pin  pin_from = { entt::null, false };
-        ln_Node node_from = { entt::null, false };
-        ln_Pin  pin_to = { entt::null, false };
-        ln_Node node_to = { entt::null, false };
+        ln_Connection id = ln_Connection_null();
+        ln_Pin  pin_from = ln_Pin_null();
+        ln_Node node_from = ln_Node_null();
+        ln_Pin  pin_to = ln_Pin_null();
+        ln_Node node_to = ln_Node_null();
 
         Kind kind = Kind::ToBus;
     };
@@ -138,14 +143,14 @@ namespace lab { namespace noodle {
         {
             if (registry().valid(n.id))
                 return n;
-            return ln_Node{ entt::null, false };
+            return ln_Node_null();
         }
 
         inline ln_Pin copy(ln_Pin n)
         {
             if (registry().valid(n.id))
                 return n;
-            return ln_Pin{ entt::null, false };
+            return ln_Pin_null();
         }
 
         virtual entt::registry& registry() const = 0;
@@ -159,13 +164,13 @@ namespace lab { namespace noodle {
         {
             auto it = _name_to_entity.find(name);
             if (it == _name_to_entity.end())
-                return ln_Node{ entt::null, false };
+                return ln_Node_null();
             
             bool valid = registry().valid(it->second.id);
             if (!valid)
             {
                 _name_to_entity.erase(it);
-                return ln_Node{ entt::null, false };
+                return ln_Node_null();
             }
             
             return { it->second.id, true };
