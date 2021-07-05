@@ -6,6 +6,7 @@
 #include <functional>
 #include <string>
 #include <map>
+#include <set>
 
 typedef struct { entt::entity id; } ln_Context;
 typedef struct { entt::entity id; } ln_Connection;
@@ -124,6 +125,24 @@ namespace lab { namespace noodle {
         Kind kind = Kind::ToBus;
     };
 
+    // Canvas provides a coordinate system for nodes
+    struct Canvas
+    {
+        vec2 window_origin_offset_ws = { 0, 0 };
+        vec2 origin_offset_ws = { 0, 0 };
+        float  scale = 1.f;
+    };
+
+    // A canvas group is a group of nodes contained within a coordinate frame
+    struct CanvasGroup
+    {
+        explicit CanvasGroup() = default;
+        ~CanvasGroup() = default;
+
+        Canvas canvas;
+        std::set<ln_Node, cmp_ln_Node> nodes;
+    };
+
     class Provider
     {
         friend struct Work;
@@ -133,6 +152,7 @@ namespace lab { namespace noodle {
     public:
 
         std::map<ln_Node, NoodleNode, cmp_ln_Node> _noodleNodes;
+        std::map<ln_Node, CanvasGroup, cmp_ln_Node> _canvasNodes;
 
         virtual ~Provider() = default;
         

@@ -88,21 +88,6 @@ namespace noodle {
         unique_names.clear();
     }
 
-    struct Canvas
-    {
-        vec2 window_origin_offset_ws = { 0, 0 };
-        vec2 origin_offset_ws = { 0, 0 };
-        float  scale = 1.f;
-    };
-
-    struct CanvasNode
-    {
-        explicit CanvasNode() = default;
-        ~CanvasNode() = default;
-
-        Canvas canvas;
-        std::set<ln_Node, cmp_ln_Node> nodes;
-    };
 
     // ImGui channels for layering the graphics
     enum class Channel : int {
@@ -119,7 +104,7 @@ namespace noodle {
 
         // position and shape
 
-        CanvasNode* parent_canvas = nullptr;
+        CanvasGroup* parent_canvas = nullptr;
         Channel channel = Channel::Nodes;
         ImVec2 ul_cs = { 0, 0 };
         ImVec2 lr_cs = { 0, 0 };
@@ -188,9 +173,9 @@ namespace noodle {
     struct Work;
     struct EditState
     {
-        void edit_pin(lab::noodle::Provider& provider, CanvasNode& root, ln_Pin pin_id, std::vector<Work>& pending_work);
-        void edit_connection(lab::noodle::Provider& provider, CanvasNode& root, ln_Connection connection, std::vector<Work>& pending_work);
-        void edit_node(Provider& provider, CanvasNode& root, ln_Node node, std::vector<Work>& pending_work);
+        void edit_pin(lab::noodle::Provider& provider, CanvasGroup& root, ln_Pin pin_id, std::vector<Work>& pending_work);
+        void edit_connection(lab::noodle::Provider& provider, CanvasGroup& root, ln_Connection connection, std::vector<Work>& pending_work);
+        void edit_node(Provider& provider, CanvasGroup& root, ln_Node node, std::vector<Work>& pending_work);
 
         ln_Connection selected_connection = ln_Connection_null();
         ln_Pin selected_pin = ln_Pin_null();
@@ -296,7 +281,7 @@ namespace noodle {
     struct Work
     {
         Provider& provider;
-        CanvasNode& root;
+        CanvasGroup& root;
         WorkType type = WorkType::Nop;
 
         std::unique_ptr<WorkPendingConnection> pendingConnection;
@@ -321,7 +306,7 @@ namespace noodle {
         Work() = delete;
         ~Work() = default;
 
-        explicit Work(Provider& provider, CanvasNode& root)
+        explicit Work(Provider& provider, CanvasGroup& root)
             : provider(provider), root(root)
         {
         }
@@ -389,10 +374,12 @@ namespace noodle {
                 provider._noodleNodes[new_node] = NoodleNode(kind, conformed_name, new_node);
                 provider.node_create(kind, new_node);
 
-                CanvasNode* cn = nullptr;
+                CanvasGroup* cn = nullptr;
                 if (group_node.id != ln_Node_null().id && registry.valid(group_node.id))
                 {
-                    cn = &registry.get<CanvasNode>(group_node.id);
+                    auto it = provider._canvasNodes.find(group_node);
+                    if (it != provider._canvasNodes.end())
+                        cn = &it->second;
                 }
 
                 registry.emplace<GraphNodeLayout>(new_node.id,
@@ -400,11 +387,8 @@ namespace noodle {
 
                 provider.associate(new_node, conformed_name);
 
-                if (group_node.id != ln_Node_null().id && registry.valid(group_node.id))
-                {
-                    CanvasNode& cn = registry.get<CanvasNode>(group_node.id);
-                    cn.nodes.insert(new_node);
-                }
+                if (cn)
+                    cn->nodes.insert(new_node);
                 else
                     root.nodes.insert(new_node);
 
@@ -434,7 +418,7 @@ namespace noodle {
                         { canvas_pos.x + GraphNodeLayout::k_column_width * 2, canvas_pos.y + GraphPinLayout::k_height * 8},
                         true });
 
-                registry.emplace<CanvasNode>(new_node, CanvasNode{});
+                provider._canvasNodes[new_ln_node] = CanvasGroup{};
                 edit.incr_work_epoch();
                 break;
             }
@@ -597,9 +581,10 @@ namespace noodle {
 
             case WorkType::DeleteNode:
             {
-                if (registry.any<CanvasNode>(input_node.id))
+                auto it = provider._canvasNodes.find(input_node);
+                if (it != provider._canvasNodes.end())
                 {
-                    CanvasNode& cn = registry.get<CanvasNode>(input_node.id);
+                    CanvasGroup& cn = it->second;
                     for (auto en : cn.nodes)
                     {
                         provider.node_delete(en);
@@ -637,15 +622,15 @@ namespace noodle {
                 for (auto& noodleNode : provider._noodleNodes) {
                     entt::entity en = noodleNode.second.id.id;
                     if (registry.valid(en)) {
-                        if (registry.any<CanvasNode>(en))
+                        auto cg = provider._canvasNodes.find(noodleNode.second.id);
+                        if (cg != provider._canvasNodes.end())
                         {
-                            CanvasNode& cn = registry.get<CanvasNode>(en);
-                            for (auto en : cn.nodes)
+                            for (auto en : cg->second.nodes)
                             {
                                 provider.node_delete(en);
                                 registry.destroy(en.id);
                             }
-                            cn.nodes.clear();
+                            cg->second.nodes.clear();
                         }
                         else
                         {
@@ -685,7 +670,7 @@ namespace noodle {
         void run(Provider& provider, bool show_profiler, bool show_debug, bool show_ids);
 
         legit::ProfilerGraph profiler_graph;
-        CanvasNode root;
+        CanvasGroup root;
         MouseState mouse;
         EditState edit;
         HoverState hover;
@@ -744,7 +729,7 @@ namespace noodle {
         return result;
     }
 
-    void EditState::edit_pin(lab::noodle::Provider& provider, CanvasNode& root, ln_Pin pin_id, std::vector<Work>& pending_work)
+    void EditState::edit_pin(lab::noodle::Provider& provider, CanvasGroup& root, ln_Pin pin_id, std::vector<Work>& pending_work)
     {
         if (!pin_id.valid)
             return;
@@ -901,7 +886,7 @@ namespace noodle {
         }
     }
 
-    void EditState::edit_connection(lab::noodle::Provider& provider, CanvasNode& root, ln_Connection connection, std::vector<Work>& pending_work)
+    void EditState::edit_connection(lab::noodle::Provider& provider, CanvasGroup& root, ln_Connection connection, std::vector<Work>& pending_work)
     {
         entt::registry& reg = provider.registry();
         if (!reg.valid(connection.id))
@@ -936,7 +921,7 @@ namespace noodle {
         }
     }
 
-    void EditState::edit_node(Provider& provider, CanvasNode& root, ln_Node node, std::vector<Work>& pending_work)
+    void EditState::edit_node(Provider& provider, CanvasGroup& root, ln_Node node, std::vector<Work>& pending_work)
     {
         entt::registry& reg = provider.registry();
         if (!reg.valid(node.id))
@@ -1635,11 +1620,13 @@ namespace noodle {
                     // set up initials for group dragging
                     if (hover.group_id.id != ln_Node_null().id)
                     {
-                        CanvasNode& cn = registry.get<CanvasNode>(hover.group_id.id);
-                        for (auto en : cn.nodes)
-                        {
-                            GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(en.id);
-                            gnl.initial_pos_cs = gnl.ul_cs;
+                        auto cg = provider._canvasNodes.find(hover.group_id);
+                        if (cg != provider._canvasNodes.end()) {
+                            for (auto en : cg->second.nodes)
+                            {
+                                GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(en.id);
+                                gnl.initial_pos_cs = gnl.ul_cs;
+                            }
                         }
                     }
                 }
@@ -1659,14 +1646,16 @@ namespace noodle {
 
                 if (gnl.group)
                 {
-                    CanvasNode& cn = registry.get<CanvasNode>(hover.node_id.id);
-                    for (ln_Node i : cn.nodes)
-                    {
-                        GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(i.id);
-                        ImVec2 sz = gnl.lr_cs - gnl.ul_cs;
-                        ImVec2 new_pos = gnl.initial_pos_cs + delta;
-                        gnl.ul_cs = new_pos;
-                        gnl.lr_cs = new_pos + sz;
+                    auto cg = provider._canvasNodes.find(hover.group_id);
+                    if (cg != provider._canvasNodes.end()) {
+                        for (ln_Node i : cg->second.nodes)
+                        {
+                            GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(i.id);
+                            ImVec2 sz = gnl.lr_cs - gnl.ul_cs;
+                            ImVec2 new_pos = gnl.initial_pos_cs + delta;
+                            gnl.ul_cs = new_pos;
+                            gnl.lr_cs = new_pos + sz;
+                        }
                     }
                 }
             }
