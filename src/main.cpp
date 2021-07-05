@@ -237,7 +237,7 @@ void frame()
     imgui_fixed_window_begin("GraphToyCanvas", 0.f, 20.f, static_cast<float>(width), static_cast<float>(height));
 
     static LabSoundProvider provider;
-    static lab::noodle::Context config(provider);
+    static lab::noodle::ProviderHarness config(provider);
     OSCMsg osc_msg;
     while (_osc_queue->consume(osc_msg))
     {

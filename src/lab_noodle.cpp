@@ -12,11 +12,14 @@
 #include <rapidjson/writer.h>
 
 #include <algorithm>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 
+
 namespace lab {
 namespace noodle {
+
 
     using namespace ImGui;
 
@@ -98,7 +101,7 @@ namespace noodle {
         ~CanvasNode() = default;
 
         Canvas canvas;
-        std::unordered_set<entt::entity> nodes;
+        std::set<ln_Node, cmp_ln_Node> nodes;
         std::unordered_set<entt::entity> groups;
     };
 
@@ -322,7 +325,7 @@ namespace noodle {
         {
         }
 
-        explicit Work(Work&& rh)
+        explicit Work(Work&& rh) noexcept
         : provider(rh.provider), root(rh.root)
         , type(rh.type), kind(rh.kind), name(rh.name)
         , group_node(rh.group_node), input_node(rh.input_node), output_node(rh.output_node)
@@ -353,7 +356,7 @@ namespace noodle {
             {
                 edit._device_node = ln_Node{ provider.registry().create() };
                 kind = "Device";
-                // fall through to CreateNode
+                [[fallthrough]];
             }
             case WorkType::CreateNode:
             {
@@ -362,7 +365,8 @@ namespace noodle {
                     if (!edit._device_node.valid)
                         edit._device_node = ln_Node{ provider.registry().create() };
 
-                    registry.emplace<Node>(edit._device_node.id, Node("Device"));
+                    provider._noodleNodes[edit._device_node] = NoodleNode("Device", edit._device_node);
+
                     provider.create_runtime_context(edit._device_node);
                     registry.emplace<GraphNodeLayout>(edit._device_node.id,
                         GraphNodeLayout{ nullptr, Channel::Nodes, { canvas_pos.x, canvas_pos.y } });
@@ -379,13 +383,13 @@ namespace noodle {
                         provider.associate(edit._device_node, n);
                     }
 
-                    root.nodes.insert(edit._device_node.id);
+                    root.nodes.insert(edit._device_node);
                     edit.incr_work_epoch();
                     break;
                 }
 
                 ln_Node new_node = ln_Node{ provider.registry().create() };
-                registry.emplace<Node>(new_node.id, Node(kind));
+                provider._noodleNodes[new_node] = NoodleNode(kind, new_node);
                 provider.node_create(kind, new_node);
 
                 CanvasNode* cn = nullptr;
@@ -412,10 +416,10 @@ namespace noodle {
                 if (group_node.id != entt::null && registry.valid(group_node.id))
                 {
                     CanvasNode& cn = registry.get<CanvasNode>(group_node.id);
-                    cn.nodes.insert(new_node.id);
+                    cn.nodes.insert(new_node);
                 }
                 else
-                    root.nodes.insert(new_node.id);
+                    root.nodes.insert(new_node);
 
                 edit.incr_work_epoch();
                 break;
@@ -429,7 +433,7 @@ namespace noodle {
             case WorkType::CreateGroup:
             {
                 entt::entity new_node = provider.registry().create();
-                registry.emplace<Node>(new_node, Node(kind));
+                provider._noodleNodes[ln_Node{ new_node, true }] = NoodleNode(kind, ln_Node{ new_node, true });
                 registry.emplace<GraphNodeLayout>(new_node,
                     GraphNodeLayout{ nullptr, Channel::Groups, 
                         { canvas_pos.x, canvas_pos.y },
@@ -499,6 +503,7 @@ namespace noodle {
                     provider.pin_set_setting_enumeration_value(kind, name, string_value);
                 edit.incr_work_epoch();
                 edit.incr_work_epoch();
+                break;
             }
 
             case WorkType::ConnectBusOutToBusIn:
@@ -601,6 +606,7 @@ namespace noodle {
                 edit.incr_work_epoch();
                 break;
             }
+
             case WorkType::DeleteNode:
             {
                 if (registry.any<CanvasNode>(input_node.id))
@@ -609,15 +615,16 @@ namespace noodle {
                     for (auto en : cn.nodes)
                     {
                         provider.node_delete(ln_Node{ en });
-                        registry.destroy(en);
+                        registry.destroy(en.id);
                     }
+                    cn.nodes.clear();
                 }
                 else
                 {
                     GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(input_node.id);
                     if (gnl.parent_canvas)
                     {
-                        auto it = gnl.parent_canvas->nodes.find(input_node.id);
+                        auto it = gnl.parent_canvas->nodes.find(input_node);
                         if (it != gnl.parent_canvas->nodes.end())
                             gnl.parent_canvas->nodes.erase(it);
                     }
@@ -639,33 +646,33 @@ namespace noodle {
             }
             case WorkType::ClearScene:
             {
-                for (auto node_entity : registry.view<lab::noodle::Node>())
-                {
-                    if (!registry.valid(node_entity))
-                        continue;
-
-                    if (registry.any<CanvasNode>(node_entity))
-                    {
-                        CanvasNode& cn = registry.get<CanvasNode>(node_entity);
-                        for (auto en : cn.nodes)
+                for (auto& noodleNode : provider._noodleNodes) {
+                    entt::entity en = noodleNode.second.id.id;
+                    if (registry.valid(en)) {
+                        if (registry.any<CanvasNode>(en))
                         {
-                            provider.node_delete(ln_Node{ en });
-                            registry.destroy(en);
+                            CanvasNode& cn = registry.get<CanvasNode>(en);
+                            for (auto en : cn.nodes)
+                            {
+                                provider.node_delete(ln_Node{ en });
+                                registry.destroy(en.id);
+                            }
+                            cn.nodes.clear();
+                        }
+                        else
+                        {
+                            GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(en);
+                            if (gnl.parent_canvas)
+                            {
+                                auto it = gnl.parent_canvas->nodes.find(noodleNode.second.id);
+                                if (it != gnl.parent_canvas->nodes.end())
+                                    gnl.parent_canvas->nodes.erase(it);
+                            }
+                            provider.node_delete(noodleNode.second.id);
                         }
                     }
-                    else
-                    {
-                        GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(node_entity);
-                        if (gnl.parent_canvas)
-                        {
-                            auto it = gnl.parent_canvas->nodes.find(node_entity);
-                            if (it != gnl.parent_canvas->nodes.end())
-                                gnl.parent_canvas->nodes.erase(it);
-                        }
-                        provider.node_delete(ln_Node{ node_entity });
-                    }
-                    registry.destroy(node_entity);
                 }
+                provider._noodleNodes.clear();
                 edit.clear_epochs();
                 clear_unique_names();
                 provider.clear_entity_node_associations();
@@ -675,7 +682,7 @@ namespace noodle {
         }
     };
 
-    struct Context::State
+    struct ProviderHarness::State
     {
         State() : profiler_graph(100)
         {
@@ -698,12 +705,11 @@ namespace noodle {
         std::vector<legit::ProfilerTask> profiler_data;
 
         float total_profile_duration = 1; // in microseconds
-        entt::entity ent_main_window = entt::null;
         ImGuiID main_window_id = 0;
         ImGuiID graph_interactive_region_id = 0;
     };
 
-    bool Context::State::context_menu(Provider& provider, ImVec2 canvas_pos)
+    bool ProviderHarness::State::context_menu(Provider& provider, ImVec2 canvas_pos)
     {
         static bool result = false;
         static ImGuiID id = ImGui::GetID(&result);
@@ -981,15 +987,14 @@ namespace noodle {
 
     // GraphEditor stuff
 
-    void Context::State::init(Provider& provider)
+    void ProviderHarness::State::init(Provider& provider)
     {
         static bool once = true;
         if (!once)
             return;
 
         once = false;
-        ent_main_window = provider.registry().create();
-        main_window_id = ImGui::GetID(&ent_main_window);
+        main_window_id = ImGui::GetID(&main_window_id);
         graph_interactive_region_id = ImGui::GetID(&graph_interactive_region_id);
         hover.reset(entt::null);
 
@@ -1012,7 +1017,7 @@ namespace noodle {
     }
 
 
-    void Context::State::update_mouse_state(Provider& provider)
+    void ProviderHarness::State::update_mouse_state(Provider& provider)
     {
         //---------------------------------------------------------------------
         // determine hovered, dragging, pressed, and released, as well as
@@ -1077,12 +1082,13 @@ namespace noodle {
 
         // may the counting begin
 
-        for (auto node_entity : registry.view<Node>())
+        for (auto& node : provider._noodleNodes)
         {
-            if (!registry.valid(node_entity))
+            entt::entity en = node.second.id.id;
+            if (!registry.valid(en))
                 continue;
 
-            GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(node_entity);
+            GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(en);
             if (gnl.group)
                 continue;
 
@@ -1093,10 +1099,8 @@ namespace noodle {
 
             ImVec2 node_pos = gnl.ul_cs;
 
-            Node& node = registry.get<Node>(node_entity);
-
             // calculate column heights
-            for (const ln_Pin& entity : node.pins)
+            for (const ln_Pin& entity : node.second.pins)
             {
                 if (!registry.valid(entity.id))
                     continue;
@@ -1143,7 +1147,7 @@ namespace noodle {
             gnl.out_height = 0;
 
             // assign columns
-            for (const ln_Pin& entity : node.pins)
+            for (const ln_Pin& entity : node.second.pins)
             {
                 if (!registry.valid(entity.id))
                     continue;
@@ -1194,7 +1198,7 @@ namespace noodle {
     }
 
 
-    void Context::State::update_hovers(Provider& provider)
+    void ProviderHarness::State::update_hovers(Provider& provider)
     {
         entt::registry& registry = provider.registry();
 
@@ -1259,8 +1263,9 @@ namespace noodle {
             hover.group_area = 1e20f;
 
             // test all nodes
-            for (const entt::entity entity : registry.view<lab::noodle::Node>())
+            for (auto const& node : provider._noodleNodes)
             {
+                entt::entity entity = node.second.id.id;
                 GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(entity);
                 ImVec2 ul = gnl.ul_cs;
                 ImVec2 lr = gnl.lr_cs;
@@ -1296,19 +1301,17 @@ namespace noodle {
                         bool play = false;
                         bool bang = false;
 
-                        auto& node = registry.get<Node>(entity);
-
                         // in banner
-                        if (mouse_x_cs < testx && node.play_controller)
+                        if (mouse_x_cs < testx && node.second.play_controller)
                         {
                             hover.play = true;
                             play = true;
                         }
 
-                        if (node.play_controller)
+                        if (node.second.play_controller)
                             testx += 20;
 
-                        if (!play && mouse_x_cs < testx && node.bang_controller)
+                        if (!play && mouse_x_cs < testx && node.second.bang_controller)
                         {
                             hover.bang = true;
                             bang = true;
@@ -1365,7 +1368,7 @@ namespace noodle {
     }
 
 
-    void Context::State::run(Provider& provider, bool show_profiler, bool show_debug, bool show_ids)
+    void ProviderHarness::State::run(Provider& provider, bool show_profiler, bool show_debug, bool show_ids)
     {
         int profile_idx = 0;
 
@@ -1636,7 +1639,7 @@ namespace noodle {
                         CanvasNode& cn = registry.get<CanvasNode>(hover.group_id.id);
                         for (auto en : cn.nodes)
                         {
-                            GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(en);
+                            GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(en.id);
                             gnl.initial_pos_cs = gnl.ul_cs;
                         }
                     }
@@ -1658,9 +1661,9 @@ namespace noodle {
                 if (gnl.group)
                 {
                     CanvasNode& cn = registry.get<CanvasNode>(hover.node_id.id);
-                    for (entt::entity i : cn.nodes)
+                    for (ln_Node i : cn.nodes)
                     {
-                        GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(i);
+                        GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(i.id);
                         ImVec2 sz = gnl.lr_cs - gnl.ul_cs;
                         ImVec2 new_pos = gnl.initial_pos_cs + delta;
                         gnl.ul_cs = new_pos;
@@ -1769,8 +1772,9 @@ namespace noodle {
 
         total_profile_duration = provider.node_get_timing(edit._device_node);
 
-        for (auto entity : registry.view<lab::noodle::Node>())
+        for (auto& node: provider._noodleNodes)
         {
+            entt::entity entity = node.second.id.id;
             float node_profile_duration = provider.node_get_self_timing(ln_Node{ entity });
             node_profile_duration = std::abs(node_profile_duration); /// @TODO, the destination node doesn't yet have a totalTime, so abs is a hack in the nonce
 
@@ -1826,10 +1830,8 @@ namespace noodle {
                 ImVec2 label_pos = ul_ws;
                 label_pos.y -= 20 * root.canvas.scale;
 
-                auto& node = registry.get<Node>(entity);
-
                 // UI elements
-                if (node.play_controller)
+                if (node.second.play_controller)
                 {
                     auto label = std::string(ICON_FAD_PLAY);
                     drawList->AddText(NULL, label_font_size, label_pos,
@@ -1838,7 +1840,7 @@ namespace noodle {
                     label_pos.x += 20;
                 }
 
-                if (node.bang_controller)
+                if (node.second.bang_controller)
                 {
                     auto label = std::string(ICON_FAD_HARDCLIP);
                     drawList->AddText(NULL, label_font_size, label_pos,
@@ -1873,8 +1875,7 @@ namespace noodle {
             //   Node Input Pins / Connection / Pin  //
             ///////////////////////////////////////////
 
-            Node& node = registry.get<Node>(entity);
-            for (const ln_Pin& j : node.pins)
+            for (const ln_Pin& j : node.second.pins)
             {
                 Pin& pin_it = registry.get<Pin>(j.id);
 
@@ -2026,30 +2027,30 @@ namespace noodle {
     }
 
 
-    Context::Context(Provider& p)
+    ProviderHarness::ProviderHarness(Provider& p)
         : provider(p), _s(new State)
     {
         _s->init(p);
     }
 
-    Context::~Context()
+    ProviderHarness::~ProviderHarness()
     {
         delete _s;
     }
 
 
-    bool Context::run()
+    bool ProviderHarness::run()
     {
         _s->run(provider, show_profiler, show_debug, show_ids);
         return true;
     }
 
-    void Context::save(const std::string& path)
+    void ProviderHarness::save(const std::string& path)
     {
         save_json(path);
     }
     
-    void Context::export_cpp(const std::string& path)
+    void ProviderHarness::export_cpp(const std::string& path)
     {
         using lab::noodle::Name;
         using lab::noodle::Pin;
@@ -2084,19 +2085,18 @@ void create_graph(lab::AudioContext& ctx)
     // Nodes:
             
 )";
-
-        for (auto node_entity : reg.view<lab::noodle::Node>())
+        for (auto& node : provider._noodleNodes)
         {
+            entt::entity node_entity = node.second.id.id;
             if (!reg.valid(node_entity))
                 continue;
 
-            lab::noodle::Node& node = reg.get<lab::noodle::Node>(node_entity);
             lab::noodle::Name& node_name = reg.get<lab::noodle::Name>(node_entity);
             std::string node_name_clean = clean_name(node_name.name);
             file << "\n    //--------------------\n    // Node: "
-                 << node_name.name << " Kind: " << node.kind << "\n";
-            file << "    std::shared_ptr<" << node.kind << "Node> "
-                 << node_name_clean << " = std::make_shared<" << node.kind << "Node>(ac);\n";
+                 << node_name.name << " Kind: " << node.second.kind << "\n";
+            file << "    std::shared_ptr<" << node.second.kind << "Node> "
+                 << node_name_clean << " = std::make_shared<" << node.second.kind << "Node>(ac);\n";
 
             if (reg.any<GraphNodeLayout>(node_entity))
             {
@@ -2105,7 +2105,7 @@ void create_graph(lab::AudioContext& ctx)
             }
 
             file << "    // Pins:\n\n";
-            for (const ln_Pin& entity : node.pins)
+            for (const ln_Pin& entity : node.second.pins)
             {
                 if (!reg.valid(entity.id))
                     continue;
@@ -2181,7 +2181,7 @@ void create_graph(lab::AudioContext& ctx)
         file.close();
     }
 
-    void Context::save_test(const std::string& path)
+    void ProviderHarness::save_test(const std::string& path)
     {
         /// @TODO this is a prototype file format, meant to debug actually writing valuable data
         /// The format could be something else entirely, this routine should be treated more
@@ -2194,14 +2194,14 @@ void create_graph(lab::AudioContext& ctx)
         std::ofstream file(path, std::ios::binary);
         file << "#!LabSoundGraphToy\n";
         file << "# " << path << "\n";
-        for (auto node_entity : reg.view<lab::noodle::Node>())
+        for (auto& node : provider._noodleNodes)
         {
+            entt::entity node_entity = node.second.id.id;
             if (!reg.valid(node_entity))
                 continue;
 
-            lab::noodle::Node& node = reg.get<lab::noodle::Node>(node_entity);
             lab::noodle::Name& name = reg.get<lab::noodle::Name>(node_entity);
-            file << "node: " << node.kind << " name: " << name.name << "\n";
+            file << "node: " << node.second.kind << " name: " << name.name << "\n";
 
             if (reg.any<GraphNodeLayout>(node_entity))
             {
@@ -2209,7 +2209,7 @@ void create_graph(lab::AudioContext& ctx)
                 file << " pos: " << gnl.ul_cs.x << " " << gnl.ul_cs.y << "\n";
             }
 
-            for (const ln_Pin& entity : node.pins)
+            for (const ln_Pin& entity : node.second.pins)
             {
                 if (!reg.valid(entity.id))
                     continue;
@@ -2270,7 +2270,7 @@ void create_graph(lab::AudioContext& ctx)
         _s->edit.unify_epochs();
     }
 
-    void Context::save_json(const std::string& path)
+    void ProviderHarness::save_json(const std::string& path)
     {
         using lab::noodle::Name;
         using lab::noodle::Pin;
@@ -2287,12 +2287,12 @@ void create_graph(lab::AudioContext& ctx)
         writer.Key("nodes");
         writer.StartArray();
 
-        for (auto node_entity : reg.view<lab::noodle::Node>())
+        for (auto& node : provider._noodleNodes)
         {
+            entt::entity node_entity = node.second.id.id;
             if (!reg.valid(node_entity))
                 continue;
 
-            lab::noodle::Node& node = reg.get<lab::noodle::Node>(node_entity);
             lab::noodle::Name& name = reg.get<lab::noodle::Name>(node_entity);
 
             writer.StartObject();
@@ -2300,7 +2300,7 @@ void create_graph(lab::AudioContext& ctx)
             writer.Key("name");
             writer.String(name.name.c_str());
             writer.Key("kind");
-            writer.String(node.kind.c_str());
+            writer.String(node.second.kind.c_str());
 
             if (reg.any<GraphNodeLayout>(node_entity))
             {
@@ -2314,7 +2314,7 @@ void create_graph(lab::AudioContext& ctx)
 
             writer.Key("pins");
             writer.StartArray();
-            for (const ln_Pin& entity : node.pins)
+            for (const ln_Pin& entity : node.second.pins)
             {
                 if (!reg.valid(entity.id))
                     continue;
@@ -2424,7 +2424,7 @@ void create_graph(lab::AudioContext& ctx)
         _s->edit.unify_epochs();
     }
 
-    void Context::load(const std::string& path)
+    void ProviderHarness::load(const std::string& path)
     {
         {
             Work work(provider, _s->root);
@@ -2580,17 +2580,16 @@ void create_graph(lab::AudioContext& ctx)
         }
     }
 
-    bool Context::needs_saving() const
+    bool ProviderHarness::needs_saving() const
     {
         return _s->edit.need_saving();
     }
 
-    void Context::clear_all()
+    void ProviderHarness::clear_all()
     {
         Work work(provider, _s->root);
         work.type = WorkType::ClearScene;
         _s->pending_work.emplace_back(std::move(work));
     }
-
 
 }} // lab::noodle

@@ -12,15 +12,123 @@ typedef struct { entt::entity id; } ln_Connection;
 typedef struct { entt::entity id; bool valid; } ln_Node;
 typedef struct { entt::entity id; bool valid; } ln_Pin;
 
+struct cmp_ln_Node {
+    bool operator()(const ln_Node& a, const ln_Node& b) const {
+        return a.id < b.id;
+    }
+};
+
 namespace lab { namespace noodle {
 
     struct vec2 { float x, y; };
 
+    struct ProviderHarness;
+
+    //--------------------------------------------------------------------------
+    // Schematic
+    //
+    // A schematic is comprised of nodes; nodes have collections of pins;
+    // and connections connect a pin in one node to a pin in another.
+    //
+    // Any element in a schematic may have a name.
+    //
+    //--------------------------------------------------------------------------
+
+    // The node is a primary entity
+    // every AudioNode is a Node, but not every Node is an AudioNode.
+    // for example, a Documentation node might be known only to lab noodle.
+    struct NoodleNode
+    {
+        NoodleNode() = default;
+        NoodleNode(const std::string& n, ln_Node id) noexcept : kind(n), id(id) {}
+        ~NoodleNode() = default;
+
+        ln_Node id;
+        bool play_controller = false;
+        bool bang_controller = false;
+        std::string kind;
+        std::vector<ln_Pin> pins;
+    };
+
+    // Some nodes may have overridden draw methods, such as the LabSound 
+    // AnalyserNode. If such exists, the associated NodeRender will have a 
+    // functor to call.
+    /// @TODO add a render delegate, so that a void* doesn't have to be passed
+    /// where a DrawList would go
+    struct NodeRender
+    {
+        // entity, ul_ws, lr_ws, scale, drawlist (typically ImGui::DrawList)
+        std::function<void(entt::entity, vec2, vec2, float, void*)> render;
+    };
+
+    // every entity may have a name, Pins, Nodes, are typical. A scenegraph
+    // might name connections as well, with terms such as "is parent of".
+    struct Name
+    {
+        std::string name;
+    };
+
+    // given a proposed name, of the form name, or name-1 create a new
+    // unique name of the form name-2.
+    std::string unique_name(std::string proposed_name);
+
+    // pins have kind. Settings can't be connected to.
+    // Busses carry signals, and parameters parameterize a node.
+    // Busses can connect to parameters to drive them.
+    struct Pin
+    {
+        Pin() = default;
+        ~Pin() = default;
+        enum class Kind { Setting, Param, BusIn, BusOut };
+        enum class DataType { None, Bus, Bool, Integer, Enumeration, Float, String };
+        Kind         kind = Kind::Setting;
+        DataType     dataType = DataType::None;
+        std::string  shortName;
+        ln_Pin       pin_id = { entt::null, false };
+        ln_Node      node_id = { entt::null, false };
+        std::string  value_as_string;
+        char const* const* names = nullptr; // if an DataType is Enumeration, they'll be here
+    };
+
+    // PinEdit provides a mechanism by which a pin can
+    // accept a value in the form of a string, or get a value as a string.
+    // A custom edit routine could go here as well, as for the renderer.
+    /// @TODO hook them up
+    struct PinEdit
+    {
+        std::function<void(ln_Pin, std::string)> set;
+        std::function<std::string(ln_Pin)> get;
+    };
+
+    // Schematic nodes may be connected from a pin on one node to a pin on another
+    struct Connection
+    {
+        enum class Kind { ToBus, ToParam };
+
+        Connection() = delete;
+
+        explicit Connection(ln_Connection id, ln_Pin pin_from, ln_Node node_from, ln_Pin pin_to, ln_Node node_to, Kind kind)
+            : id(id), pin_from(pin_from), node_from(node_from), pin_to(pin_to), node_to(node_to), kind(kind) {}
+
+        ln_Connection id = { entt::null };
+        ln_Pin  pin_from = { entt::null, false };
+        ln_Node node_from = { entt::null, false };
+        ln_Pin  pin_to = { entt::null, false };
+        ln_Node node_to = { entt::null, false };
+
+        Kind kind = Kind::ToBus;
+    };
+
     class Provider
     {
+        friend struct Work;
+        friend struct ProviderHarness;
         std::map<std::string, ln_Node> _name_to_entity;
 
     public:
+
+        std::map<ln_Node, NoodleNode, cmp_ln_Node> _noodleNodes;
+
         virtual ~Provider() = default;
         
         inline ln_Node copy(ln_Node n)
@@ -105,112 +213,16 @@ namespace lab { namespace noodle {
         virtual void disconnect(ln_Connection connection_id) = 0;
     };
 
-
-    //--------------------------------------------------------------------------
-    // Schematic
-    //
-    // A schematic is comprised of nodes; nodes have collections of pins;
-    // and connections connect a pin in one node to a pin in another.
-    //
-    // Any element in a schematic may have a name.
-    //
-    //--------------------------------------------------------------------------
-
-    // The node is a primary entity
-    // every AudioNode is a Node, but not every Node is an AudioNode.
-    // for example, a Documentation node might be known only to lab noodle.
-    struct Node
-    {
-        Node() noexcept = default;
-        Node(const std::string& n) noexcept : kind(n) {}
-        ~Node() = default;
-
-        bool play_controller = false;
-        bool bang_controller = false;
-        std::string kind;
-        std::vector<ln_Pin> pins;
-    };
-
-    // Some nodes may have overridden draw methods, such as the LabSound 
-    // AnalyserNode. If such exists, the associated NodeRender will have a 
-    // functor to call.
-    /// @TODO add a render delegate, so that a void* doesn't have to be passed
-    /// where a DrawList would go
-    struct NodeRender
-    {
-        // entity, ul_ws, lr_ws, scale, drawlist (typically ImGui::DrawList)
-        std::function<void(entt::entity, vec2, vec2, float, void*)> render;
-    };
-
-    // every entity may have a name, Pins, Nodes, are typical. A scenegraph
-    // might name connections as well, with terms such as "is parent of".
-    struct Name
-    {
-        std::string name;
-    };
-
-    // given a proposed name, of the form name, or name-1 create a new
-    // unique name of the form name-2.
-    std::string unique_name(std::string proposed_name);
-
-    // pins have kind. Settings can't be connected to.
-    // Busses carry signals, and parameters parameterize a node.
-    // Busses can connect to parameters to drive them.
-    struct Pin
-    {
-        Pin() = default;
-        ~Pin() = default;
-        enum class Kind { Setting, Param, BusIn, BusOut };
-        enum class DataType { None, Bus, Bool, Integer, Enumeration, Float, String };
-        Kind         kind = Kind::Setting;
-        DataType     dataType = DataType::None;
-        std::string  shortName;
-        ln_Pin       pin_id = { entt::null, false };
-        ln_Node      node_id = { entt::null, false };
-        std::string  value_as_string;
-        char const* const* names = nullptr; // if an DataType is Enumeration, they'll be here
-    };
-
-    // PinEdit provides a mechanism by which a pin can
-    // accept a value in the form of a string, or get a value as a string.
-    // A custom edit routine could go here as well, as for the renderer.
-    /// @TODO hook them up
-    struct PinEdit
-    {
-        std::function<void(ln_Pin, std::string)> set;
-        std::function<std::string(ln_Pin)> get;
-    };
- 
-    // Schematic nodes may be connected from a pin on one node to a pin on another
-    struct Connection
-    {
-        enum class Kind { ToBus, ToParam };
-
-        Connection() = delete;
-
-        explicit Connection(ln_Connection id, ln_Pin pin_from, ln_Node node_from, ln_Pin pin_to, ln_Node node_to, Kind kind)
-            : id(id), pin_from(pin_from), node_from(node_from), pin_to(pin_to), node_to(node_to), kind(kind) {}
-
-        ln_Connection id = { entt::null };
-        ln_Pin  pin_from = { entt::null, false };
-        ln_Node node_from = { entt::null, false };
-        ln_Pin  pin_to = { entt::null, false };
-        ln_Node node_to = { entt::null, false };
-
-        Kind kind = Kind::ToBus;
-    };
-
-
     //--------------------------------------------------------------------------
     // Runtime
     //--------------------------------------------------------------------------
 
 
-    struct Context
+    struct ProviderHarness
     {
-        Context() = delete;
-        explicit Context(Provider&);
-        ~Context();
+        ProviderHarness() = delete;
+        explicit ProviderHarness(Provider&);
+        ~ProviderHarness();
 
         Provider& provider;
         bool show_profiler = false;
@@ -220,7 +232,7 @@ namespace lab { namespace noodle {
       
         bool run();
 
-        // save and load do their work irrepsective of dirty state.
+        // save and load do their work irrespective of dirty state.
         // check needs_saving to determine if the user should be presented
         // with a save as dialog, or if save should not be called.
         // the Context is not responsible for the document on disk, only reading and writing,
@@ -238,6 +250,6 @@ namespace lab { namespace noodle {
         State* _s;
     };
 
-} }
+} }  // lab::noodle
 
 #endif

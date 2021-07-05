@@ -11,6 +11,8 @@ using std::shared_ptr;
 using std::string;
 using std::vector;
 
+
+
 //--------------------------------------------------------------
 // AudioPins are created for every created node
 // There is one noodle pin for every AudioPin
@@ -102,7 +104,7 @@ void DrawSpectrum(entt::entity id, ImVec2 ul_ws, ImVec2 lr_ws, float scale, ImDr
 }
 
 
-void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::Node& node, entt::entity audio_node_id)
+void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::NoodleNode& node, entt::entity audio_node_id)
 {
     if (!audio_node)
         return;
@@ -364,15 +366,20 @@ void LabSoundProvider::disconnect(ln_Connection connection_id_)
 
 ln_Context LabSoundProvider::create_runtime_context(ln_Node id)
 {
-    entt::registry& registry = Registry();
     const auto defaultAudioDeviceConfigurations = GetDefaultAudioDeviceConfiguration(true);
 
     if (!g_audio_context)
         g_audio_context = lab::MakeRealtimeAudioContext(defaultAudioDeviceConfigurations.second, defaultAudioDeviceConfigurations.first);
 
+    entt::registry& registry = Registry();
     registry.emplace<shared_ptr<lab::AudioNode>>(id.id, g_audio_context->device());
 
-    lab::noodle::Node& node = registry.get<lab::noodle::Node>(id.id);
+    auto it = _noodleNodes.find(id);
+    if (it == _noodleNodes.end()) {
+        printf("Could not create runtime context\n");
+        return ln_Context{ entt::null };
+    }
+    lab::noodle::NoodleNode& node = it->second;
     CreateEntities(g_audio_context->device(), node, id.id);
     printf("CreateRuntimeContext %d\n", id.id);
     return ln_Context{id.id};
@@ -539,12 +546,14 @@ ln_Node LabSoundProvider::node_create(const std::string& kind, ln_Node id)
     shared_ptr<lab::AudioNode> n = NodeFactory(kind);
     if (n)
     {
-        lab::noodle::Node& node = registry.get<lab::noodle::Node>(id.id);
-        node.play_controller = n->isScheduledNode();
-        node.bang_controller = !!n->param("gate");
-        registry.emplace<shared_ptr<lab::AudioNode>>(id.id, n);
-        CreateEntities(n, node, id.id);
-        printf("CreateNode [%s] %d\n", kind.c_str(), id.id);
+        auto node = _noodleNodes.find(id);
+        if (node != _noodleNodes.end()) {
+            node->second.play_controller = n->isScheduledNode();
+            node->second.bang_controller = !!n->param("gate");
+            registry.emplace<shared_ptr<lab::AudioNode>>(id.id, n);
+            CreateEntities(n, node->second, id.id);
+            printf("CreateNode [%s] %d\n", kind.c_str(), id.id);
+        }
     }
     else
     {
@@ -841,9 +850,13 @@ void LabSoundProvider::pin_create_output(const std::string& node_name, const std
 
         ln_Pin pin_id{ registry().create(), true };
 
-        lab::noodle::Node& node = registry().get<lab::noodle::Node>(node_e.id);
+        auto node = _noodleNodes.find(node_e);
+        if (node == _noodleNodes.end()) {
+            printf("Could not find node %s\n", node_name.c_str());
+            return;
+        }
 
-        node.pins.push_back(pin_id);
+        node->second.pins.push_back(pin_id);
         reverse.output_pin_map[output_name] = ln_Pin{ pin_id };
         registry().emplace<lab::noodle::Name>(pin_id.id, output_name);
         registry().emplace<lab::noodle::Pin>(pin_id.id, lab::noodle::Pin{
@@ -898,9 +911,12 @@ void LabSoundProvider::add_osc_addr(char const* const addr, int addr_id, int cha
     auto it = n->key_to_addrData.find(addr_id);
     if (it != n->key_to_addrData.end())
     {
-        lab::noodle::Node& node = registry.get<lab::noodle::Node>(_osc_node.id);
+        auto node = _noodleNodes.find(_osc_node);
+        if (node == _noodleNodes.end())
+            return;
+
         ln_Pin pin_id{ registry.create(), true };
-        node.pins.push_back(pin_id);
+        node->second.pins.push_back(pin_id);
         registry.emplace<lab::noodle::Name>(pin_id.id, addr);
         registry.emplace<lab::noodle::Pin>(pin_id.id, lab::noodle::Pin{
             lab::noodle::Pin::Kind::BusOut,
