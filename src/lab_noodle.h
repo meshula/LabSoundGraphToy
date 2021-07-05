@@ -169,6 +169,34 @@ namespace lab { namespace noodle {
         bool label_contains_cs_point(Canvas& canvas, float x, float y) const;
     };
 
+
+    // channels for layering the graphics
+    enum class NoodleGraphicLayer : int {
+        Content = 0,
+        Grid = 1,
+        Groups = 2,
+        Nodes = 3,
+        Count = 4
+    };
+
+    struct GraphNodeLayout
+    {
+        static constexpr float k_column_width() { return 180.f; }
+
+        // position and shape
+
+        CanvasGroup* parent_canvas = nullptr;
+        NoodleGraphicLayer channel = NoodleGraphicLayer::Nodes;
+        vec2 ul_cs = { 0, 0 };
+        vec2 lr_cs = { 0, 0 };
+        bool group = false;
+        int in_height = 0, mid_height = 0, out_height = 0;
+        int column_count = 1;
+
+        // interaction
+        vec2 initial_pos_cs = { 0, 0 };
+    };
+
     class Provider
     {
         friend struct Work;

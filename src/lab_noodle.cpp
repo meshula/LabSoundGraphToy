@@ -89,38 +89,10 @@ namespace noodle {
     }
 
 
-    // ImGui channels for layering the graphics
-    enum class Channel : int {
-        Content = 0,
-        Grid = 1,
-        Groups = 2,
-        Nodes = 3,
-        Count = 4
-    };
-
-    struct GraphNodeLayout
-    {
-        static const float k_column_width;
-
-        // position and shape
-
-        CanvasGroup* parent_canvas = nullptr;
-        Channel channel = Channel::Nodes;
-        ImVec2 ul_cs = { 0, 0 };
-        ImVec2 lr_cs = { 0, 0 };
-        bool group = false;
-        int in_height = 0, mid_height = 0, out_height = 0;
-        int column_count = 1;
-
-        // interaction
-        ImVec2 initial_pos_cs = { 0, 0 };
-    };
-    const float GraphNodeLayout::k_column_width = 180.f;
-
 
     vec2 GraphPinLayout::ul_ws(Canvas& canvas) const
     {
-        float x = column_number * GraphNodeLayout::k_column_width;
+        float x = column_number * GraphNodeLayout::k_column_width();
         ImVec2 no = { node_origin_cs.x, node_origin_cs.y };
         ImVec2 res = (no + ImVec2{ x, pos_y_cs }) * canvas.scale;
         ImVec2 o_off = { canvas.origin_offset_ws.x, canvas.origin_offset_ws.y };
@@ -131,15 +103,15 @@ namespace noodle {
     bool GraphPinLayout::pin_contains_cs_point(Canvas& canvas, float x, float y) const
     {
         ImVec2 no = { node_origin_cs.x, node_origin_cs.y };
-        ImVec2 ul = (no + ImVec2{ column_number * GraphNodeLayout::k_column_width, pos_y_cs });
+        ImVec2 ul = (no + ImVec2{ column_number * GraphNodeLayout::k_column_width(), pos_y_cs });
         ImVec2 lr = { ul.x + k_width(), ul.y + k_height() };
         return x >= ul.x && x <= lr.x && y >= ul.y && y <= lr.y;
     }
     bool GraphPinLayout::label_contains_cs_point(Canvas& canvas, float x, float y) const
     {
         ImVec2 no = { node_origin_cs.x, node_origin_cs.y };
-        ImVec2 ul = (no + ImVec2{ column_number * GraphNodeLayout::k_column_width, pos_y_cs });
-        ImVec2 lr = { ul.x + GraphNodeLayout::k_column_width, ul.y + k_height() };
+        ImVec2 ul = (no + ImVec2{ column_number * GraphNodeLayout::k_column_width(), pos_y_cs });
+        ImVec2 lr = { ul.x + GraphNodeLayout::k_column_width(), ul.y + k_height() };
         ul.x += k_width();
         //printf("m(%0.1f, %0.1f) ul(%0.1f, %0.1f) lr(%01.f, %0.1f)\n", x, y, ul.x, ul.y, lr.x, lr.y);
         return x >= ul.x && x <= lr.x && y >= ul.y && y <= lr.y;
@@ -356,7 +328,7 @@ namespace noodle {
 
                     provider.create_runtime_context(edit._device_node);
                     registry.emplace<GraphNodeLayout>(edit._device_node.id,
-                        GraphNodeLayout{ nullptr, Channel::Nodes, { canvas_pos.x, canvas_pos.y } });
+                        GraphNodeLayout{ nullptr, NoodleGraphicLayer::Nodes, { canvas_pos.x, canvas_pos.y } });
 
                     provider.associate(edit._device_node, conformed_name);
 
@@ -378,7 +350,7 @@ namespace noodle {
                 }
 
                 registry.emplace<GraphNodeLayout>(new_node.id,
-                    GraphNodeLayout{cn, Channel::Nodes, { canvas_pos.x, canvas_pos.y } });
+                    GraphNodeLayout{cn, NoodleGraphicLayer::Nodes, { canvas_pos.x, canvas_pos.y } });
 
                 provider.associate(new_node, conformed_name);
 
@@ -408,9 +380,9 @@ namespace noodle {
                 ln_Node new_ln_node = { new_node, true };
                 provider._noodleNodes[new_ln_node] = NoodleNode(kind, conformed_name, new_ln_node);
                 registry.emplace<GraphNodeLayout>(new_node,
-                    GraphNodeLayout{ nullptr, Channel::Groups, 
+                    GraphNodeLayout{ nullptr, NoodleGraphicLayer::Groups, 
                         { canvas_pos.x, canvas_pos.y },
-                        { canvas_pos.x + GraphNodeLayout::k_column_width * 2, canvas_pos.y + GraphPinLayout::k_height() * 8},
+                        { canvas_pos.x + GraphNodeLayout::k_column_width() * 2, canvas_pos.y + GraphPinLayout::k_height() * 8},
                         true });
 
                 provider._canvasNodes[new_ln_node] = CanvasGroup{};
@@ -1066,7 +1038,7 @@ namespace noodle {
             gnl.out_height = 0;
             gnl.column_count = 1;
 
-            ImVec2 node_pos = gnl.ul_cs;
+            ImVec2 node_pos = { gnl.ul_cs.x, gnl.ul_cs.y };
 
             // calculate column heights
             for (const ln_Pin& entity : node.second.pins)
@@ -1110,8 +1082,9 @@ namespace noodle {
             if (gnl.out_height > height)
                 height = gnl.out_height;
 
-            float width = GraphNodeLayout::k_column_width * gnl.column_count;
-            gnl.lr_cs = node_pos + ImVec2{ width, GraphPinLayout::k_height() * (1.5f + (float)height) };
+            float width = GraphNodeLayout::k_column_width() * gnl.column_count;
+            ImVec2 new_node_pos = node_pos + ImVec2{ width, GraphPinLayout::k_height() * (1.5f + (float)height) };
+            gnl.lr_cs = { new_node_pos.x, new_node_pos.y };
 
             gnl.in_height = 0;
             gnl.mid_height = 0;
@@ -1236,8 +1209,8 @@ namespace noodle {
             {
                 entt::entity entity = node.second.id.id;
                 GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(entity);
-                ImVec2 ul = gnl.ul_cs;
-                ImVec2 lr = gnl.lr_cs;
+                ImVec2 ul = { gnl.ul_cs.x, gnl.ul_cs.y };
+                ImVec2 lr = { gnl.lr_cs.x, gnl.lr_cs.y };
                 if (mouse_x_cs >= ul.x && mouse_x_cs <= (lr.x + GraphPinLayout::k_width()) && mouse_y_cs >= (ul.y - 20) && mouse_y_cs <= lr.y)
                 {
                     // traditional UI heuristic:
@@ -1386,10 +1359,10 @@ namespace noodle {
         // draw the grid on the canvas
 
         ImDrawList* drawList = ImGui::GetWindowDrawList();
-        drawList->ChannelsSplit((int) Channel::Count);
-        drawList->ChannelsSetCurrent((int) Channel::Content);
+        drawList->ChannelsSplit((int) NoodleGraphicLayer::Count);
+        drawList->ChannelsSetCurrent((int) NoodleGraphicLayer::Content);
         {
-            drawList->ChannelsSetCurrent((int) Channel::Grid);
+            drawList->ChannelsSetCurrent((int) NoodleGraphicLayer::Grid);
 
             const float grid_step_x = 100.0f * root.canvas.scale;
             const float grid_step_y = 100.0f * root.canvas.scale;
@@ -1407,7 +1380,7 @@ namespace noodle {
                 drawList->AddLine(ImVec2(0.0f, y) + grid_origin, ImVec2(grid_size.x, y) + grid_origin, grid_line_color);
             }
         }
-        drawList->ChannelsSetCurrent((int) Channel::Content);
+        drawList->ChannelsSetCurrent((int) NoodleGraphicLayer::Content);
 
         //---------------------------------------------------------------------
         // run the Imgui portion of the UI
@@ -1575,7 +1548,7 @@ namespace noodle {
                     if (hover.originating_pin_id.id == ln_Pin_null().id)
                         hover.originating_pin_id = hover.pin_id;
                     GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id.id);
-                    gnl.initial_pos_cs = mouse.mouse_cs;
+                    gnl.initial_pos_cs = { mouse.mouse_cs.x, mouse.mouse_cs.y };
                 }
                 else if (hover.pin_label_id.id != ln_Pin_null().id)
                 {
@@ -1632,10 +1605,11 @@ namespace noodle {
                 ImVec2 delta = mouse.mouse_cs - mouse.canvas_clickpos_cs;
 
                 GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id.id);
-                ImVec2 sz = gnl.lr_cs - gnl.ul_cs;
-                ImVec2 new_pos = gnl.initial_pos_cs + delta;
-                gnl.ul_cs = new_pos;
-                gnl.lr_cs = new_pos + sz;
+                ImVec2 sz = ImVec2{ gnl.lr_cs.x, gnl.lr_cs.y } - ImVec2{ gnl.ul_cs.x, gnl.ul_cs.y };
+                ImVec2 new_pos = ImVec2{ gnl.initial_pos_cs.x, gnl.initial_pos_cs.y } + delta;
+                gnl.ul_cs = { new_pos.x, new_pos.y };
+                new_pos = new_pos + sz;
+                gnl.lr_cs = { new_pos.x, new_pos.y };
 
                 /// @TODO force the color to be highlighting
 
@@ -1646,10 +1620,11 @@ namespace noodle {
                         for (ln_Node i : cg->second.nodes)
                         {
                             GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(i.id);
-                            ImVec2 sz = gnl.lr_cs - gnl.ul_cs;
-                            ImVec2 new_pos = gnl.initial_pos_cs + delta;
-                            gnl.ul_cs = new_pos;
-                            gnl.lr_cs = new_pos + sz;
+                            ImVec2 sz = ImVec2{ gnl.lr_cs.x, gnl.lr_cs.y } - ImVec2{ gnl.ul_cs.x, gnl.ul_cs.y };
+                            ImVec2 new_pos = ImVec2{ gnl.initial_pos_cs.x, gnl.initial_pos_cs.y } + delta;
+                            gnl.ul_cs = { new_pos.x, new_pos.y };
+                            new_pos = new_pos + sz;
+                            gnl.lr_cs = { new_pos.x, new_pos.y };
                         }
                     }
                 }
@@ -1659,8 +1634,8 @@ namespace noodle {
                 ImVec2 delta = mouse.mouse_cs - mouse.canvas_clickpos_cs;
 
                 GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(hover.node_id.id);
-                ImVec2 new_pos = gnl.initial_pos_cs + delta;
-                gnl.lr_cs = new_pos;
+                ImVec2 new_pos = ImVec2{ gnl.initial_pos_cs.x, gnl.initial_pos_cs.y } + delta;
+                gnl.lr_cs = { new_pos.x, new_pos.y };
                 gnl.lr_cs.x = std::max(gnl.ul_cs.x + 100, gnl.lr_cs.x);
                 gnl.lr_cs.y = std::max(gnl.ul_cs.y + 50, gnl.lr_cs.y);
             }
@@ -1715,7 +1690,7 @@ namespace noodle {
         //   Noodles Bezier Lines Curves Pulled  //
         ///////////////////////////////////////////
 
-        drawList->ChannelsSetCurrent((int) Channel::Nodes);
+        drawList->ChannelsSetCurrent((int) NoodleGraphicLayer::Nodes);
 
         for (const auto& i : provider._connections)
         {
@@ -1782,8 +1757,8 @@ namespace noodle {
             GraphNodeLayout& gnl = registry.get<GraphNodeLayout>(entity);
             drawList->ChannelsSetCurrent((int)gnl.channel);
 
-            ImVec2 ul_ws = gnl.ul_cs;
-            ImVec2 lr_ws = gnl.lr_cs;
+            ImVec2 ul_ws = { gnl.ul_cs.x, gnl.ul_cs.y };
+            ImVec2 lr_ws = { gnl.lr_cs.x, gnl.lr_cs.y };
 
             ul_ws = woff + ul_ws * root.canvas.scale + ooff;
             lr_ws = woff + lr_ws * root.canvas.scale + ooff;
