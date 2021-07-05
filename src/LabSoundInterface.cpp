@@ -104,18 +104,18 @@ void DrawSpectrum(entt::entity id, ImVec2 ul_ws, ImVec2 lr_ws, float scale, ImDr
 }
 
 
-void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::NoodleNode& node, entt::entity audio_node_id)
+void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::NoodleNode& node, ln_Node audio_node_id)
 {
     if (!audio_node)
         return;
 
     entt::registry& registry = Registry();
 
-    auto reverse_it = g_node_reverse_lookups.find(audio_node_id);
+    auto reverse_it = g_node_reverse_lookups.find(audio_node_id.id);
     if (reverse_it == g_node_reverse_lookups.end())
     {
-        g_node_reverse_lookups[audio_node_id] = NodeReverseLookup{};
-        reverse_it = g_node_reverse_lookups.find(audio_node_id);
+        g_node_reverse_lookups[audio_node_id.id] = NodeReverseLookup{};
+        reverse_it = g_node_reverse_lookups.find(audio_node_id.id);
     }
     auto& reverse = reverse_it->second;
 
@@ -123,10 +123,12 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::NoodleNo
     if (nullptr != dynamic_cast<lab::AnalyserNode*>(audio_node.get()))
     {
         g_audio_context->addAutomaticPullNode(audio_node);
-        registry.emplace<lab::noodle::NodeRender>(audio_node_id, lab::noodle::NodeRender{
-            [](entt::entity id, lab::noodle::vec2 ul_ws, lab::noodle::vec2 lr_ws, float scale, void* drawList) {
-                DrawSpectrum(id, {ul_ws.x, ul_ws.y}, {lr_ws.x, lr_ws.y}, scale, reinterpret_cast<ImDrawList*>(drawList));
-            } });
+        registry.emplace<lab::noodle::NodeRender>(audio_node_id.id, 
+            lab::noodle::NodeRender{
+                [](ln_Node id, lab::noodle::vec2 ul_ws, lab::noodle::vec2 lr_ws, float scale, void* drawList) {
+                    DrawSpectrum(id.id, {ul_ws.x, ul_ws.y}, {lr_ws.x, lr_ws.y}, scale, reinterpret_cast<ImDrawList*>(drawList));
+                } 
+            });
     }
 
     //---------- inputs
@@ -143,7 +145,7 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::NoodleNo
             lab::noodle::Pin::Kind::BusIn,
             lab::noodle::Pin::DataType::Bus,
             "",
-            pin_id, { audio_node_id, true },
+            pin_id, audio_node_id,
             });
         registry.emplace<AudioPin>(pin_id.id, AudioPin{ 0 });
     }
@@ -162,7 +164,7 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::NoodleNo
             lab::noodle::Pin::Kind::BusOut,
             lab::noodle::Pin::DataType::Bus,
             "",
-            pin_id, { audio_node_id, true },
+            pin_id, audio_node_id,
             });
         registry.emplace<AudioPin>(pin_id.id, AudioPin{ i });
     }
@@ -215,7 +217,7 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::NoodleNo
             lab::noodle::Pin::Kind::Setting,
             dataType,
             shortNames[i],
-            pin_id, { audio_node_id, true },
+            pin_id, audio_node_id,
             std::string{ buff },
             enums
             });
@@ -243,7 +245,7 @@ void CreateEntities(shared_ptr<lab::AudioNode> audio_node, lab::noodle::NoodleNo
             lab::noodle::Pin::Kind::Param,
             lab::noodle::Pin::DataType::Float,
             shortNames[i],
-            pin_id, { audio_node_id, true },
+            pin_id, audio_node_id,
             buff
             });
     }
@@ -380,7 +382,7 @@ ln_Context LabSoundProvider::create_runtime_context(ln_Node id)
         return ln_Context{ entt::null };
     }
     lab::noodle::NoodleNode& node = it->second;
-    CreateEntities(g_audio_context->device(), node, id.id);
+    CreateEntities(g_audio_context->device(), node, id);
     printf("CreateRuntimeContext %d\n", id.id);
     return ln_Context{id.id};
 }
@@ -398,13 +400,15 @@ void LabSoundProvider::node_start_stop(ln_Node node_id, float when)
     lab::AudioScheduledSourceNode* n = dynamic_cast<lab::AudioScheduledSourceNode*>(in_node.get());
     if (n)
     {
-        if (n->isPlayingOrScheduled())
+        if (n->isPlayingOrScheduled()) {
+            printf("Stop %d\n", node_id.id);
             n->stop(when);
-        else
+        }
+        else {
+            printf("Start %d\n", node_id.id);
             n->start(when);
+        }
     }
-
-    printf("Start %d\n", node_id.id);
 }
 
 void LabSoundProvider::node_bang(ln_Node node_id)
@@ -551,7 +555,7 @@ ln_Node LabSoundProvider::node_create(const std::string& kind, ln_Node id)
             node->second.play_controller = n->isScheduledNode();
             node->second.bang_controller = !!n->param("gate");
             registry.emplace<shared_ptr<lab::AudioNode>>(id.id, n);
-            CreateEntities(n, node->second, id.id);
+            CreateEntities(n, node->second, id);
             printf("CreateNode [%s] %d\n", kind.c_str(), id.id);
         }
     }

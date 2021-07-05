@@ -233,11 +233,11 @@ namespace noodle {
     {
         void reset(entt::entity en)
         {
-            node_id = ln_Node{ en };
+            node_id = ln_Node{ en, true };
             pin_id = ln_Pin{ en };
             pin_label_id = ln_Pin{ en };
             connection_id = ln_Connection{ en };
-            size_widget_node_id = ln_Node{ en };
+            size_widget_node_id = ln_Node{ en, true };
 
             node_menu = false;
             bang = false;
@@ -354,7 +354,7 @@ namespace noodle {
 
             case WorkType::CreateRuntimeContext:
             {
-                edit._device_node = ln_Node{ provider.registry().create() };
+                edit._device_node = ln_Node{ provider.registry().create(), true };
                 kind = "Device";
                 [[fallthrough]];
             }
@@ -363,7 +363,7 @@ namespace noodle {
                 if (kind == "Device")
                 {
                     if (!edit._device_node.valid)
-                        edit._device_node = ln_Node{ provider.registry().create() };
+                        edit._device_node = ln_Node{ provider.registry().create(), true };
 
                     provider._noodleNodes[edit._device_node] = NoodleNode("Device", edit._device_node);
 
@@ -388,7 +388,7 @@ namespace noodle {
                     break;
                 }
 
-                ln_Node new_node = ln_Node{ provider.registry().create() };
+                ln_Node new_node = ln_Node{ provider.registry().create(), true };
                 provider._noodleNodes[new_node] = NoodleNode(kind, new_node);
                 provider.node_create(kind, new_node);
 
@@ -541,8 +541,8 @@ namespace noodle {
                 registry.emplace<lab::noodle::Connection>(connection_id,
                                                           lab::noodle::Connection(
                                                                 ln_Connection{ connection_id },
-                                                                from_pin_e, ln_Node{ from_node_e },
-                                                                to_pin_e, ln_Node{ to_node_e },
+                                                                from_pin_e, from_node_e,
+                                                                to_pin_e, to_node_e,
                                                                 lab::noodle::Connection::Kind::ToBus));
 
                 edit.incr_work_epoch();
@@ -593,8 +593,8 @@ namespace noodle {
                 registry.emplace<lab::noodle::Connection>(connection_id,
                                                           lab::noodle::Connection(
                                                                 ln_Connection{ connection_id },
-                                                                from_pin_e, ln_Node{ from_node_e },
-                                                                to_pin_e, ln_Node{ to_node_e },
+                                                                from_pin_e, from_node_e,
+                                                                to_pin_e, to_node_e,
                                                                 lab::noodle::Connection::Kind::ToParam));
                 edit.incr_work_epoch();
                 break;
@@ -614,7 +614,7 @@ namespace noodle {
                     CanvasNode& cn = registry.get<CanvasNode>(input_node.id);
                     for (auto en : cn.nodes)
                     {
-                        provider.node_delete(ln_Node{ en });
+                        provider.node_delete(en);
                         registry.destroy(en.id);
                     }
                     cn.nodes.clear();
@@ -654,7 +654,7 @@ namespace noodle {
                             CanvasNode& cn = registry.get<CanvasNode>(en);
                             for (auto en : cn.nodes)
                             {
-                                provider.node_delete(ln_Node{ en });
+                                provider.node_delete(en);
                                 registry.destroy(en.id);
                             }
                             cn.nodes.clear();
@@ -1284,7 +1284,7 @@ namespace noodle {
                         if (area < hover.group_area)
                         {
                             hover.group_area = area;
-                            hover.group_id = ln_Node{ entity };
+                            hover.group_id = ln_Node{ entity, true };
                         }
                     }
 
@@ -1324,10 +1324,10 @@ namespace noodle {
                     }
                     else if (gnl.group && mouse_y_cs > lr.y - 16 && mouse_x_cs > lr.x - 16)
                     {
-                        hover.size_widget_node_id = ln_Node{ entity };
+                        hover.size_widget_node_id = ln_Node{ entity, true };
                     }
 
-                    hover.node_id = ln_Node{ entity };
+                    hover.node_id = ln_Node{ entity, true };
                 }
             }
 
@@ -1775,7 +1775,7 @@ namespace noodle {
         for (auto& node: provider._noodleNodes)
         {
             entt::entity entity = node.second.id.id;
-            float node_profile_duration = provider.node_get_self_timing(ln_Node{ entity });
+            float node_profile_duration = provider.node_get_self_timing(node.second.id);
             node_profile_duration = std::abs(node_profile_duration); /// @TODO, the destination node doesn't yet have a totalTime, so abs is a hack in the nonce
 
             Name& name = registry.get<Name>(entity);
@@ -1817,7 +1817,7 @@ namespace noodle {
             {
                 NodeRender& render = registry.get<NodeRender>(entity);
                 if (render.render)
-                    render.render(entity, { ul_ws.x, ul_ws.y }, { lr_ws.x, lr_ws.y }, root.canvas.scale, drawList);
+                    render.render(node.second.id, { ul_ws.x, ul_ws.y }, { lr_ws.x, lr_ws.y }, root.canvas.scale, drawList);
             }
 
             ///////////////////////////////////////////

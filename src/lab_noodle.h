@@ -53,12 +53,15 @@ namespace lab { namespace noodle {
     // Some nodes may have overridden draw methods, such as the LabSound 
     // AnalyserNode. If such exists, the associated NodeRender will have a 
     // functor to call.
+    // overriding by entity allows nodes of the same type to have different
+    // draw overrides
+
     /// @TODO add a render delegate, so that a void* doesn't have to be passed
     /// where a DrawList would go
     struct NodeRender
     {
         // entity, ul_ws, lr_ws, scale, drawlist (typically ImGui::DrawList)
-        std::function<void(entt::entity, vec2, vec2, float, void*)> render;
+        std::function<void(ln_Node, vec2, vec2, float, void*)> render;
     };
 
     // every entity may have a name, Pins, Nodes, are typical. A scenegraph
