@@ -203,8 +203,9 @@ namespace lab { namespace noodle {
 
         std::map<ln_Node, CanvasGroup, cmp_ln_Node> _canvasNodes;
         std::map<ln_Node, NoodleNode, cmp_ln_Node> _noodleNodes;
+        std::map<ln_Node, NoodleNodeGraphic, cmp_ln_Node> _nodeGraphics;
         std::map<ln_Connection, NoodleConnection, cmp_ln_Connection> _connections;
-        std::map<ln_Pin, NoodlePinGraphic, cmp_ln_Pin> _pinLayouts;
+        std::map<ln_Pin, NoodlePinGraphic, cmp_ln_Pin> _pinGraphics;
 
         virtual ~Provider() = default;
         

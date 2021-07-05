@@ -307,7 +307,7 @@ namespace noodle {
 
             case WorkType::CreateRuntimeContext:
             {
-                edit._device_node = ln_Node{ provider.registry().create(), true };
+                edit._device_node = ln_Node{ registry.create(), true };
                 kind = "Device";
                 [[fallthrough]];
             }
@@ -322,13 +322,14 @@ namespace noodle {
                 if (kind == "Device")
                 {
                     if (!edit._device_node.valid)
-                        edit._device_node = ln_Node{ provider.registry().create(), true };
+                        edit._device_node = ln_Node{ registry.create(), true };
 
                     provider._noodleNodes[edit._device_node] = NoodleNode("Device", conformed_name, edit._device_node);
 
                     provider.create_runtime_context(edit._device_node);
-                    registry.emplace<NoodleNodeGraphic>(edit._device_node.id,
-                        NoodleNodeGraphic{ nullptr, NoodleGraphicLayer::Nodes, { canvas_pos.x, canvas_pos.y } });
+
+                    provider._nodeGraphics[edit._device_node] = 
+                        NoodleNodeGraphic{ nullptr, NoodleGraphicLayer::Nodes, { canvas_pos.x, canvas_pos.y } };
 
                     provider.associate(edit._device_node, conformed_name);
 
@@ -337,7 +338,7 @@ namespace noodle {
                     break;
                 }
 
-                ln_Node new_node = ln_Node{ provider.registry().create(), true };
+                ln_Node new_node = ln_Node{ registry.create(), true };
                 provider._noodleNodes[new_node] = NoodleNode(kind, conformed_name, new_node);
                 provider.node_create(kind, new_node);
 
@@ -349,8 +350,8 @@ namespace noodle {
                         cn = &it->second;
                 }
 
-                registry.emplace<NoodleNodeGraphic>(new_node.id,
-                    NoodleNodeGraphic{cn, NoodleGraphicLayer::Nodes, { canvas_pos.x, canvas_pos.y } });
+                provider._nodeGraphics[new_node] =
+                    NoodleNodeGraphic{cn, NoodleGraphicLayer::Nodes, { canvas_pos.x, canvas_pos.y } };
 
                 provider.associate(new_node, conformed_name);
 
@@ -379,11 +380,12 @@ namespace noodle {
                 entt::entity new_node = provider.registry().create();
                 ln_Node new_ln_node = { new_node, true };
                 provider._noodleNodes[new_ln_node] = NoodleNode(kind, conformed_name, new_ln_node);
-                registry.emplace<NoodleNodeGraphic>(new_node,
+
+                provider._nodeGraphics[new_ln_node] = 
                     NoodleNodeGraphic{ nullptr, NoodleGraphicLayer::Groups, 
                         { canvas_pos.x, canvas_pos.y },
                         { canvas_pos.x + NoodleNodeGraphic::k_column_width() * 2, canvas_pos.y + NoodlePinGraphic::k_height() * 8},
-                        true });
+                        true };
 
                 provider._canvasNodes[new_ln_node] = CanvasGroup{};
                 edit.incr_work_epoch();
@@ -550,9 +552,11 @@ namespace noodle {
 
             case WorkType::DeleteNode:
             {
+                auto gnl = provider._nodeGraphics.find(input_node);
                 auto it = provider._canvasNodes.find(input_node);
                 if (it != provider._canvasNodes.end())
                 {
+                    // if it's a canvas, also delete the contained nodes.
                     CanvasGroup& cn = it->second;
                     for (auto en : cn.nodes)
                     {
@@ -563,15 +567,19 @@ namespace noodle {
                 }
                 else
                 {
-                    NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(input_node.id);
-                    if (gnl.parent_canvas)
+                    if (gnl != provider._nodeGraphics.end() && gnl->second.parent_canvas)
                     {
-                        auto it = gnl.parent_canvas->nodes.find(input_node);
-                        if (it != gnl.parent_canvas->nodes.end())
-                            gnl.parent_canvas->nodes.erase(it);
+                        // if the node is on a canvas, remove it from the canvas
+                        auto it = gnl->second.parent_canvas->nodes.find(input_node);
+                        if (it != gnl->second.parent_canvas->nodes.end())
+                            gnl->second.parent_canvas->nodes.erase(it);
                     }
                     provider.node_delete(input_node);
                 }
+
+                if (gnl != provider._nodeGraphics.end())
+                    provider._nodeGraphics.erase(gnl);
+
                 registry.destroy(input_node.id);
                 edit.incr_work_epoch();
                 break;
@@ -594,6 +602,7 @@ namespace noodle {
                         auto cg = provider._canvasNodes.find(noodleNode.second.id);
                         if (cg != provider._canvasNodes.end())
                         {
+                            // if it's canvas, clear the contained nodes
                             for (auto en : cg->second.nodes)
                             {
                                 provider.node_delete(en);
@@ -603,18 +612,26 @@ namespace noodle {
                         }
                         else
                         {
-                            NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(en);
-                            if (gnl.parent_canvas)
+                            auto gnl = provider._nodeGraphics.find(noodleNode.second.id);
+                            if (gnl != provider._nodeGraphics.end() && gnl->second.parent_canvas)
                             {
-                                auto it = gnl.parent_canvas->nodes.find(noodleNode.second.id);
-                                if (it != gnl.parent_canvas->nodes.end())
-                                    gnl.parent_canvas->nodes.erase(it);
+                                // if it's on a canvas, remove it.
+                                /// @TODO it probably makes sense to recurse the graph and
+                                /// delete from the leaves, rather than using this more complex algorithm
+                                auto it = gnl->second.parent_canvas->nodes.find(noodleNode.second.id);
+                                if (it != gnl->second.parent_canvas->nodes.end())
+                                    gnl->second.parent_canvas->nodes.erase(it);
                             }
                             provider.node_delete(noodleNode.second.id);
                         }
                     }
                 }
+
                 provider._noodleNodes.clear();
+                provider._nodeGraphics.clear();
+                provider._pinGraphics.clear();
+                provider._canvasNodes.clear();
+
                 edit.clear_epochs();
                 clear_unique_names();
                 provider.clear_entity_node_associations();
@@ -1029,9 +1046,15 @@ namespace noodle {
             if (!registry.valid(en))
                 continue;
 
-            NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(en);
-            if (gnl.group)
+            auto cn = provider._canvasNodes.find(node.second.id);
+            if (cn != provider._canvasNodes.end())
+                continue;   // groups have no pins
+
+            auto gnl_it = provider._nodeGraphics.find(node.second.id);
+            if (gnl_it == provider._nodeGraphics.end())
                 continue;
+
+            NoodleNodeGraphic& gnl = gnl_it->second;
 
             gnl.in_height = 0;
             gnl.mid_height = 0;
@@ -1051,10 +1074,10 @@ namespace noodle {
                     continue;
 
                 // lazily create the layouts on demand.
-                auto pnl = provider._pinLayouts.find(entity);
-                if (pnl == provider._pinLayouts.end()) {
-                    provider._pinLayouts[entity] = NoodlePinGraphic{};
-                    pnl = provider._pinLayouts.find(entity);
+                auto pnl = provider._pinGraphics.find(entity);
+                if (pnl == provider._pinGraphics.end()) {
+                    provider._pinGraphics[entity] = NoodlePinGraphic{};
+                    pnl = provider._pinGraphics.find(entity);
                 }
 
                 pnl->second.node_origin_cs = { node_pos.x, node_pos.y };
@@ -1100,7 +1123,7 @@ namespace noodle {
                 if (!registry.valid(pin.node_id.id))
                     continue;
 
-                auto pnl = provider._pinLayouts.find(entity);
+                auto pnl = provider._pinGraphics.find(entity);
 
                 switch (pin.kind)
                 {
@@ -1168,8 +1191,8 @@ namespace noodle {
                 }
 
                 NoodlePin& pin = registry.get<NoodlePin>(entity);
-                auto pnl = provider._pinLayouts.find(pin.pin_id);
-                if (pnl == provider._pinLayouts.end())
+                auto pnl = provider._pinGraphics.find(pin.pin_id);
+                if (pnl == provider._pinGraphics.end())
                     continue; // can occur during constructions
 
                 if (pnl->second.pin_contains_cs_point(root.canvas, mouse_x_cs, mouse_y_cs))
@@ -1207,8 +1230,11 @@ namespace noodle {
             // test all nodes
             for (auto const& node : provider._noodleNodes)
             {
-                entt::entity entity = node.second.id.id;
-                NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(entity);
+                auto gnl_it = provider._nodeGraphics.find(node.first);
+                if (gnl_it == provider._nodeGraphics.end())
+                    continue;
+
+                NoodleNodeGraphic& gnl = gnl_it->second;
                 ImVec2 ul = { gnl.ul_cs.x, gnl.ul_cs.y };
                 ImVec2 lr = { gnl.lr_cs.x, gnl.lr_cs.y };
                 if (mouse_x_cs >= ul.x && mouse_x_cs <= (lr.x + NoodlePinGraphic::k_width()) && mouse_y_cs >= (ul.y - 20) && mouse_y_cs <= lr.y)
@@ -1226,7 +1252,7 @@ namespace noodle {
                         if (area < hover.group_area)
                         {
                             hover.group_area = area;
-                            hover.group_id = ln_Node{ entity, true };
+                            hover.group_id = node.second.id;
                         }
                     }
 
@@ -1266,10 +1292,10 @@ namespace noodle {
                     }
                     else if (gnl.group && mouse_y_cs > lr.y - 16 && mouse_x_cs > lr.x - 16)
                     {
-                        hover.size_widget_node_id = ln_Node{ entity, true };
+                        hover.size_widget_node_id = node.second.id;
                     }
 
-                    hover.node_id = ln_Node{ entity, true };
+                    hover.node_id = node.second.id;
                 }
             }
 
@@ -1284,8 +1310,8 @@ namespace noodle {
                     if (!from_pin.valid || !to_pin.valid)
                         continue;
 
-                    auto from_gpl = provider._pinLayouts.find(from_pin);
-                    auto to_gpl = provider._pinLayouts.find(to_pin);
+                    auto from_gpl = provider._pinGraphics.find(from_pin);
+                    auto to_gpl = provider._pinGraphics.find(to_pin);
 
                     vec2 ul_ = from_gpl->second.ul_ws(root.canvas);
                     ImVec2 ul = { ul_.x, ul_.y };
@@ -1547,8 +1573,12 @@ namespace noodle {
                     mouse.dragging_node = false;
                     if (hover.originating_pin_id.id == ln_Pin_null().id)
                         hover.originating_pin_id = hover.pin_id;
-                    NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(hover.node_id.id);
-                    gnl.initial_pos_cs = { mouse.mouse_cs.x, mouse.mouse_cs.y };
+
+                    auto gnl_it = provider._nodeGraphics.find(hover.node_id);
+                    if (gnl_it != provider._nodeGraphics.end()) {
+                        NoodleNodeGraphic& gnl = gnl_it->second;
+                        gnl.initial_pos_cs = { mouse.mouse_cs.x, mouse.mouse_cs.y };
+                    }
                 }
                 else if (hover.pin_label_id.id != ln_Pin_null().id)
                 {
@@ -1573,8 +1603,11 @@ namespace noodle {
                     mouse.dragging_wire = false;
                     mouse.dragging_node = false;
                     mouse.resizing_node = true;
-                    NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(hover.node_id.id);
-                    gnl.initial_pos_cs = gnl.lr_cs;
+                    auto gnl_it = provider._nodeGraphics.find(hover.node_id);
+                    if (gnl_it != provider._nodeGraphics.end()) {
+                        NoodleNodeGraphic& gnl = gnl_it->second;
+                        gnl.initial_pos_cs = gnl.lr_cs;
+                    }
                 }
                 else
                 {
@@ -1582,8 +1615,11 @@ namespace noodle {
                     mouse.resizing_node = false;
                     mouse.dragging_node = true;
 
-                    NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(hover.node_id.id);
-                    gnl.initial_pos_cs = gnl.ul_cs;
+                    auto gnl_it = provider._nodeGraphics.find(hover.node_id);
+                    if (gnl_it != provider._nodeGraphics.end()) {
+                        NoodleNodeGraphic& gnl = gnl_it->second;
+                        gnl.initial_pos_cs = gnl.ul_cs;
+                    }
 
                     // set up initials for group dragging
                     if (hover.group_id.id != ln_Node_null().id)
@@ -1592,8 +1628,11 @@ namespace noodle {
                         if (cg != provider._canvasNodes.end()) {
                             for (auto en : cg->second.nodes)
                             {
-                                NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(en.id);
-                                gnl.initial_pos_cs = gnl.ul_cs;
+                                auto gnl_it = provider._nodeGraphics.find(en);
+                                if (gnl_it != provider._nodeGraphics.end()) {
+                                    NoodleNodeGraphic& gnl = gnl_it->second;
+                                    gnl.initial_pos_cs = gnl.ul_cs;
+                                }
                             }
                         }
                     }
@@ -1604,27 +1643,35 @@ namespace noodle {
             {
                 ImVec2 delta = mouse.mouse_cs - mouse.canvas_clickpos_cs;
 
-                NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(hover.node_id.id);
-                ImVec2 sz = ImVec2{ gnl.lr_cs.x, gnl.lr_cs.y } - ImVec2{ gnl.ul_cs.x, gnl.ul_cs.y };
-                ImVec2 new_pos = ImVec2{ gnl.initial_pos_cs.x, gnl.initial_pos_cs.y } + delta;
-                gnl.ul_cs = { new_pos.x, new_pos.y };
-                new_pos = new_pos + sz;
-                gnl.lr_cs = { new_pos.x, new_pos.y };
+                auto gnl_it = provider._nodeGraphics.find(hover.node_id);
+                if (gnl_it != provider._nodeGraphics.end()) {
+                    NoodleNodeGraphic& gnl = gnl_it->second;
+                    gnl.initial_pos_cs = gnl.ul_cs;
 
-                /// @TODO force the color to be highlighting
+                    ImVec2 sz = ImVec2{ gnl.lr_cs.x, gnl.lr_cs.y } - ImVec2{ gnl.ul_cs.x, gnl.ul_cs.y };
+                    ImVec2 new_pos = ImVec2{ gnl.initial_pos_cs.x, gnl.initial_pos_cs.y } + delta;
+                    gnl.ul_cs = { new_pos.x, new_pos.y };
+                    new_pos = new_pos + sz;
+                    gnl.lr_cs = { new_pos.x, new_pos.y };
 
-                if (gnl.group)
-                {
-                    auto cg = provider._canvasNodes.find(hover.group_id);
-                    if (cg != provider._canvasNodes.end()) {
-                        for (ln_Node i : cg->second.nodes)
-                        {
-                            NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(i.id);
-                            ImVec2 sz = ImVec2{ gnl.lr_cs.x, gnl.lr_cs.y } - ImVec2{ gnl.ul_cs.x, gnl.ul_cs.y };
-                            ImVec2 new_pos = ImVec2{ gnl.initial_pos_cs.x, gnl.initial_pos_cs.y } + delta;
-                            gnl.ul_cs = { new_pos.x, new_pos.y };
-                            new_pos = new_pos + sz;
-                            gnl.lr_cs = { new_pos.x, new_pos.y };
+                    /// @TODO force the color to be highlighting
+
+                    if (gnl.group)
+                    {
+                        auto cg = provider._canvasNodes.find(hover.group_id);
+                        if (cg != provider._canvasNodes.end()) {
+                            for (ln_Node i : cg->second.nodes)
+                            {
+                                auto gnl_it = provider._nodeGraphics.find(i);
+                                if (gnl_it != provider._nodeGraphics.end()) {
+                                    NoodleNodeGraphic& gnl = gnl_it->second;
+                                    ImVec2 sz = ImVec2{ gnl.lr_cs.x, gnl.lr_cs.y } - ImVec2{ gnl.ul_cs.x, gnl.ul_cs.y };
+                                    ImVec2 new_pos = ImVec2{ gnl.initial_pos_cs.x, gnl.initial_pos_cs.y } + delta;
+                                    gnl.ul_cs = { new_pos.x, new_pos.y };
+                                    new_pos = new_pos + sz;
+                                    gnl.lr_cs = { new_pos.x, new_pos.y };
+                                }
+                            }
                         }
                     }
                 }
@@ -1633,11 +1680,14 @@ namespace noodle {
             {
                 ImVec2 delta = mouse.mouse_cs - mouse.canvas_clickpos_cs;
 
-                NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(hover.node_id.id);
-                ImVec2 new_pos = ImVec2{ gnl.initial_pos_cs.x, gnl.initial_pos_cs.y } + delta;
-                gnl.lr_cs = { new_pos.x, new_pos.y };
-                gnl.lr_cs.x = std::max(gnl.ul_cs.x + 100, gnl.lr_cs.x);
-                gnl.lr_cs.y = std::max(gnl.ul_cs.y + 50, gnl.lr_cs.y);
+                auto gnl_it = provider._nodeGraphics.find(hover.node_id);
+                if (gnl_it != provider._nodeGraphics.end()) {
+                    NoodleNodeGraphic& gnl = gnl_it->second;
+                    ImVec2 new_pos = ImVec2{ gnl.initial_pos_cs.x, gnl.initial_pos_cs.y } + delta;
+                    gnl.lr_cs = { new_pos.x, new_pos.y };
+                    gnl.lr_cs.x = std::max(gnl.ul_cs.x + 100, gnl.lr_cs.x);
+                    gnl.lr_cs.y = std::max(gnl.ul_cs.y + 50, gnl.lr_cs.y);
+                }
             }
         }
         else
@@ -1699,8 +1749,8 @@ namespace noodle {
             if (!from_pin.valid || !to_pin.valid)
                 continue;
 
-            auto from_gpl = provider._pinLayouts.find(from_pin);
-            auto to_gpl = provider._pinLayouts.find(to_pin);
+            auto from_gpl = provider._pinGraphics.find(from_pin);
+            auto to_gpl = provider._pinGraphics.find(to_pin);
             vec2 ul_ = from_gpl->second.ul_ws(root.canvas);
             ImVec2 ul = { ul_.x, ul_.y };
             ImVec2 from_pos = ul + ImVec2(style_padding_y, style_padding_x) * root.canvas.scale;
@@ -1720,7 +1770,7 @@ namespace noodle {
 
         if (mouse.dragging_wire)
         {
-            auto from_gpl = provider._pinLayouts.find(hover.originating_pin_id);
+            auto from_gpl = provider._pinGraphics.find(hover.originating_pin_id);
 
             vec2 ul_ = from_gpl->second.ul_ws(root.canvas);
             ImVec2 ul = { ul_.x, ul_.y };
@@ -1744,7 +1794,6 @@ namespace noodle {
 
         for (auto& node: provider._noodleNodes)
         {
-            entt::entity entity = node.second.id.id;
             float node_profile_duration = provider.node_get_self_timing(node.second.id);
             node_profile_duration = std::abs(node_profile_duration); /// @TODO, the destination node doesn't yet have a totalTime, so abs is a hack in the nonce
 
@@ -1754,89 +1803,92 @@ namespace noodle {
             profiler_data[profile_idx].endTime = profiler_data[profile_idx].startTime + provider.node_get_self_timing(edit._device_node);
             profile_idx = (profile_idx + 1) % profiler_data.size();
 
-            NoodleNodeGraphic& gnl = registry.get<NoodleNodeGraphic>(entity);
-            drawList->ChannelsSetCurrent((int)gnl.channel);
+            auto gnl_it = provider._nodeGraphics.find(node.second.id);
+            if (gnl_it != provider._nodeGraphics.end()) {
+                NoodleNodeGraphic& gnl = gnl_it->second;
+                drawList->ChannelsSetCurrent((int)gnl.channel);
 
-            ImVec2 ul_ws = { gnl.ul_cs.x, gnl.ul_cs.y };
-            ImVec2 lr_ws = { gnl.lr_cs.x, gnl.lr_cs.y };
+                ImVec2 ul_ws = { gnl.ul_cs.x, gnl.ul_cs.y };
+                ImVec2 lr_ws = { gnl.lr_cs.x, gnl.lr_cs.y };
 
-            ul_ws = woff + ul_ws * root.canvas.scale + ooff;
-            lr_ws = woff + lr_ws * root.canvas.scale + ooff;
+                ul_ws = woff + ul_ws * root.canvas.scale + ooff;
+                lr_ws = woff + lr_ws * root.canvas.scale + ooff;
 
-            // draw node
-            drawList->AddRectFilled(ul_ws, lr_ws, node_background_fill, node_border_radius);
-            drawList->AddRect(ul_ws, lr_ws, (hover.node_id.id == entity) ? node_outline_hovered : node_outline_neutral, node_border_radius, 15, 2);
+                // draw node
+                drawList->AddRectFilled(ul_ws, lr_ws, node_background_fill, node_border_radius);
+                drawList->AddRect(ul_ws, lr_ws, (hover.node_id.id == node.second.id.id) ? node_outline_hovered : node_outline_neutral, node_border_radius, 15, 2);
 
-            if (gnl.group)
-            {
-                ImVec2 p0 = lr_ws - ImVec2(16, 16);
-                ImVec2 p1 = lr_ws - ImVec2(4, 4);
-                drawList->AddRect(p0, p1, node_outline_hovered, node_border_radius, 15, 2);
-            }
-
-            if (show_profiler)
-            {
-                ImVec2 p1{ ul_ws.x, lr_ws.y };
-                ImVec2 p2{ lr_ws.x, lr_ws.y + root.canvas.scale * style_padding_y };
-                drawList->AddRect(p1, p2, ImColor(128, 255, 128, 255));
-                p2.x = p1.x + (p2.x - p1.x) * node_profile_duration / total_profile_duration;
-                drawList->AddRectFilled(p1, p2, ImColor(255, 255, 255, 128));
-            }
-
-            if (node.second.render.render)
-            {
-                node.second.render.render(node.second.id, 
-                    { ul_ws.x, ul_ws.y }, { lr_ws.x, lr_ws.y }, 
-                    root.canvas.scale, drawList);
-            }
-
-            ///////////////////////////////////////////
-            //   Node Header / Banner / Top / Menu   //
-            ///////////////////////////////////////////
-
-            if (root.canvas.scale > 0.5f)
-            {
-                const float label_font_size = style_padding_y * root.canvas.scale;
-                ImVec2 label_pos = ul_ws;
-                label_pos.y -= 20 * root.canvas.scale;
-
-                // UI elements
-                if (node.second.play_controller)
+                if (gnl.group)
                 {
-                    auto label = std::string(ICON_FAD_PLAY);
-                    drawList->AddText(NULL, label_font_size, label_pos,
-                        (hover.play && entity == hover.node_id.id) ? text_color_highlighted : text_color,
-                        label.c_str(), label.c_str() + label.length());
-                    label_pos.x += 20;
+                    ImVec2 p0 = lr_ws - ImVec2(16, 16);
+                    ImVec2 p1 = lr_ws - ImVec2(4, 4);
+                    drawList->AddRect(p0, p1, node_outline_hovered, node_border_radius, 15, 2);
                 }
 
-                if (node.second.bang_controller)
+                if (show_profiler)
                 {
-                    auto label = std::string(ICON_FAD_HARDCLIP);
-                    drawList->AddText(NULL, label_font_size, label_pos,
-                        (hover.bang && entity == hover.node_id.id) ? text_color_highlighted : text_color,
-                        label.c_str(), label.c_str() + label.length());
-                    label_pos.x += 20;
+                    ImVec2 p1{ ul_ws.x, lr_ws.y };
+                    ImVec2 p2{ lr_ws.x, lr_ws.y + root.canvas.scale * style_padding_y };
+                    drawList->AddRect(p1, p2, ImColor(128, 255, 128, 255));
+                    p2.x = p1.x + (p2.x - p1.x) * node_profile_duration / total_profile_duration;
+                    drawList->AddRectFilled(p1, p2, ImColor(255, 255, 255, 128));
                 }
 
-                // Name
-                label_pos.x += 5;
-                drawList->AddText(io.FontDefault, label_font_size, label_pos,
-                    (hover.node_menu && entity == hover.node_id.id) ? text_color_highlighted : text_color,
-                    node.second.name.c_str(), node.second.name.c_str() + node.second.name.size());
-
-                if (show_ids)
+                if (node.second.render.render)
                 {
-                    ImVec2 text_size = io.Fonts->Fonts[0]->CalcTextSizeA(label_font_size, FLT_MAX, 0.f, 
-                        node.second.name.c_str(), node.second.name.c_str() + node.second.name.size(), NULL);
+                    node.second.render.render(node.second.id,
+                        { ul_ws.x, ul_ws.y }, { lr_ws.x, lr_ws.y },
+                        root.canvas.scale, drawList);
+                }
 
-                    label_pos.x += text_size.x + 5.f;
+                ///////////////////////////////////////////
+                //   Node Header / Banner / Top / Menu   //
+                ///////////////////////////////////////////
 
-                    char buff[32];
-                    sprintf(buff, "(%d)", entity);
+                if (root.canvas.scale > 0.5f)
+                {
+                    const float label_font_size = style_padding_y * root.canvas.scale;
+                    ImVec2 label_pos = ul_ws;
+                    label_pos.y -= 20 * root.canvas.scale;
+
+                    // UI elements
+                    if (node.second.play_controller)
+                    {
+                        auto label = std::string(ICON_FAD_PLAY);
+                        drawList->AddText(NULL, label_font_size, label_pos,
+                            (hover.play && node.second.id.id == hover.node_id.id) ? text_color_highlighted : text_color,
+                            label.c_str(), label.c_str() + label.length());
+                        label_pos.x += 20;
+                    }
+
+                    if (node.second.bang_controller)
+                    {
+                        auto label = std::string(ICON_FAD_HARDCLIP);
+                        drawList->AddText(NULL, label_font_size, label_pos,
+                            (hover.bang && node.second.id.id == hover.node_id.id) ? text_color_highlighted : text_color,
+                            label.c_str(), label.c_str() + label.length());
+                        label_pos.x += 20;
+                    }
+
+                    // Name
+                    label_pos.x += 5;
                     drawList->AddText(io.FontDefault, label_font_size, label_pos,
-                        (hover.node_menu && entity == hover.node_id.id) ? text_color_highlighted : text_color,
-                        buff, buff + strlen(buff));
+                        (hover.node_menu && node.second.id.id == hover.node_id.id) ? text_color_highlighted : text_color,
+                        node.second.name.c_str(), node.second.name.c_str() + node.second.name.size());
+
+                    if (show_ids)
+                    {
+                        ImVec2 text_size = io.Fonts->Fonts[0]->CalcTextSizeA(label_font_size, FLT_MAX, 0.f,
+                            node.second.name.c_str(), node.second.name.c_str() + node.second.name.size(), NULL);
+
+                        label_pos.x += text_size.x + 5.f;
+
+                        char buff[32];
+                        sprintf(buff, "(%d)", node.second.id.id);
+                        drawList->AddText(io.FontDefault, label_font_size, label_pos,
+                            (hover.node_menu && node.second.id.id == hover.node_id.id) ? text_color_highlighted : text_color,
+                            buff, buff + strlen(buff));
+                    }
                 }
             }
 
@@ -1873,7 +1925,7 @@ namespace noodle {
                     break;
                 }
 
-                auto pin_gpl = provider._pinLayouts.find(j);
+                auto pin_gpl = provider._pinGraphics.find(j);
 
                 vec2 ul_ = pin_gpl->second.ul_ws(root.canvas);
                 ImVec2 pin_ul = { ul_.x, ul_.y };
@@ -1896,7 +1948,7 @@ namespace noodle {
                         char buff[32];
                         sprintf(buff, "(%d)", j.id);
                         drawList->AddText(io.FontDefault, font_size, pos,
-                            (hover.node_menu && entity == hover.node_id.id) ? text_color_highlighted : text_color,
+                            (hover.node_menu && node.second.id.id == hover.node_id.id) ? text_color_highlighted : text_color,
                             buff, buff + strlen(buff));
                     }
 
@@ -2057,9 +2109,10 @@ void create_graph(lab::AudioContext& ctx)
             file << "    std::shared_ptr<" << node.second.kind << "Node> "
                  << node_name_clean << " = std::make_shared<" << node.second.kind << "Node>(ac);\n";
 
-            if (reg.any<NoodleNodeGraphic>(node_entity))
+            auto gnl_it = provider._nodeGraphics.find(node.second.id);
+            if (gnl_it != provider._nodeGraphics.end())
             {
-                NoodleNodeGraphic& gnl = reg.get<NoodleNodeGraphic>(node_entity);
+                NoodleNodeGraphic& gnl = gnl_it->second;
                 file << "    // position: " << gnl.ul_cs.x << ", " << gnl.ul_cs.y << "\n\n";
             }
 
@@ -2168,9 +2221,10 @@ void create_graph(lab::AudioContext& ctx)
 
             file << "node: " << node.second.kind << " name: " << node.second.name << "\n";
 
-            if (reg.any<NoodleNodeGraphic>(node_entity))
+            auto gnl_it = provider._nodeGraphics.find(node.second.id);
+            if (gnl_it != provider._nodeGraphics.end())
             {
-                NoodleNodeGraphic& gnl = reg.get<NoodleNodeGraphic>(node_entity);
+                NoodleNodeGraphic& gnl = gnl_it->second;
                 file << " pos: " << gnl.ul_cs.x << " " << gnl.ul_cs.y << "\n";
             }
 
@@ -2271,9 +2325,10 @@ void create_graph(lab::AudioContext& ctx)
             writer.Key("kind");
             writer.String(node.second.kind.c_str());
 
-            if (reg.any<NoodleNodeGraphic>(node_entity))
+            auto gnl_it = provider._nodeGraphics.find(node.second.id);
+            if (gnl_it != provider._nodeGraphics.end())
             {
-                NoodleNodeGraphic& gnl = reg.get<NoodleNodeGraphic>(node_entity);
+                NoodleNodeGraphic& gnl = gnl_it->second;
                 writer.Key("pos");
                 writer.StartArray();
                 writer.Double(gnl.ul_cs.x);
