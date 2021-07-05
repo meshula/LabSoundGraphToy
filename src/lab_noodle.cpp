@@ -90,8 +90,8 @@ namespace noodle {
 
     struct Canvas
     {
-        ImVec2 window_origin_offset_ws = { 0, 0 };
-        ImVec2 origin_offset_ws = { 0, 0 };
+        vec2 window_origin_offset_ws = { 0, 0 };
+        vec2 origin_offset_ws = { 0, 0 };
         float  scale = 1.f;
     };
 
@@ -144,7 +144,9 @@ namespace noodle {
         {
             float x = column_number * GraphNodeLayout::k_column_width;
             ImVec2 res = (node_origin_cs + ImVec2{ x, pos_y_cs }) * canvas.scale;
-            return res + canvas.origin_offset_ws + canvas.window_origin_offset_ws;
+            ImVec2 o_off = { canvas.origin_offset_ws.x, canvas.origin_offset_ws.y };
+            ImVec2 w_off = { canvas.window_origin_offset_ws.x, canvas.window_origin_offset_ws.y };
+            return res + o_off + w_off;
         }
         bool pin_contains_cs_point(Canvas& canvas, float x, float y) const
         {
@@ -1037,8 +1039,10 @@ namespace noodle {
 
             if (mouse.in_canvas)
             {
+                ImVec2 o_off = { root.canvas.origin_offset_ws.x, root.canvas.origin_offset_ws.y };
+
                 mouse.mouse_ws = io.MousePos - ImGui::GetCurrentWindow()->Pos;
-                mouse.mouse_cs = (mouse.mouse_ws - root.canvas.origin_offset_ws) / root.canvas.scale;
+                mouse.mouse_cs = (mouse.mouse_ws - o_off) / root.canvas.scale;
 
                 if (io.MouseDown[0] && io.MouseDownOwned[0])
                 {
@@ -1048,7 +1052,7 @@ namespace noodle {
                         mouse.click_initiated = true;
                         mouse.initial_click_pos_ws = io.MousePos;
                         mouse.canvas_clickpos_cs = mouse.mouse_cs;
-                        mouse.canvas_clicked_pixel_offset_ws = root.canvas.origin_offset_ws;
+                        mouse.canvas_clicked_pixel_offset_ws = o_off;
                     }
 
                     mouse.dragging = true;
@@ -1342,7 +1346,10 @@ namespace noodle {
                     ImVec2 p3 = to_pos;
                     ImVec2 p1, p2;
                     noodle_bezier(p0, p1, p2, p3, root.canvas.scale);
-                    ImVec2 test = mouse.mouse_ws + root.canvas.window_origin_offset_ws;
+
+                    ImVec2 w_off = { root.canvas.window_origin_offset_ws.x, root.canvas.window_origin_offset_ws.y };
+
+                    ImVec2 test = mouse.mouse_ws + w_off;
                     ImVec2 closest = ImBezierCubicClosestPointCasteljau(p0, p1, p2, p3, test, 10);
                     
                     ImVec2 delta = test - closest;
@@ -1372,7 +1379,9 @@ namespace noodle {
         ImGuiIO& io = ImGui::GetIO();
         ImGuiWindow* win = ImGui::GetCurrentWindow();
         ImRect edit_rect = win->ContentRegionRect;
-        root.canvas.window_origin_offset_ws = ImGui::GetWindowPos() + ImGui::GetWindowContentRegionMin();
+        ImVec2 woff = ImGui::GetWindowPos() + ImGui::GetWindowContentRegionMin();
+        root.canvas.window_origin_offset_ws = { woff.x, woff.y };
+        ImVec2 ooff = { root.canvas.origin_offset_ws.x, root.canvas.origin_offset_ws.y };
 
         //---------------------------------------------------------------------
         // ensure node sizes are up to date
@@ -1409,11 +1418,11 @@ namespace noodle {
 
             drawList->AddRectFilled(grid_origin, grid_origin + grid_size, grid_bg_color);
 
-            for (float x = fmodf(root.canvas.origin_offset_ws.x, grid_step_x); x < grid_size.x; x += grid_step_x)
+            for (float x = fmodf(ooff.x, grid_step_x); x < grid_size.x; x += grid_step_x)
             {
                 drawList->AddLine(ImVec2(x, 0.0f) + grid_origin, ImVec2(x, grid_size.y) + grid_origin, grid_line_color);
             }
-            for (float y = fmodf(root.canvas.origin_offset_ws.y, grid_step_y); y < grid_size.y; y += grid_step_y)
+            for (float y = fmodf(ooff.y, grid_step_y); y < grid_size.y; y += grid_step_y)
             {
                 drawList->AddLine(ImVec2(0.0f, y) + grid_origin, ImVec2(grid_size.x, y) + grid_origin, grid_line_color);
             }
@@ -1682,7 +1691,8 @@ namespace noodle {
                     if (fabsf(io.MouseDelta.x) > 0.f || fabsf(io.MouseDelta.y) > 0.f)
                     {
                         // pull the pivot around
-                        root.canvas.origin_offset_ws = mouse.canvas_clicked_pixel_offset_ws - mouse.initial_click_pos_ws + io.MousePos;
+                        ooff = mouse.canvas_clicked_pixel_offset_ws - mouse.initial_click_pos_ws + io.MousePos;
+                        root.canvas.origin_offset_ws = { ooff.x, ooff.y };
                     }
                 }
                 else if (mouse.in_canvas)
@@ -1696,7 +1706,9 @@ namespace noodle {
 
                         // solve for off2
                         // (mouse - off1) / scale1 = (mouse - off2) / scale2 
-                        root.canvas.origin_offset_ws = mouse.mouse_ws - (mouse.mouse_ws - root.canvas.origin_offset_ws) * (root.canvas.scale / prev_scale);
+
+                        ooff = mouse.mouse_ws - (mouse.mouse_ws - ooff) * (root.canvas.scale / prev_scale);
+                        root.canvas.origin_offset_ws = { ooff.x, ooff.y };
                     }
                 }
             }
@@ -1746,7 +1758,7 @@ namespace noodle {
         {
             GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(hover.originating_pin_id.id);
             ImVec2 p0 = from_gpl.ul_ws(root.canvas) + ImVec2(style_padding_y, style_padding_x) * root.canvas.scale;
-            ImVec2 p3 = mouse.mouse_ws + root.canvas.window_origin_offset_ws;
+            ImVec2 p3 = mouse.mouse_ws + woff;
             ImVec2 p1, p2;
             noodle_bezier(p0, p1, p2, p3, root.canvas.scale);
             ImU32 color = hover.valid_connection ? noodle_bezier_neutral : noodle_bezier_cancel;
@@ -1779,8 +1791,9 @@ namespace noodle {
 
             ImVec2 ul_ws = gnl.ul_cs;
             ImVec2 lr_ws = gnl.lr_cs;
-            ul_ws = root.canvas.window_origin_offset_ws + ul_ws * root.canvas.scale + root.canvas.origin_offset_ws;
-            lr_ws = root.canvas.window_origin_offset_ws + lr_ws * root.canvas.scale + root.canvas.origin_offset_ws;
+
+            ul_ws = woff + ul_ws * root.canvas.scale + ooff;
+            lr_ws = woff + lr_ws * root.canvas.scale + ooff;
 
             // draw node
             drawList->AddRectFilled(ul_ws, lr_ws, node_background_fill, node_border_radius);
@@ -1966,10 +1979,8 @@ namespace noodle {
 
             ImGui::Separator();
             ImGui::TextUnformatted("Canvas");
-            ImVec2 off = root.canvas.window_origin_offset_ws;
-            ImGui::Text("canvas window offset (%d, %d)", (int)off.x, (int)off.y);
-            off = root.canvas.origin_offset_ws;
-            ImGui::Text("canvas origin offset (%d, %d)", (int)off.x, (int)off.y);
+            ImGui::Text("canvas window offset (%d, %d)", (int)woff.x, (int)woff.y);
+            ImGui::Text("canvas origin offset (%d, %d)", (int)ooff.x, (int)ooff.y);
 
             ImGui::Separator();
             ImGui::TextUnformatted("Hover");
