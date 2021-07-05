@@ -117,41 +117,34 @@ namespace noodle {
     };
     const float GraphNodeLayout::k_column_width = 180.f;
 
-    struct GraphPinLayout
-    {
-        inline constexpr static float k_height() { return 20.f; }
-        inline constexpr static float k_width() { return 20.f; }
 
-        vec2 node_origin_cs = { 0, 0 };
-        float pos_y_cs = 0.f;
-        float column_number = 0;
-        vec2 ul_ws(Canvas& canvas) const
-        {
-            float x = column_number * GraphNodeLayout::k_column_width;
-            ImVec2 no = { node_origin_cs.x, node_origin_cs.y };
-            ImVec2 res = (no + ImVec2{ x, pos_y_cs }) * canvas.scale;
-            ImVec2 o_off = { canvas.origin_offset_ws.x, canvas.origin_offset_ws.y };
-            ImVec2 w_off = { canvas.window_origin_offset_ws.x, canvas.window_origin_offset_ws.y };
-            res = res + o_off + w_off;
-            return { res.x, res.y };
-        }
-        bool pin_contains_cs_point(Canvas& canvas, float x, float y) const
-        {
-            ImVec2 no = { node_origin_cs.x, node_origin_cs.y };
-            ImVec2 ul = (no + ImVec2{ column_number * GraphNodeLayout::k_column_width, pos_y_cs });
-            ImVec2 lr = { ul.x + k_width(), ul.y + k_height() };
-            return x >= ul.x && x <= lr.x && y >= ul.y && y <= lr.y;
-        }
-        bool label_contains_cs_point(Canvas& canvas, float x, float y) const
-        {
-            ImVec2 no = { node_origin_cs.x, node_origin_cs.y };
-            ImVec2 ul = (no + ImVec2{ column_number * GraphNodeLayout::k_column_width, pos_y_cs });
-            ImVec2 lr = { ul.x + GraphNodeLayout::k_column_width, ul.y + k_height() };
-            ul.x += k_width();
-            //printf("m(%0.1f, %0.1f) ul(%0.1f, %0.1f) lr(%01.f, %0.1f)\n", x, y, ul.x, ul.y, lr.x, lr.y);
-            return x >= ul.x && x <= lr.x && y >= ul.y && y <= lr.y;
-        }
-    };
+    vec2 GraphPinLayout::ul_ws(Canvas& canvas) const
+    {
+        float x = column_number * GraphNodeLayout::k_column_width;
+        ImVec2 no = { node_origin_cs.x, node_origin_cs.y };
+        ImVec2 res = (no + ImVec2{ x, pos_y_cs }) * canvas.scale;
+        ImVec2 o_off = { canvas.origin_offset_ws.x, canvas.origin_offset_ws.y };
+        ImVec2 w_off = { canvas.window_origin_offset_ws.x, canvas.window_origin_offset_ws.y };
+        res = res + o_off + w_off;
+        return { res.x, res.y };
+    }
+    bool GraphPinLayout::pin_contains_cs_point(Canvas& canvas, float x, float y) const
+    {
+        ImVec2 no = { node_origin_cs.x, node_origin_cs.y };
+        ImVec2 ul = (no + ImVec2{ column_number * GraphNodeLayout::k_column_width, pos_y_cs });
+        ImVec2 lr = { ul.x + k_width(), ul.y + k_height() };
+        return x >= ul.x && x <= lr.x && y >= ul.y && y <= lr.y;
+    }
+    bool GraphPinLayout::label_contains_cs_point(Canvas& canvas, float x, float y) const
+    {
+        ImVec2 no = { node_origin_cs.x, node_origin_cs.y };
+        ImVec2 ul = (no + ImVec2{ column_number * GraphNodeLayout::k_column_width, pos_y_cs });
+        ImVec2 lr = { ul.x + GraphNodeLayout::k_column_width, ul.y + k_height() };
+        ul.x += k_width();
+        //printf("m(%0.1f, %0.1f) ul(%0.1f, %0.1f) lr(%01.f, %0.1f)\n", x, y, ul.x, ul.y, lr.x, lr.y);
+        return x >= ul.x && x <= lr.x && y >= ul.y && y <= lr.y;
+    }
+
 
     struct MouseState
     {
@@ -1086,11 +1079,13 @@ namespace noodle {
                     continue;
 
                 // lazily create the layouts on demand.
-                if (!registry.any<GraphPinLayout>(entity.id))
-                    registry.emplace<GraphPinLayout>(entity.id, GraphPinLayout{});
+                auto pnl = provider._pinLayouts.find(entity);
+                if (pnl == provider._pinLayouts.end()) {
+                    provider._pinLayouts[entity] = GraphPinLayout{};
+                    pnl = provider._pinLayouts.find(entity);
+                }
 
-                GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity.id);
-                pnl.node_origin_cs = { node_pos.x, node_pos.y };
+                pnl->second.node_origin_cs = { node_pos.x, node_pos.y };
 
                 switch (pin.kind)
                 {
@@ -1132,28 +1127,28 @@ namespace noodle {
                 if (!registry.valid(pin.node_id.id))
                     continue;
 
-                GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity.id);
+                auto pnl = provider._pinLayouts.find(entity);
 
                 switch (pin.kind)
                 {
                 case NoodlePin::Kind::BusIn:
-                    pnl.column_number = 0;
-                    pnl.pos_y_cs = style_padding_y + GraphPinLayout::k_height() * static_cast<float>(gnl.in_height);
+                    pnl->second.column_number = 0;
+                    pnl->second.pos_y_cs = style_padding_y + GraphPinLayout::k_height() * static_cast<float>(gnl.in_height);
                     gnl.in_height += 1;
                     break;
                 case NoodlePin::Kind::BusOut:
-                    pnl.column_number = static_cast<float>(gnl.column_count);
-                    pnl.pos_y_cs = style_padding_y + GraphPinLayout::k_height() * static_cast<float>(gnl.out_height);
+                    pnl->second.column_number = static_cast<float>(gnl.column_count);
+                    pnl->second.pos_y_cs = style_padding_y + GraphPinLayout::k_height() * static_cast<float>(gnl.out_height);
                     gnl.out_height += 1;
                     break;
                 case NoodlePin::Kind::Param:
-                    pnl.column_number = 0;
-                    pnl.pos_y_cs = style_padding_y + GraphPinLayout::k_height() * static_cast<float>(gnl.in_height);
+                    pnl->second.column_number = 0;
+                    pnl->second.pos_y_cs = style_padding_y + GraphPinLayout::k_height() * static_cast<float>(gnl.in_height);
                     gnl.in_height += 1;
                     break;
                 case NoodlePin::Kind::Setting:
-                    pnl.column_number = 1;
-                    pnl.pos_y_cs = style_padding_y + GraphPinLayout::k_height() * static_cast<float>(gnl.mid_height);
+                    pnl->second.column_number = 1;
+                    pnl->second.pos_y_cs = style_padding_y + GraphPinLayout::k_height() * static_cast<float>(gnl.mid_height);
                     gnl.mid_height += 1;
                     break;
                 }
@@ -1198,16 +1193,14 @@ namespace noodle {
                     // @TODO slate entity for demolition
                     continue;
                 }
-                if (!registry.has<GraphPinLayout>(entity))
-                {
-                    // this can occur if pins have been created, but no associated node exists
-                    continue;
-                }
 
-                GraphPinLayout& pnl = registry.get<GraphPinLayout>(entity);
-                if (pnl.pin_contains_cs_point(root.canvas, mouse_x_cs, mouse_y_cs))
+                NoodlePin& pin = registry.get<NoodlePin>(entity);
+                auto pnl = provider._pinLayouts.find(pin.pin_id);
+                if (pnl == provider._pinLayouts.end())
+                    continue; // can occur during constructions
+
+                if (pnl->second.pin_contains_cs_point(root.canvas, mouse_x_cs, mouse_y_cs))
                 {
-                    NoodlePin& pin = registry.get<NoodlePin>(entity);
                     if (pin.kind == NoodlePin::Kind::Setting)
                     {
                         hover.pin_id = ln_Pin_null();
@@ -1219,7 +1212,7 @@ namespace noodle {
                         hover.node_id = pin.node_id;
                     }
                 }
-                else if (pnl.label_contains_cs_point(root.canvas, mouse_x_cs, mouse_y_cs))
+                else if (pnl->second.label_contains_cs_point(root.canvas, mouse_x_cs, mouse_y_cs))
                 {
                     NoodlePin& pin = registry.get<NoodlePin>(entity);
                     if (pin.kind == NoodlePin::Kind::Setting || pin.kind == NoodlePin::Kind::Param)
@@ -1318,14 +1311,14 @@ namespace noodle {
                     if (!from_pin.valid || !to_pin.valid)
                         continue;
 
-                    GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(from_pin.id);
-                    GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(to_pin.id);
+                    auto from_gpl = provider._pinLayouts.find(from_pin);
+                    auto to_gpl = provider._pinLayouts.find(to_pin);
 
-                    vec2 ul_ = from_gpl.ul_ws(root.canvas);
+                    vec2 ul_ = from_gpl->second.ul_ws(root.canvas);
                     ImVec2 ul = { ul_.x, ul_.y };
                     ImVec2 from_pos = ul + ImVec2(style_padding_y, style_padding_x) * root.canvas.scale;
 
-                    ul_ = to_gpl.ul_ws(root.canvas);
+                    ul_ = to_gpl->second.ul_ws(root.canvas);
                     ul = { ul_.x, ul_.y };
                     ImVec2 to_pos = ul + ImVec2(0, style_padding_x) * root.canvas.scale;
 
@@ -1731,13 +1724,13 @@ namespace noodle {
             if (!from_pin.valid || !to_pin.valid)
                 continue;
 
-            GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(from_pin.id);
-            GraphPinLayout& to_gpl = registry.get<GraphPinLayout>(to_pin.id);
-            vec2 ul_ = from_gpl.ul_ws(root.canvas);
+            auto from_gpl = provider._pinLayouts.find(from_pin);
+            auto to_gpl = provider._pinLayouts.find(to_pin);
+            vec2 ul_ = from_gpl->second.ul_ws(root.canvas);
             ImVec2 ul = { ul_.x, ul_.y };
             ImVec2 from_pos = ul + ImVec2(style_padding_y, style_padding_x) * root.canvas.scale;
 
-            ul_ = to_gpl.ul_ws(root.canvas);
+            ul_ = to_gpl->second.ul_ws(root.canvas);
             ul = { ul_.x, ul_.y };
 
             ImVec2 to_pos = ul + ImVec2(0, style_padding_x) * root.canvas.scale;
@@ -1752,9 +1745,9 @@ namespace noodle {
 
         if (mouse.dragging_wire)
         {
-            GraphPinLayout& from_gpl = registry.get<GraphPinLayout>(hover.originating_pin_id.id);
+            auto from_gpl = provider._pinLayouts.find(hover.originating_pin_id);
 
-            vec2 ul_ = from_gpl.ul_ws(root.canvas);
+            vec2 ul_ = from_gpl->second.ul_ws(root.canvas);
             ImVec2 ul = { ul_.x, ul_.y };
 
             ImVec2 p0 = ul + ImVec2(style_padding_y, style_padding_x) * root.canvas.scale;
@@ -1905,9 +1898,9 @@ namespace noodle {
                     break;
                 }
 
-                GraphPinLayout& pin_gpl = registry.get<GraphPinLayout>(j.id);
+                auto pin_gpl = provider._pinLayouts.find(j);
 
-                vec2 ul_ = pin_gpl.ul_ws(root.canvas);
+                vec2 ul_ = pin_gpl->second.ul_ws(root.canvas);
                 ImVec2 pin_ul = { ul_.x, ul_.y };
                 uint32_t fill = (j.id == hover.pin_id.id || j.id == hover.originating_pin_id.id) ? 0xffffff : 0x000000;
                 fill |= (uint32_t)(128 + 128 * sinf(pulse * 8)) << 24;

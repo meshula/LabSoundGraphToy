@@ -23,6 +23,11 @@ struct cmp_ln_Node {
         return a.id < b.id;
     }
 };
+struct cmp_ln_Pin {
+    bool operator()(const ln_Pin& a, const ln_Pin& b) const {
+        return a.id < b.id;
+    }
+};
 struct cmp_ln_Connection {
     bool operator()(const ln_Connection& a, const ln_Connection& b) const {
         return a.id < b.id;
@@ -151,6 +156,19 @@ namespace lab { namespace noodle {
         std::set<ln_Node, cmp_ln_Node> nodes;
     };
 
+    struct GraphPinLayout
+    {
+        inline constexpr static float k_height() { return 20.f; }
+        inline constexpr static float k_width() { return 20.f; }
+
+        vec2 node_origin_cs = { 0, 0 };
+        float pos_y_cs = 0.f;
+        float column_number = 0;
+        vec2 ul_ws(Canvas& canvas) const;
+        bool pin_contains_cs_point(Canvas& canvas, float x, float y) const;
+        bool label_contains_cs_point(Canvas& canvas, float x, float y) const;
+    };
+
     class Provider
     {
         friend struct Work;
@@ -162,6 +180,7 @@ namespace lab { namespace noodle {
         std::map<ln_Node, CanvasGroup, cmp_ln_Node> _canvasNodes;
         std::map<ln_Node, NoodleNode, cmp_ln_Node> _noodleNodes;
         std::map<ln_Connection, NoodleConnection, cmp_ln_Connection> _connections;
+        std::map<ln_Pin, GraphPinLayout, cmp_ln_Pin> _pinLayouts;
 
         virtual ~Provider() = default;
         
