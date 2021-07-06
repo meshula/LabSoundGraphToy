@@ -14,6 +14,8 @@
 #include <string>
 #include <vector>
 
+namespace lab { class AudioNode; }
+
 class LabSoundProvider final : public lab::noodle::Provider
 {
 public:
@@ -64,6 +66,10 @@ public:
     virtual void disconnect(ln_Connection connection_id) override;
 
     void add_osc_addr(char const* const addr, int addr_id, int channels, float* data);
+
+private:
+    void create_entities(std::shared_ptr<lab::AudioNode> audio_node, lab::noodle::NoodleNode& node, ln_Node audio_node_id);
+
 
     ln_Node _osc_node = ln_Node_null();
 };
