@@ -343,7 +343,7 @@ namespace noodle {
                 provider.node_create(kind, new_node);
 
                 CanvasGroup* cn = nullptr;
-                if (group_node.id != ln_Node_null().id && registry.valid(group_node.id))
+                if (group_node.id != ln_Node_null().id)
                 {
                     auto it = provider._canvasNodes.find(group_node);
                     if (it != provider._canvasNodes.end())
@@ -561,7 +561,6 @@ namespace noodle {
                     for (auto en : cn.nodes)
                     {
                         provider.node_delete(en);
-                        registry.destroy(en.id);
                     }
                     cn.nodes.clear();
                 }
@@ -580,7 +579,6 @@ namespace noodle {
                 if (gnl != provider._nodeGraphics.end())
                     provider._nodeGraphics.erase(gnl);
 
-                registry.destroy(input_node.id);
                 edit.incr_work_epoch();
                 break;
             }
@@ -597,33 +595,29 @@ namespace noodle {
             case WorkType::ClearScene:
             {
                 for (auto& noodleNode : provider._noodleNodes) {
-                    entt::entity en = noodleNode.second.id.id;
-                    if (registry.valid(en)) {
-                        auto cg = provider._canvasNodes.find(noodleNode.second.id);
-                        if (cg != provider._canvasNodes.end())
+                    auto cg = provider._canvasNodes.find(noodleNode.second.id);
+                    if (cg != provider._canvasNodes.end())
+                    {
+                        // if it's canvas, clear the contained nodes
+                        for (auto en : cg->second.nodes)
                         {
-                            // if it's canvas, clear the contained nodes
-                            for (auto en : cg->second.nodes)
-                            {
-                                provider.node_delete(en);
-                                registry.destroy(en.id);
-                            }
-                            cg->second.nodes.clear();
+                            provider.node_delete(en);
                         }
-                        else
+                        cg->second.nodes.clear();
+                    }
+                    else
+                    {
+                        auto gnl = provider._nodeGraphics.find(noodleNode.second.id);
+                        if (gnl != provider._nodeGraphics.end() && gnl->second.parent_canvas)
                         {
-                            auto gnl = provider._nodeGraphics.find(noodleNode.second.id);
-                            if (gnl != provider._nodeGraphics.end() && gnl->second.parent_canvas)
-                            {
-                                // if it's on a canvas, remove it.
-                                /// @TODO it probably makes sense to recurse the graph and
-                                /// delete from the leaves, rather than using this more complex algorithm
-                                auto it = gnl->second.parent_canvas->nodes.find(noodleNode.second.id);
-                                if (it != gnl->second.parent_canvas->nodes.end())
-                                    gnl->second.parent_canvas->nodes.erase(it);
-                            }
-                            provider.node_delete(noodleNode.second.id);
+                            // if it's on a canvas, remove it.
+                            /// @TODO it probably makes sense to recurse the graph and
+                            /// delete from the leaves, rather than using this more complex algorithm
+                            auto it = gnl->second.parent_canvas->nodes.find(noodleNode.second.id);
+                            if (it != gnl->second.parent_canvas->nodes.end())
+                                gnl->second.parent_canvas->nodes.erase(it);
                         }
+                        provider.node_delete(noodleNode.second.id);
                     }
                 }
 
@@ -719,8 +713,6 @@ namespace noodle {
     {
         if (!pin_id.valid)
             return;
-
-        entt::registry& registry = provider.registry();
 
         auto pin_it = provider._noodlePins.find(pin_id);
         if (pin_it == provider._noodlePins.end())
@@ -907,16 +899,11 @@ namespace noodle {
 
     void EditState::edit_node(Provider& provider, CanvasGroup& root, ln_Node node, std::vector<Work>& pending_work)
     {
-        entt::registry& reg = provider.registry();
-        if (!reg.valid(node.id))
-        {
+        auto it = provider._noodleNodes.find(node);
+        if (it == provider._noodleNodes.end()) {
             selected_node = ln_Node_null();
             return;
         }
-
-        auto it = provider._noodleNodes.find(node);
-        if (it == provider._noodleNodes.end())
-            return;
 
         char buff[256];
         sprintf(buff, "%s Node", it->second.name.c_str());
@@ -1041,8 +1028,6 @@ namespace noodle {
 
     void lay_out_pins(Provider& provider)
     {
-        entt::registry& registry = provider.registry();
-
         // may the counting begin
 
         for (auto& node : provider._noodleNodes)
@@ -1067,9 +1052,6 @@ namespace noodle {
             // calculate column heights
             for (const ln_Pin& entity : node.second.pins)
             {
-                if (!registry.valid(entity.id))
-                    continue;
-
                 auto pin_it = provider._noodlePins.find(entity);
                 if (pin_it == provider._noodlePins.end())
                     continue;
@@ -1169,8 +1151,6 @@ namespace noodle {
 
     void ProviderHarness::State::update_hovers(Provider& provider)
     {
-        entt::registry& registry = provider.registry();
-
         //bool currently_hovered = _hover.node_id != ln_Node_null().id;
 
         // refresh highlights if dragging a wire, or if a node is not being dragged
@@ -1451,15 +1431,12 @@ namespace noodle {
             }
         }
 
-        entt::registry& registry = provider.registry();
-
         /// @TODO consolidate the redundant logic here for testing connections
         if (mouse.dragging && mouse.dragging_wire)
         {
             // if dragging a wire, check for disallowed connections so they wire can turn red
             hover.valid_connection = true;
-            if (hover.originating_pin_id.id != ln_Pin_null().id && hover.pin_id.id != ln_Pin_null().id && 
-                registry.valid(hover.originating_pin_id.id) && registry.valid(hover.pin_id.id))
+            if (hover.originating_pin_id.id != ln_Pin_null().id && hover.pin_id.id != ln_Pin_null().id)
             {
                 auto from_pin_it = provider._noodlePins.find(hover.originating_pin_id);
                 auto to_pin_it = provider._noodlePins.find(hover.pin_id);
@@ -1486,8 +1463,7 @@ namespace noodle {
         else if (!mouse.dragging && mouse.dragging_wire)
         {
             hover.valid_connection = true;
-            if (hover.originating_pin_id.id != ln_Pin_null().id && hover.pin_id.id != ln_Pin_null().id &&
-                registry.valid(hover.originating_pin_id.id) && registry.valid(hover.pin_id.id))
+            if (hover.originating_pin_id.id != ln_Pin_null().id && hover.pin_id.id != ln_Pin_null().id)
             {
                 auto from_pin_it = provider._noodlePins.find(hover.originating_pin_id);
                 auto to_pin_it = provider._noodlePins.find(hover.pin_id);
@@ -1788,9 +1764,6 @@ namespace noodle {
         //   Node Body / Drawing / Profiler  //
         ///////////////////////////////////////
 
-        if (!registry.valid(edit._device_node.id))
-            edit._device_node = ln_Node_null();
-
         total_profile_duration = provider.node_get_timing(edit._device_node);
 
         for (auto& node: provider._noodleNodes)
@@ -2083,7 +2056,6 @@ namespace noodle {
             return res;
         };
         
-        entt::registry& reg = provider.registry();
         std::ofstream file(path, std::ios::binary);
         
         file << "// " << path;
@@ -2101,10 +2073,6 @@ void create_graph(lab::AudioContext& ctx)
 )";
         for (auto& node : provider._noodleNodes)
         {
-            entt::entity node_entity = node.second.id.id;
-            if (!reg.valid(node_entity))
-                continue;
-
             std::string node_name_clean = clean_name(node.second.name);
             file << "\n    //--------------------\n    // Node: "
                  << node.second.name << " Kind: " << node.second.kind << "\n";
@@ -2121,9 +2089,6 @@ void create_graph(lab::AudioContext& ctx)
             file << "    // Pins:\n\n";
             for (const ln_Pin& entity : node.second.pins)
             {
-                if (!reg.valid(entity.id))
-                    continue;
-
                 auto pin_it = provider._noodlePins.find(entity);
                 if (pin_it == provider._noodlePins.end())
                     continue;
@@ -2216,16 +2181,12 @@ void create_graph(lab::AudioContext& ctx)
 
         // Note: this code uses \n because std::endl has other behaviors
         using lab::noodle::NoodlePin;
-        entt::registry& reg = provider.registry();
+
         std::ofstream file(path, std::ios::binary);
         file << "#!LabSoundGraphToy\n";
         file << "# " << path << "\n";
         for (auto& node : provider._noodleNodes)
         {
-            entt::entity node_entity = node.second.id.id;
-            if (!reg.valid(node_entity))
-                continue;
-
             file << "node: " << node.second.kind << " name: " << node.second.name << "\n";
 
             auto gnl_it = provider._nodeGraphics.find(node.second.id);
@@ -2237,9 +2198,6 @@ void create_graph(lab::AudioContext& ctx)
 
             for (const ln_Pin& entity : node.second.pins)
             {
-                if (!reg.valid(entity.id))
-                    continue;
-
                 auto pin_it = provider._noodlePins.find(entity);
                 if (pin_it == provider._noodlePins.end())
                     continue;
@@ -2312,8 +2270,6 @@ void create_graph(lab::AudioContext& ctx)
         using StringBuffer = rapidjson::StringBuffer;
         using Writer = rapidjson::Writer<StringBuffer>;
 
-        entt::registry& reg = provider.registry();
-
         StringBuffer s;
         Writer writer(s);
         writer.StartObject();
@@ -2324,10 +2280,6 @@ void create_graph(lab::AudioContext& ctx)
 
         for (auto& node : provider._noodleNodes)
         {
-            entt::entity node_entity = node.second.id.id;
-            if (!reg.valid(node_entity))
-                continue;
-
             writer.StartObject();
 
             writer.Key("name");
@@ -2350,9 +2302,6 @@ void create_graph(lab::AudioContext& ctx)
             writer.StartArray();
             for (const ln_Pin& entity : node.second.pins)
             {
-                if (!reg.valid(entity.id))
-                    continue;
-
                 auto pin_it = provider._noodlePins.find(entity);
                 if (pin_it == provider._noodlePins.end())
                     continue;

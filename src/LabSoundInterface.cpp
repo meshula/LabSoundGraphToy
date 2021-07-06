@@ -319,7 +319,7 @@ void LabSoundProvider::connect_bus_out_to_param_in(ln_Node output_node_id, ln_Pi
         return;
 
     lab::noodle::NoodlePin& param_noodle_pin = param_noodle_pin_it->second;
-    if (!registry.valid(param_noodle_pin.node_id.id) || !param_pin.param)
+    if (!param_pin.param)
         return;
 
     shared_ptr<lab::AudioNode> out = registry.get<shared_ptr<lab::AudioNode>>(output_node_id.id);
@@ -587,7 +587,7 @@ ln_Node LabSoundProvider::node_create(const std::string& kind, ln_Node id)
 void LabSoundProvider::node_delete(ln_Node node_id)
 {
     entt::registry& registry = Registry();
-    if (node_id.id != ln_Node_null().id && registry.valid(node_id.id))
+    if (node_id.id != ln_Node_null().id)
     {
         printf("DeleteNode %d\n", node_id.id);
 
