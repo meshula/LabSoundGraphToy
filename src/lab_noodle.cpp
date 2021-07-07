@@ -295,7 +295,6 @@ namespace noodle {
 
         void eval(EditState& edit)
         {
-            entt::registry& registry = provider.registry();
             switch (type)
             {
             case WorkType::Nop:
@@ -307,7 +306,7 @@ namespace noodle {
 
             case WorkType::CreateRuntimeContext:
             {
-                edit._device_node = ln_Node{ registry.create(), true };
+                edit._device_node = ln_Node{ provider.create_entity(), true };
                 kind = "Device";
                 [[fallthrough]];
             }
@@ -322,7 +321,7 @@ namespace noodle {
                 if (kind == "Device")
                 {
                     if (!edit._device_node.valid)
-                        edit._device_node = ln_Node{ registry.create(), true };
+                        edit._device_node = ln_Node{ provider.create_entity(), true };
 
                     provider._noodleNodes[edit._device_node] = NoodleNode("Device", conformed_name, edit._device_node);
 
@@ -338,7 +337,7 @@ namespace noodle {
                     break;
                 }
 
-                ln_Node new_node = ln_Node{ registry.create(), true };
+                ln_Node new_node = ln_Node{ provider.create_entity(), true };
                 provider._noodleNodes[new_node] = NoodleNode(kind, conformed_name, new_node);
                 provider.node_create(kind, new_node);
 
@@ -377,8 +376,7 @@ namespace noodle {
                 else
                     conformed_name = unique_name(kind);
 
-                entt::entity new_node = provider.registry().create();
-                ln_Node new_ln_node = { new_node, true };
+                ln_Node new_ln_node = { provider.create_entity(), true };
                 provider._noodleNodes[new_ln_node] = NoodleNode(kind, conformed_name, new_ln_node);
 
                 provider._nodeGraphics[new_ln_node] = 
@@ -478,9 +476,7 @@ namespace noodle {
                     to_pin_e = param_pin;
                 }
 
-                entt::entity connection_id = registry.create();
-
-                ln_Connection new_id{ connection_id };
+                ln_Connection new_id{ provider.create_entity() };
                 provider._connections[new_id] = lab::noodle::NoodleConnection(
                     new_id,
                     from_pin_e, from_node_e,
@@ -531,8 +527,7 @@ namespace noodle {
                     to_pin_e = param_pin;
                 }
 
-                entt::entity connection_id = registry.create();
-                ln_Connection new_id{ connection_id };
+                ln_Connection new_id{ provider.create_entity() };
                 provider._connections[new_id] = lab::noodle::NoodleConnection(
                     new_id,
                     from_pin_e, from_node_e,
@@ -1858,7 +1853,7 @@ namespace noodle {
                         label_pos.x += text_size.x + 5.f;
 
                         char buff[32];
-                        sprintf(buff, "(%d)", node.second.id.id);
+                        sprintf(buff, "(%lld)", node.second.id.id);
                         drawList->AddText(io.FontDefault, label_font_size, label_pos,
                             (hover.node_menu && node.second.id.id == hover.node_id.id) ? text_color_highlighted : text_color,
                             buff, buff + strlen(buff));
@@ -1921,7 +1916,7 @@ namespace noodle {
                     {
                         ImVec2 pos = label_pos - ImVec2(50, 0);
                         char buff[32];
-                        sprintf(buff, "(%d)", j.id);
+                        sprintf(buff, "(%lld)", j.id);
                         drawList->AddText(io.FontDefault, font_size, pos,
                             (hover.node_menu && node.second.id.id == hover.node_id.id) ? text_color_highlighted : text_color,
                             buff, buff + strlen(buff));

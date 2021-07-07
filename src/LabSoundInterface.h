@@ -42,8 +42,6 @@ class LabSoundProvider final : public lab::noodle::Provider
 public:
     virtual ~LabSoundProvider() override = default;
 
-    virtual entt::registry& registry() const override;
-
     virtual ln_Context create_runtime_context(ln_Node id) override;
 
     // node creation and deletion

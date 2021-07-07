@@ -2,21 +2,22 @@
 #ifndef included_noodle_h
 #define included_noodle_h
 
-#include <entt/entt.hpp>
+#include <atomic>
 #include <functional>
 #include <string>
 #include <map>
 #include <set>
+#include <stdint.h>
 
-typedef struct { entt::entity id; } ln_Context;
-typedef struct { entt::entity id; } ln_Connection;
-typedef struct { entt::entity id; bool valid; } ln_Node;
-typedef struct { entt::entity id; bool valid; } ln_Pin;
+typedef struct { uint64_t id; } ln_Context;
+typedef struct { uint64_t id; } ln_Connection;
+typedef struct { uint64_t id; bool valid; } ln_Node;
+typedef struct { uint64_t id; bool valid; } ln_Pin;
 
-constexpr inline ln_Context ln_Context_null() { return { entt::null }; }
-constexpr inline ln_Connection ln_Connection_null() { return { entt::null }; }
-constexpr inline ln_Node ln_Node_null() { return { entt::null, false }; }
-constexpr inline ln_Pin ln_Pin_null() { return { entt::null, false }; }
+constexpr inline ln_Context ln_Context_null() { return { 0 }; }
+constexpr inline ln_Connection ln_Connection_null() { return { 0 }; }
+constexpr inline ln_Node ln_Node_null() { return { 0, false }; }
+constexpr inline ln_Pin ln_Pin_null() { return { 0, false }; }
 
 struct cmp_ln_Node {
     bool operator()(const ln_Node& a, const ln_Node& b) const {
@@ -212,38 +213,32 @@ namespace lab { namespace noodle {
         
         inline ln_Node copy(ln_Node n)
         {
-            if (registry().valid(n.id))
-                return n;
-            return ln_Node_null();
+            return n;
         }
 
         inline ln_Pin copy(ln_Pin n)
         {
-            if (registry().valid(n.id))
-                return n;
-            return ln_Pin_null();
+            return n;
         }
 
-        virtual entt::registry& registry() const = 0;
+        uint64_t create_entity() {
+            static std::atomic<uint64_t> id = 0;
+            return ++id;
+        }
+
         virtual ln_Context create_runtime_context(ln_Node id) = 0;
 
         void associate(ln_Node node, const std::string& name)
         {
             _name_to_entity[name] = node;
         }
+
         ln_Node entity_for_node_named(const std::string& name)
         {
             auto it = _name_to_entity.find(name);
             if (it == _name_to_entity.end())
                 return ln_Node_null();
-            
-            bool valid = registry().valid(it->second.id);
-            if (!valid)
-            {
-                _name_to_entity.erase(it);
-                return ln_Node_null();
-            }
-            
+                        
             return { it->second.id, true };
         }
         void clear_entity_node_associations()

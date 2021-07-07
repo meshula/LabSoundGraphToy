@@ -2,6 +2,7 @@
 // adapted from https://github.com/Raikiri/LegitProfiler
 
 #include <imgui.h>
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>

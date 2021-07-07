@@ -20,19 +20,10 @@ struct NodeReverseLookup
     std::map<std::string, ln_Pin> param_pin_map;
 };
 
-std::map<entt::entity, NodeReverseLookup> g_node_reverse_lookups;
+std::map<uint64_t, NodeReverseLookup> g_node_reverse_lookups;
 
 std::unique_ptr<lab::AudioContext> g_audio_context;
 
-std::unique_ptr<entt::registry> g_ls_registry;
-entt::registry& Registry()
-{
-    if (!g_ls_registry)
-    {
-        g_ls_registry = std::make_unique<entt::registry>();
-    }
-    return *g_ls_registry.get();
-}
 
 
 // Returns input, output
@@ -95,8 +86,6 @@ void LabSoundProvider::create_entities(std::shared_ptr<lab::AudioNode> audio_nod
     if (!audio_node)
         return;
 
-    entt::registry& registry = Registry();
-
     auto reverse_it = g_node_reverse_lookups.find(audio_node_id.id);
     if (reverse_it == g_node_reverse_lookups.end())
     {
@@ -122,7 +111,7 @@ void LabSoundProvider::create_entities(std::shared_ptr<lab::AudioNode> audio_nod
     int c = (int)audio_node->numberOfInputs();
     for (int i = 0; i < c; ++i)
     {
-        ln_Pin pin_id = { registry.create(), true };
+        ln_Pin pin_id = { create_entity(), true };
         node.pins.push_back(pin_id);
         std::string name = ""; // audio_node->input(i)->name(); @TODO an IDL for all the things
         reverse.input_pin_map[name] = pin_id;
@@ -142,7 +131,7 @@ void LabSoundProvider::create_entities(std::shared_ptr<lab::AudioNode> audio_nod
     c = (int)audio_node->numberOfOutputs();
     for (int i = 0; i < c; ++i)
     {
-        ln_Pin pin_id = { registry.create(), true };
+        ln_Pin pin_id = { create_entity(), true };
         node.pins.push_back(pin_id);
         std::string name = audio_node->output(i)->name();
         reverse.output_pin_map[name] = ln_Pin{ pin_id };
@@ -197,7 +186,7 @@ void LabSoundProvider::create_entities(std::shared_ptr<lab::AudioNode> audio_nod
             strcpy(buff, "...");
         }
 
-        ln_Pin pin_id{ registry.create(), true };
+        ln_Pin pin_id{ create_entity(), true };
         node.pins.push_back(pin_id);
         _audioPins[pin_id] = LabSoundPinData{ 0, settings[i] };
 
@@ -222,7 +211,7 @@ void LabSoundProvider::create_entities(std::shared_ptr<lab::AudioNode> audio_nod
     {
         char buff[64];
         sprintf(buff, "%f", params[i]->value());
-        ln_Pin pin_id { registry.create(), true };
+        ln_Pin pin_id { create_entity(), true };
         reverse.param_pin_map[names[i]] = pin_id;
         node.pins.push_back(pin_id);
         _audioPins[pin_id] = LabSoundPinData{ 0,
@@ -593,7 +582,6 @@ ln_Pin LabSoundProvider::node_param_named(ln_Node node_id, const std::string& ou
 
 ln_Node LabSoundProvider::node_create(const std::string& kind, ln_Node id)
 {
-    entt::registry& registry = Registry();
     if (kind == "OSC")
     {
         shared_ptr<OSCNode> n = std::make_shared<OSCNode>(*g_audio_context.get());
@@ -671,11 +659,6 @@ void LabSoundProvider::node_delete(ln_Node node_id)
 
         // note: node_id is to be deleted externally, as it was created externally
     }
-}
-
-entt::registry& LabSoundProvider::registry() const
-{
-    return Registry();
 }
 
 char const* const* LabSoundProvider::node_names() const
@@ -964,7 +947,7 @@ void LabSoundProvider::pin_create_output(const std::string& node_name, const std
         }
         auto& reverse = reverse_it->second;
 
-        ln_Pin pin_id{ registry().create(), true };
+        ln_Pin pin_id{ create_entity(), true };
 
         auto node = _noodleNodes.find(node_e);
         if (node == _noodleNodes.end()) {
@@ -992,9 +975,6 @@ void LabSoundProvider::pin_create_output(const std::string& node_name, const std
 
 float LabSoundProvider::node_get_timing(ln_Node node)
 {
-    if (!registry().valid(node.id))
-        return 0;
-
     auto n_it = _audioNodes.find(node);
     if (n_it == _audioNodes.end())
         return 0;
@@ -1042,7 +1022,7 @@ void LabSoundProvider::add_osc_addr(char const* const addr, int addr_id, int cha
         if (node == _noodleNodes.end())
             return;
 
-        ln_Pin pin_id{ registry().create(), true };
+        ln_Pin pin_id{ create_entity(), true };
         node->second.pins.push_back(pin_id);
 
         _noodlePins[pin_id] = lab::noodle::NoodlePin{
