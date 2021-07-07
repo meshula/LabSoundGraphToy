@@ -597,8 +597,6 @@ ln_Node LabSoundProvider::node_create(const std::string& kind, ln_Node id)
     if (kind == "OSC")
     {
         shared_ptr<OSCNode> n = std::make_shared<OSCNode>(*g_audio_context.get());
-        registry.emplace<shared_ptr<OSCNode>>(id.id, n);
-
         _audioNodes[id] = LabSoundNodeData{ n };
         _osc_node = id;
         return id;
@@ -1026,8 +1024,14 @@ void LabSoundProvider::add_osc_addr(char const* const addr, int addr_id, int cha
     if (_osc_node.id == ln_Node_null().id)
         return;
 
-    entt::registry& registry = Registry();
-    shared_ptr<OSCNode> n = registry.get<shared_ptr<OSCNode>>(_osc_node.id);
+    auto node_it = _audioNodes.find(_osc_node);
+    if (node_it == _audioNodes.end())
+        return;
+
+    auto n = dynamic_cast<OSCNode*>(node_it->second.node.get());
+    if (!n)
+        return;
+
     if (!n->addAddress(addr, addr_id, channels, data))
         return;
 
@@ -1038,7 +1042,7 @@ void LabSoundProvider::add_osc_addr(char const* const addr, int addr_id, int cha
         if (node == _noodleNodes.end())
             return;
 
-        ln_Pin pin_id{ registry.create(), true };
+        ln_Pin pin_id{ registry().create(), true };
         node->second.pins.push_back(pin_id);
 
         _noodlePins[pin_id] = lab::noodle::NoodlePin{
