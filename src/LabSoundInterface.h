@@ -14,10 +14,25 @@
 #include <string>
 #include <vector>
 
-namespace lab { class AudioNode; }
+namespace lab { class AudioNode; class AudioParam; class AudioSetting; }
+
+
+
+//--------------------------------------------------------------
+// AudioPins are created for every created node
+// There is one noodle pin for every AudioPin
+struct AudioPin
+{
+    int output_index = 0;
+    std::shared_ptr<lab::AudioSetting> setting;
+    std::shared_ptr<lab::AudioParam> param;
+};
+
 
 class LabSoundProvider final : public lab::noodle::Provider
 {
+    std::map<ln_Pin, AudioPin, cmp_ln_Pin> _audioPins;
+
 public:
     virtual ~LabSoundProvider() override = default;
 
