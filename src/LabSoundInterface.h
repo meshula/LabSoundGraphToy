@@ -20,18 +20,24 @@ namespace lab { class AudioNode; class AudioParam; class AudioSetting; }
 
 //--------------------------------------------------------------
 // AudioPins are created for every created node
-// There is one noodle pin for every AudioPin
-struct AudioPin
+// There is one noodle pin for every LabSoundPinData
+struct LabSoundPinData
 {
     int output_index = 0;
     std::shared_ptr<lab::AudioSetting> setting;
     std::shared_ptr<lab::AudioParam> param;
 };
 
+struct LabSoundNodeData
+{
+    std::shared_ptr<lab::AudioNode> node;
+};
+
 
 class LabSoundProvider final : public lab::noodle::Provider
 {
-    std::map<ln_Pin, AudioPin, cmp_ln_Pin> _audioPins;
+    std::map<ln_Pin, LabSoundPinData, cmp_ln_Pin> _audioPins;
+    std::map<ln_Node, LabSoundNodeData, cmp_ln_Node> _audioNodes;
 
 public:
     virtual ~LabSoundProvider() override = default;
