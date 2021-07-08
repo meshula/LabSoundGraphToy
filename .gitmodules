@@ -7,9 +7,6 @@
 [submodule "third/sokol"]
 	path = third/sokol
 	url = https://github.com/floooh/sokol.git
-[submodule "third/entt"]
-	path = third/entt
-	url = https://github.com/skypjack/entt.git
 [submodule "third/LabMidi"]
 	path = third/LabMidi
 	url = git@github.com:meshula/LabMidi.git
