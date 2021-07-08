@@ -13,11 +13,22 @@ The submodules are licensed under their respective terms.
 
 ![Example](resources/preview.png)
 
-Right click on the canvas to create new nodes. Drag wires from outputs to inputs. Click the fields to edit the parameters and settings.
+Right click on the canvas to create new nodes. Drag wires from outputs to inputs. 
+Click the fields to edit the parameters and settings.
 
-Some nodes, such as the Oscillator must be started before they make sound. These nodes will have a star icon near their name which can be clicked to activate them.
+Some nodes, such as the Oscillator must be started before they make sound. 
+These nodes will have a "play" icon near their name which can be clicked to activate them.
 
-Some nodes, such as the Sfxr node can be signalled for a special behavior. This signal, as in PureData, is a *bang* and is represented near the node's name as an explanation point icon which can be click to emit the bang signal to the node.
+Click a node's name to reveal a control that allows deleting a node.
+Click a wire to reveal an option to delete the connection.
+
+Click and drag on an empty area in a node to move it around.
+
+Mouse scroll zooms in and out at the cursor point.
+
+Group nodes can be used to draw boxes around other nodes. They also contain nodes
+subsequently created. This functionality is a bit rough, because there's no way to
+go back to adding nodes to the global canvas once you've got a group node. 
 
 ## Getting Started
 
@@ -50,4 +61,3 @@ cmake -G {generator} -DCMAKE_INSTALL_PREFIX={install-location} {source-location}
 
 **Sokol** [https://github.com/floooh/sokol.git](https://github.com/floooh/sokol.git)
 
-**entt** [https://github.com/skypjack/entt](https://github.com/skypjack/entt)
