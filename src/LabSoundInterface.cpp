@@ -273,7 +273,7 @@ void LabSoundProvider::pin_set_bus_from_file(ln_Pin pin_id, const std::string& p
     {
         auto soundClip = lab::MakeBusFromFile(path.c_str(), false);
         a_pin.setting->setBus(soundClip.get());
-        printf("SetBusSetting %d %s\n", pin_id.id, path.c_str());
+        printf("SetBusSetting %lld %s\n", pin_id.id, path.c_str());
     }
 }
 
@@ -295,7 +295,7 @@ void LabSoundProvider::connect_bus_out_to_bus_in(ln_Node output_node_id, ln_Pin 
         return;
 
     g_audio_context->connect(in, out, 0, 0);
-    printf("ConnectBusOutToBusIn %d %d\n", input_node_id.id, output_node_id.id);
+    printf("ConnectBusOutToBusIn %lld %lld\n", input_node_id.id, output_node_id.id);
 }
 
 void LabSoundProvider::connect_bus_out_to_param_in(ln_Node output_node_id, ln_Pin output_pin_id, ln_Pin param_pin_id)
@@ -336,7 +336,7 @@ void LabSoundProvider::connect_bus_out_to_param_in(ln_Node output_node_id, ln_Pi
     }
 
     g_audio_context->connectParam(param_pin.param, out, output_index);
-    printf("ConnectBusOutToParamIn %d %d, index %d\n", param_pin_id.id, output_node_id.id, output_index);
+    printf("ConnectBusOutToParamIn %lld %lld, index %d\n", param_pin_id.id, output_node_id.id, output_index);
 }
 
 void LabSoundProvider::disconnect(ln_Connection connection_id_)
@@ -378,12 +378,12 @@ void LabSoundProvider::disconnect(ln_Connection connection_id_)
             if ((in_pin.kind == lab::noodle::NoodlePin::Kind::BusIn) && (out_pin.kind == lab::noodle::NoodlePin::Kind::BusOut))
             {
                 g_audio_context->disconnect(input_node, output_node, 0, 0);
-                printf("DisconnectInFromOut (bus from bus) %d %d\n", input_node_id.id, output_node_id.id);
+                printf("DisconnectInFromOut (bus from bus) %lld %lld\n", input_node_id.id, output_node_id.id);
             }
             else if ((in_pin.kind == lab::noodle::NoodlePin::Kind::Param) && (out_pin.kind == lab::noodle::NoodlePin::Kind::BusOut))
             {
                 g_audio_context->disconnectParam(a_in_pin.param, output_node, 0);
-                printf("DisconnectInFromOut (param from bus) %d %d\n", input_node_id.id, output_node_id.id);
+                printf("DisconnectInFromOut (param from bus) %lld %lld\n", input_node_id.id, output_node_id.id);
             }
         }
     }
@@ -410,7 +410,7 @@ ln_Context LabSoundProvider::create_runtime_context(ln_Node id)
     }
     lab::noodle::NoodleNode& node = it->second;
     create_entities(g_audio_context->device(), node, id);
-    printf("CreateRuntimeContext %d\n", id.id);
+    printf("CreateRuntimeContext %lld\n", id.id);
     return ln_Context{id.id};
 }
 
@@ -431,11 +431,11 @@ void LabSoundProvider::node_start_stop(ln_Node node_id, float when)
     if (n)
     {
         if (n->isPlayingOrScheduled()) {
-            printf("Stop %d\n", node_id.id);
+            printf("Stop %lld\n", node_id.id);
             n->stop(when);
         }
         else {
-            printf("Start %d\n", node_id.id);
+            printf("Start %lld\n", node_id.id);
             n->start(when);
         }
     }
@@ -461,7 +461,7 @@ void LabSoundProvider::node_bang(ln_Node node_id)
         gate->setValueAtTime(0.f, static_cast<float>(g_audio_context->currentTime()) + 1.f);
     }
 
-    printf("Bang %d\n", node_id.id);
+    printf("Bang %lld\n", node_id.id);
 }
 
 ln_Pin LabSoundProvider::node_output_named(ln_Node node_id, const std::string& output_name)
@@ -599,7 +599,7 @@ ln_Node LabSoundProvider::node_create(const std::string& kind, ln_Node id)
             node->second.bang_controller = !!n->param("gate");
             _audioNodes[id] = LabSoundNodeData{ n };
             create_entities(n, node->second, id);
-            printf("CreateNode [%s] %d\n", kind.c_str(), id.id);
+            printf("CreateNode [%s] %lld\n", kind.c_str(), id.id);
         }
     }
     else
@@ -614,7 +614,7 @@ void LabSoundProvider::node_delete(ln_Node node_id)
 {
     if (node_id.id != ln_Node_null().id)
     {
-        printf("DeleteNode %d\n", node_id.id);
+        printf("DeleteNode %lld\n", node_id.id);
 
         // force full disconnection
         auto it = _audioNodes.find(node_id);
@@ -629,11 +629,11 @@ void LabSoundProvider::node_delete(ln_Node node_id)
 
         for (auto i = _noodlePins.begin(), last = _noodlePins.end(); i != last; ) {
             if (i->second.node_id.id == node_id.id) {
-                i = _noodlePins.erase(i);
-
                 auto j = _audioPins.find(i->second.pin_id);
                 if (j != _audioPins.end())
                     _audioPins.erase(j);
+
+                i = _noodlePins.erase(i);
             }
             else {
                 ++i;
@@ -663,20 +663,17 @@ void LabSoundProvider::node_delete(ln_Node node_id)
 
 char const* const* LabSoundProvider::node_names() const
 {
-    static const char** names = nullptr;
-    if (!names)
+    static std::vector<const char*> names;
+    if (!names.size())
     {
         static auto src_names = lab::NodeRegistry::Instance().Names();
-        names = reinterpret_cast<const char**>(malloc(sizeof(char*) * (src_names.size() + 1)));
-        if (names)
-        {
-            for (int i = 0; i < src_names.size(); ++i)
-                names[i] = src_names[i].c_str();
+        names.resize(src_names.size() + 1);
+        for (int i = 0; i < src_names.size(); ++i)
+            names[i] = src_names[i].c_str();
 
-            names[src_names.size()] = nullptr;
-        }
+        names[src_names.size()] = nullptr;
     }
-    return names;
+    return &names[0];
 }
 
 void LabSoundProvider::pin_set_param_value(const std::string& node_name, const std::string& param_name, float v)
@@ -730,12 +727,12 @@ void LabSoundProvider::pin_set_float_value(ln_Pin pin, float v)
     if (a_pin.param)
     {
         a_pin.param->setValue(v);
-        printf("SetParam(%f) %d\n", v, pin.id);
+        printf("SetParam(%f) %lld\n", v, pin.id);
     }
     else if (a_pin.setting)
     {
         a_pin.setting->setFloat(v);
-        printf("SetFloatSetting(%f) %d\n", v, pin.id);
+        printf("SetFloatSetting(%f) %lld\n", v, pin.id);
     }
 }
 
@@ -789,12 +786,12 @@ void LabSoundProvider::pin_set_int_value(ln_Pin pin, int v)
     if (a_pin.param)
     {
         a_pin.param->setValue(static_cast<float>(v));
-        printf("SetParam(%d) %d\n", v, pin.id);
+        printf("SetParam(%d) %lld\n", v, pin.id);
     }
     else if (a_pin.setting)
     {
         a_pin.setting->setUint32(v);
-        printf("SetIntSetting(%d) %d\n", v, pin.id);
+        printf("SetIntSetting(%d) %lld\n", v, pin.id);
     }
 }
 
@@ -833,7 +830,7 @@ void LabSoundProvider::pin_set_enumeration_value(ln_Pin pin, const std::string& 
         if (e >= 0)
         {
             a_pin.setting->setUint32(e);
-            printf("SetEnumSetting(%d) %d\n", e, pin.id);
+            printf("SetEnumSetting(%d) %lld\n", e, pin.id);
         }
     }
 }
@@ -896,12 +893,12 @@ void LabSoundProvider::pin_set_bool_value(ln_Pin pin, bool v)
     if (a_pin.param)
     {
         a_pin.param->setValue(v? 1.f : 0.f);
-        printf("SetParam(%d) %d\n", v, pin.id);
+        printf("SetParam(%d) %lld\n", v, pin.id);
     }
     else if (a_pin.setting)
     {
         a_pin.setting->setBool(v);
-        printf("SetBoolSetting(%s) %d\n", v ? "true": "false", pin.id);
+        printf("SetBoolSetting(%s) %lld\n", v ? "true": "false", pin.id);
     }
 }
 

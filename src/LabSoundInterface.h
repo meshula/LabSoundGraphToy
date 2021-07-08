@@ -8,7 +8,6 @@
 
 #include "lab_noodle.h"
 
-#include <entt/entt.hpp>
 #include <map>
 #include <memory>
 #include <string>

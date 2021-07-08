@@ -574,6 +574,10 @@ namespace noodle {
                 if (gnl != provider._nodeGraphics.end())
                     provider._nodeGraphics.erase(gnl);
 
+                auto n_it = provider._noodleNodes.find(input_node);
+                if (n_it != provider._noodleNodes.end())
+                    provider._noodleNodes.erase(n_it);
+
                 edit.incr_work_epoch();
                 break;
             }
@@ -1618,8 +1622,6 @@ namespace noodle {
                 auto gnl_it = provider._nodeGraphics.find(hover.node_id);
                 if (gnl_it != provider._nodeGraphics.end()) {
                     NoodleNodeGraphic& gnl = gnl_it->second;
-                    gnl.initial_pos_cs = gnl.ul_cs;
-
                     ImVec2 sz = ImVec2{ gnl.lr_cs.x, gnl.lr_cs.y } - ImVec2{ gnl.ul_cs.x, gnl.ul_cs.y };
                     ImVec2 new_pos = ImVec2{ gnl.initial_pos_cs.x, gnl.initial_pos_cs.y } + delta;
                     gnl.ul_cs = { new_pos.x, new_pos.y };
