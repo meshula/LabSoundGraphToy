@@ -89,6 +89,7 @@ void LabSoundProvider::create_noodle_data_for_node(
     if (!audio_node)
         return;
 
+    // prep the reverse table if necessary
     auto reverse_it = g_node_reverse_lookups.find(node.id);
     if (reverse_it == g_node_reverse_lookups.end())
     {
@@ -96,6 +97,8 @@ void LabSoundProvider::create_noodle_data_for_node(
         reverse_it = g_node_reverse_lookups.find(node.id);
     }
     auto& reverse = reverse_it->second;
+
+    //---------- custom renderers
 
     lab::ContextRenderLock r(g_audio_context.get(), "LabSoundGraphToy_init");
     if (nullptr != dynamic_cast<lab::AnalyserNode*>(audio_node.get()))
@@ -116,8 +119,9 @@ void LabSoundProvider::create_noodle_data_for_node(
     {
         ln_Pin pin_id = { create_entity(), true };
         node.pins.push_back(pin_id);
-        std::string name = ""; // audio_node->input(i)->name(); @TODO an IDL for all the things
-        reverse.input_pin_map[name] = pin_id;
+        // currently input names are not part of the LabSound API
+        std::string name = ""; //audio_node->input(i)->name();
+        reverse.input_pin_map[name] = pin_id; // making this line currently meaningless
         _noodlePins[pin_id] = lab::noodle::NoodlePin{
             lab::noodle::NoodlePin::Kind::BusIn,
             lab::noodle::NoodlePin::DataType::Bus,
@@ -192,7 +196,6 @@ void LabSoundProvider::create_noodle_data_for_node(
         ln_Pin pin_id{ create_entity(), true };
         node.pins.push_back(pin_id);
         _audioPins[pin_id] = LabSoundPinData{ 0, settings[i] };
-
         _noodlePins[pin_id] = lab::noodle::NoodlePin {
             lab::noodle::NoodlePin::Kind::Setting,
             dataType,
@@ -233,7 +236,9 @@ void LabSoundProvider::create_noodle_data_for_node(
     }
 }
 
-void LabSoundProvider::pin_set_setting_bus_value(const std::string& node_name, const std::string& setting_name, const std::string& path)
+// override
+void LabSoundProvider::pin_set_setting_bus_value(
+    const std::string& node_name, const std::string& setting_name, const std::string& path)
 {
     ln_Node node = entity_for_node_named(node_name);
     if (!node.valid)
@@ -256,6 +261,7 @@ void LabSoundProvider::pin_set_setting_bus_value(const std::string& node_name, c
     }
 }
 
+// override
 void LabSoundProvider::pin_set_bus_from_file(ln_Pin pin_id, const std::string& path)
 {
     if (!pin_id.valid || !path.length())
@@ -280,6 +286,7 @@ void LabSoundProvider::pin_set_bus_from_file(ln_Pin pin_id, const std::string& p
     }
 }
 
+// override
 void LabSoundProvider::connect_bus_out_to_bus_in(ln_Node output_node_id, ln_Pin output_pin_id, ln_Node input_node_id)
 {
     if (!output_node_id.valid || !output_pin_id.valid || !input_node_id.valid)
@@ -301,6 +308,7 @@ void LabSoundProvider::connect_bus_out_to_bus_in(ln_Node output_node_id, ln_Pin 
     printf("ConnectBusOutToBusIn %lld %lld\n", input_node_id.id, output_node_id.id);
 }
 
+// override
 void LabSoundProvider::connect_bus_out_to_param_in(ln_Node output_node_id, ln_Pin output_pin_id, ln_Pin param_pin_id)
 {
     if (!output_node_id.valid || !output_pin_id.valid || !param_pin_id.valid)
@@ -342,6 +350,7 @@ void LabSoundProvider::connect_bus_out_to_param_in(ln_Node output_node_id, ln_Pi
     printf("ConnectBusOutToParamIn %lld %lld, index %d\n", param_pin_id.id, output_node_id.id, output_index);
 }
 
+// override
 void LabSoundProvider::disconnect(ln_Connection connection_id_)
 {
     auto conn = _connections.find(connection_id_);
@@ -397,6 +406,7 @@ void LabSoundProvider::disconnect(ln_Connection connection_id_)
     return;
 }
 
+// override
 ln_Context LabSoundProvider::create_runtime_context(ln_Node id)
 {
     const auto defaultAudioDeviceConfigurations = GetDefaultAudioDeviceConfiguration(true);
@@ -417,6 +427,7 @@ ln_Context LabSoundProvider::create_runtime_context(ln_Node id)
     return ln_Context{id.id};
 }
 
+// override
 void LabSoundProvider::node_start_stop(ln_Node node_id, float when)
 {
     if (node_id.id == ln_Node_null().id)
@@ -444,6 +455,7 @@ void LabSoundProvider::node_start_stop(ln_Node node_id, float when)
     }
 }
 
+// override
 void LabSoundProvider::node_bang(ln_Node node_id)
 {
     if (node_id.id == ln_Node_null().id)
@@ -467,6 +479,7 @@ void LabSoundProvider::node_bang(ln_Node node_id)
     printf("Bang %lld\n", node_id.id);
 }
 
+// override
 ln_Pin LabSoundProvider::node_output_named(ln_Node node_id, const std::string& output_name)
 {
     if (!node_id.valid)
@@ -496,6 +509,7 @@ ln_Pin LabSoundProvider::node_output_named(ln_Node node_id, const std::string& o
     return result;
 }
 
+// override
 ln_Pin LabSoundProvider::node_input_with_index(ln_Node node_id, int output)
 {
     if (!node_id.valid)
@@ -525,6 +539,7 @@ ln_Pin LabSoundProvider::node_input_with_index(ln_Node node_id, int output)
     return result;
 }
 
+// override
 ln_Pin LabSoundProvider::node_output_with_index(ln_Node node_id, int output)
 {
     if (!node_id.valid)
@@ -554,6 +569,7 @@ ln_Pin LabSoundProvider::node_output_with_index(ln_Node node_id, int output)
     return result;
 }
 
+// override
 ln_Pin LabSoundProvider::node_param_named(ln_Node node_id, const std::string& output_name)
 {
     if (!node_id.valid)
@@ -583,6 +599,7 @@ ln_Pin LabSoundProvider::node_param_named(ln_Node node_id, const std::string& ou
     return result;
 }
 
+// override
 ln_Node LabSoundProvider::node_create(const std::string& kind, ln_Node id)
 {
     if (kind == "OSC")
@@ -613,6 +630,7 @@ ln_Node LabSoundProvider::node_create(const std::string& kind, ln_Node id)
     return ln_Node{ id };
 }
 
+// override
 void LabSoundProvider::node_delete(ln_Node node_id)
 {
     if (node_id.id != ln_Node_null().id)
@@ -664,6 +682,7 @@ void LabSoundProvider::node_delete(ln_Node node_id)
     }
 }
 
+// override
 char const* const* LabSoundProvider::node_names() const
 {
     static std::vector<const char*> names;
@@ -679,6 +698,7 @@ char const* const* LabSoundProvider::node_names() const
     return &names[0];
 }
 
+// override
 void LabSoundProvider::pin_set_param_value(const std::string& node_name, const std::string& param_name, float v)
 {
     ln_Node node = entity_for_node_named(node_name);
@@ -698,6 +718,7 @@ void LabSoundProvider::pin_set_param_value(const std::string& node_name, const s
         p->setValue(v);
 }
 
+// override
 void LabSoundProvider::pin_set_setting_float_value(const std::string& node_name, const std::string& setting_name, float v)
 {
     ln_Node node = entity_for_node_named(node_name);
@@ -717,6 +738,7 @@ void LabSoundProvider::pin_set_setting_float_value(const std::string& node_name,
         s->setFloat(v);
 }
 
+// override
 void LabSoundProvider::pin_set_float_value(ln_Pin pin, float v)
 {
     if (!pin.valid)
@@ -739,6 +761,7 @@ void LabSoundProvider::pin_set_float_value(ln_Pin pin, float v)
     }
 }
 
+// override
 float LabSoundProvider::pin_float_value(ln_Pin pin)
 {
     if (!pin.valid)
@@ -757,6 +780,7 @@ float LabSoundProvider::pin_float_value(ln_Pin pin)
         return 0.f;
 }
 
+// override
 void LabSoundProvider::pin_set_setting_int_value(const std::string& node_name, const std::string& setting_name, int v)
 {
     ln_Node node = entity_for_node_named(node_name);
@@ -776,6 +800,7 @@ void LabSoundProvider::pin_set_setting_int_value(const std::string& node_name, c
         s->setUint32(v);
 }
 
+// override
 void LabSoundProvider::pin_set_int_value(ln_Pin pin, int v)
 {
     if (!pin.valid)
@@ -798,6 +823,7 @@ void LabSoundProvider::pin_set_int_value(ln_Pin pin, int v)
     }
 }
 
+// override
 int LabSoundProvider::pin_int_value(ln_Pin pin)
 {
     if (!pin.valid)
@@ -816,7 +842,7 @@ int LabSoundProvider::pin_int_value(ln_Pin pin)
         return 0;
 }
 
-
+// override
 void LabSoundProvider::pin_set_enumeration_value(ln_Pin pin, const std::string& value)
 {
     if (!pin.valid)
@@ -838,6 +864,7 @@ void LabSoundProvider::pin_set_enumeration_value(ln_Pin pin, const std::string& 
     }
 }
 
+// override
 void LabSoundProvider::pin_set_setting_enumeration_value(const std::string& node_name, const std::string& setting_name, const std::string& value)
 {
     ln_Node node = entity_for_node_named(node_name);
@@ -864,6 +891,7 @@ void LabSoundProvider::pin_set_setting_enumeration_value(const std::string& node
     }
 }
 
+// override
 void LabSoundProvider::pin_set_setting_bool_value(const std::string& node_name, const std::string& setting_name, bool v)
 {
     ln_Node node = entity_for_node_named(node_name);
@@ -883,6 +911,7 @@ void LabSoundProvider::pin_set_setting_bool_value(const std::string& node_name, 
         s->setBool(v);
 }
 
+// override
 void LabSoundProvider::pin_set_bool_value(ln_Pin pin, bool v)
 {
     if (!pin.valid)
@@ -905,6 +934,7 @@ void LabSoundProvider::pin_set_bool_value(ln_Pin pin, bool v)
     }
 }
 
+// override
 bool LabSoundProvider::pin_bool_value(ln_Pin pin)
 {
     if (!pin.valid)
@@ -923,6 +953,7 @@ bool LabSoundProvider::pin_bool_value(ln_Pin pin)
         return false;
 }
 
+// override
 void LabSoundProvider::pin_create_output(const std::string& node_name, const std::string& output_name, int channels)
 {
     ln_Node node_e = entity_for_node_named(node_name);
@@ -973,6 +1004,7 @@ void LabSoundProvider::pin_create_output(const std::string& node_name, const std
     }
 }
 
+// node_get_timing
 float LabSoundProvider::node_get_timing(ln_Node node)
 {
     auto n_it = _audioNodes.find(node);
@@ -986,6 +1018,7 @@ float LabSoundProvider::node_get_timing(ln_Node node)
     return n->graphTime.microseconds.count() * 1.e-6f;
 }
 
+// override
 float LabSoundProvider::node_get_self_timing(ln_Node node)
 {
     auto n_it = _audioNodes.find(node);
