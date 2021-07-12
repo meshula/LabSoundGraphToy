@@ -292,7 +292,7 @@ namespace noodle {
 
         }
 
-        void delete_connections(ln_Node id) {
+        void delete_connections_and_pins(ln_Node id) {
             for (auto i = provider._connections.begin(), last = provider._connections.end(); i != last; ) {
                 if (i->second.node_from.id == id.id || i->second.node_to.id == id.id) {
                     i = provider._connections.erase(i);
@@ -301,6 +301,16 @@ namespace noodle {
                     ++i;
                 }
             }
+
+            for (auto i = provider._noodlePins.begin(), last = provider._noodlePins.end(); i != last; ) {
+                if (i->second.node_id.id == id.id) {
+                    i = provider._noodlePins.erase(i);
+                }
+                else {
+                    ++i;
+                }
+            }
+
         }
 
         void eval(EditState& edit)
@@ -572,7 +582,7 @@ namespace noodle {
                     for (auto en : cn.nodes)
                     {
                         provider.node_delete(en);
-                        delete_connections(en);
+                        delete_connections_and_pins(en);
                     }
                     cn.nodes.clear();
                 }
@@ -586,7 +596,7 @@ namespace noodle {
                             gnl->second.parent_canvas->nodes.erase(it);
                     }
                     provider.node_delete(input_node);
-                    delete_connections(input_node);
+                    delete_connections_and_pins(input_node);
                 }
 
                 if (gnl != provider._nodeGraphics.end())
@@ -1044,18 +1054,18 @@ namespace noodle {
             hover.node_id = ln_Node_null();
     }
 
-    void lay_out_pins(Provider& provider)
+    void Provider::lay_out_pins()
     {
         // may the counting begin
 
-        for (auto& node : provider._noodleNodes)
+        for (auto& node : _noodleNodes)
         {
-            auto cn = provider._canvasNodes.find(node.second.id);
-            if (cn != provider._canvasNodes.end())
+            auto cn = _canvasNodes.find(node.second.id);
+            if (cn != _canvasNodes.end())
                 continue;   // groups have no pins
 
-            auto gnl_it = provider._nodeGraphics.find(node.second.id);
-            if (gnl_it == provider._nodeGraphics.end())
+            auto gnl_it = _nodeGraphics.find(node.second.id);
+            if (gnl_it == _nodeGraphics.end())
                 continue;
 
             NoodleNodeGraphic& gnl = gnl_it->second;
@@ -1070,17 +1080,17 @@ namespace noodle {
             // calculate column heights
             for (const ln_Pin& entity : node.second.pins)
             {
-                auto pin_it = provider._noodlePins.find(entity);
-                if (pin_it == provider._noodlePins.end())
+                auto pin_it = _noodlePins.find(entity);
+                if (pin_it == _noodlePins.end())
                     continue;
 
                 NoodlePin pin = pin_it->second;
 
                 // lazily create the layouts on demand.
-                auto pnl = provider._pinGraphics.find(entity);
-                if (pnl == provider._pinGraphics.end()) {
-                    provider._pinGraphics[entity] = NoodlePinGraphic{};
-                    pnl = provider._pinGraphics.find(entity);
+                auto pnl = _pinGraphics.find(entity);
+                if (pnl == _pinGraphics.end()) {
+                    _pinGraphics[entity] = NoodlePinGraphic{};
+                    pnl = _pinGraphics.find(entity);
                 }
 
                 pnl->second.node_origin_cs = { node_pos.x, node_pos.y };
@@ -1119,13 +1129,13 @@ namespace noodle {
             // assign columns
             for (const ln_Pin& entity : node.second.pins)
             {
-                auto pin_it = provider._noodlePins.find(entity);
-                if (pin_it == provider._noodlePins.end())
+                auto pin_it = _noodlePins.find(entity);
+                if (pin_it == _noodlePins.end())
                     continue;
 
                 NoodlePin& pin = pin_it->second;
 
-                auto pnl = provider._pinGraphics.find(entity);
+                auto pnl = _pinGraphics.find(entity);
 
                 switch (pin.kind)
                 {
@@ -1358,7 +1368,7 @@ namespace noodle {
         //---------------------------------------------------------------------
         // ensure node sizes are up to date
 
-        lay_out_pins(provider);
+        provider.lay_out_pins();
 
         //---------------------------------------------------------------------
         // Create a canvas

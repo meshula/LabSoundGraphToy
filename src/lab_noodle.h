@@ -196,22 +196,24 @@ namespace lab { namespace noodle {
 
     class Provider
     {
+        void lay_out_pins();
+
         friend struct Work;
         friend struct ProviderHarness;
         friend struct EditState;
         std::map<std::string, ln_Node> _name_to_entity;
         std::map<ln_Connection, NoodleConnection, cmp_ln_Connection> _connections;
+        std::map<ln_Node, CanvasGroup, cmp_ln_Node> _canvasNodes;
+        std::map<ln_Node, NoodleNodeGraphic, cmp_ln_Node> _nodeGraphics;
+        std::map<ln_Pin, NoodlePinGraphic, cmp_ln_Pin> _pinGraphics;
+        std::map<ln_Node, NoodleNode, cmp_ln_Node> _noodleNodes;
+        std::map<ln_Pin, NoodlePin, cmp_ln_Pin> _noodlePins;
 
     public:
 
         virtual ~Provider() = default;
 
-        std::map<ln_Node, CanvasGroup, cmp_ln_Node> _canvasNodes;
-        std::map<ln_Node, NoodleNode, cmp_ln_Node> _noodleNodes;
-        std::map<ln_Node, NoodleNodeGraphic, cmp_ln_Node> _nodeGraphics;
-        std::map<ln_Pin, NoodlePin, cmp_ln_Pin> _noodlePins;
-        std::map<ln_Pin, NoodlePinGraphic, cmp_ln_Pin> _pinGraphics;
-
+        // the contents of the NoodleConnection cannot be modified by a subclassed provider
         NoodleConnection const* const find_connection(ln_Connection c) {
             auto it = _connections.find(c);
             if (it == _connections.end())
@@ -219,6 +221,24 @@ namespace lab { namespace noodle {
             return &it->second;
         }
 
+        // the contents of the NoodleNode can be modified by a subclassed provider
+        NoodleNode * const find_node(ln_Node c) {
+            auto it = _noodleNodes.find(c);
+            if (it == _noodleNodes.end())
+                return nullptr;
+            return &it->second;
+        }
+
+        NoodlePin const* const find_pin(ln_Pin p) {
+            auto it = _noodlePins.find(p);
+            if (it == _noodlePins.end())
+                return nullptr;
+            return &it->second;
+        }
+
+        void add_pin(ln_Pin pin_id, const NoodlePin& pin) {
+            _noodlePins[pin_id] = pin;
+        }
 
         inline ln_Node copy(ln_Node n)
         {

@@ -80,17 +80,17 @@ void DrawSpectrum(std::shared_ptr<lab::AudioNode> audio_node, ImVec2 ul_ws, ImVe
 
 void LabSoundProvider::create_noodle_data_for_node(
     std::shared_ptr<lab::AudioNode> audio_node, 
-    lab::noodle::NoodleNode& node)
+    lab::noodle::NoodleNode *const node)
 {
-    if (!audio_node)
+    if (!audio_node || !node)
         return;
 
     // prep the reverse table if necessary
-    auto reverse_it = g_node_reverse_lookups.find(node.id);
+    auto reverse_it = g_node_reverse_lookups.find(node->id);
     if (reverse_it == g_node_reverse_lookups.end())
     {
-        g_node_reverse_lookups[node.id] = NodeReverseLookup{};
-        reverse_it = g_node_reverse_lookups.find(node.id);
+        g_node_reverse_lookups[node->id] = NodeReverseLookup{};
+        reverse_it = g_node_reverse_lookups.find(node->id);
     }
     auto& reverse = reverse_it->second;
 
@@ -100,7 +100,7 @@ void LabSoundProvider::create_noodle_data_for_node(
     if (nullptr != dynamic_cast<lab::AnalyserNode*>(audio_node.get()))
     {
         g_audio_context->addAutomaticPullNode(audio_node);
-        node.render = 
+        node->render =
             lab::noodle::NodeRender{
                 [audio_node](ln_Node id, lab::noodle::vec2 ul_ws, lab::noodle::vec2 lr_ws, float scale, void* drawList) {
                     DrawSpectrum(audio_node, {ul_ws.x, ul_ws.y}, {lr_ws.x, lr_ws.y}, scale, reinterpret_cast<ImDrawList*>(drawList));
@@ -114,19 +114,19 @@ void LabSoundProvider::create_noodle_data_for_node(
     for (int i = 0; i < c; ++i)
     {
         ln_Pin pin_id = { create_entity(), true };
-        node.pins.push_back(pin_id);
+        node->pins.push_back(pin_id);
         // currently input names are not part of the LabSound API
         std::string name = ""; //audio_node->input(i)->name();
         reverse.input_pin_map[name] = pin_id; // making this line currently meaningless
-        _noodlePins[pin_id] = lab::noodle::NoodlePin{
+        add_pin(pin_id, lab::noodle::NoodlePin{
             lab::noodle::NoodlePin::Kind::BusIn,
             lab::noodle::NoodlePin::DataType::Bus,
             name,
             "",
-            pin_id, node.id,
-            };
+            pin_id, node->id,
+            });
 
-        _audioPins[pin_id] = LabSoundPinData{ 0 };
+        _audioPins[pin_id] = LabSoundPinData{ 0, node->id };
     }
 
     //---------- outputs
@@ -135,18 +135,18 @@ void LabSoundProvider::create_noodle_data_for_node(
     for (int i = 0; i < c; ++i)
     {
         ln_Pin pin_id = { create_entity(), true };
-        node.pins.push_back(pin_id);
+        node->pins.push_back(pin_id);
         std::string name = audio_node->output(i)->name();
         reverse.output_pin_map[name] = ln_Pin{ pin_id };
-        _noodlePins[pin_id] = lab::noodle::NoodlePin{
+        add_pin(pin_id, lab::noodle::NoodlePin{
             lab::noodle::NoodlePin::Kind::BusOut,
             lab::noodle::NoodlePin::DataType::Bus,
             name,
             "",
-            pin_id, node.id,
-            };
+            pin_id, node->id,
+            });
 
-        _audioPins[pin_id] = LabSoundPinData{ 0 };
+        _audioPins[pin_id] = LabSoundPinData{ 0, node->id };
     }
 
     //---------- settings
@@ -190,17 +190,17 @@ void LabSoundProvider::create_noodle_data_for_node(
         }
 
         ln_Pin pin_id{ create_entity(), true };
-        node.pins.push_back(pin_id);
-        _audioPins[pin_id] = LabSoundPinData{ 0, settings[i] };
-        _noodlePins[pin_id] = lab::noodle::NoodlePin {
+        node->pins.push_back(pin_id);
+        _audioPins[pin_id] = LabSoundPinData{ 0, node->id, settings[i] };
+        add_pin(pin_id, lab::noodle::NoodlePin{
             lab::noodle::NoodlePin::Kind::Setting,
             dataType,
             names[i],
             shortNames[i],
-            pin_id, node.id,
+            pin_id, node->id,
             std::string{ buff },
             enums
-            };
+            });
     }
 
     //---------- params
@@ -215,20 +215,20 @@ void LabSoundProvider::create_noodle_data_for_node(
         sprintf(buff, "%f", params[i]->value());
         ln_Pin pin_id { create_entity(), true };
         reverse.param_pin_map[names[i]] = pin_id;
-        node.pins.push_back(pin_id);
-        _audioPins[pin_id] = LabSoundPinData{ 0,
+        node->pins.push_back(pin_id);
+        _audioPins[pin_id] = LabSoundPinData{ 0, node->id,
             shared_ptr<lab::AudioSetting>(),
             params[i],
             };
 
-        _noodlePins[pin_id] = lab::noodle::NoodlePin{
+        add_pin(pin_id, lab::noodle::NoodlePin{
             lab::noodle::NoodlePin::Kind::Param,
             lab::noodle::NoodlePin::DataType::Float,
             names[i],
             shortNames[i],
-            pin_id, node.id,
+            pin_id, node->id,
             buff
-            };
+            });
     }
 }
 
@@ -263,18 +263,16 @@ void LabSoundProvider::pin_set_bus_from_file(ln_Pin pin_id, const std::string& p
     if (!pin_id.valid || !path.length())
         return;
 
-    auto pin_it = _noodlePins.find(pin_id);
-    if (pin_it == _noodlePins.end())
+    lab::noodle::NoodlePin const* const pin = find_pin(pin_id);
+    if (!pin)
         return;
-
-    lab::noodle::NoodlePin& pin = pin_it->second;
 
     auto a_pin_it = _audioPins.find(pin_id);
     if (a_pin_it == _audioPins.end())
         return;
 
     LabSoundPinData& a_pin = a_pin_it->second;
-    if (pin.kind == lab::noodle::NoodlePin::Kind::Setting && a_pin.setting)
+    if (pin->kind == lab::noodle::NoodlePin::Kind::Setting && a_pin.setting)
     {
         auto soundClip = lab::MakeBusFromFile(path.c_str(), false);
         a_pin.setting->setBus(soundClip.get());
@@ -314,15 +312,6 @@ void LabSoundProvider::connect_bus_out_to_param_in(ln_Node output_node_id, ln_Pi
     if (param_pin_it == _audioPins.end())
         return;
 
-    LabSoundPinData& param_pin = param_pin_it->second;
-
-    auto param_noodle_pin_it = _noodlePins.find(param_pin_id);
-    if (param_noodle_pin_it == _noodlePins.end())
-        return;
-
-    lab::noodle::NoodlePin& param_noodle_pin = param_noodle_pin_it->second;
-    if (!param_pin.param)
-        return;
 
     auto out_it = _audioNodes.find(output_node_id);
     if (out_it == _audioNodes.end())
@@ -342,6 +331,7 @@ void LabSoundProvider::connect_bus_out_to_param_in(ln_Node output_node_id, ln_Pi
         }
     }
 
+    LabSoundPinData& param_pin = param_pin_it->second;
     g_audio_context->connectParam(param_pin.param, out, output_index);
     printf("ConnectBusOutToParamIn %lld %lld, index %d\n", param_pin_id.id, output_node_id.id, output_index);
 }
@@ -376,19 +366,20 @@ void LabSoundProvider::disconnect(ln_Connection connection_id_)
 
             LabSoundPinData& a_in_pin = a_pin_it->second;
 
-            auto in_pin_it = _noodlePins.find(input_pin);
-            auto out_pin_it = _noodlePins.find(output_pin);
-            if (in_pin_it == _noodlePins.end() || out_pin_it == _noodlePins.end())
+            lab::noodle::NoodlePin const* const in_pin = find_pin(input_pin);
+            if (!in_pin)
                 return;
 
-            lab::noodle::NoodlePin& in_pin = in_pin_it->second;
-            lab::noodle::NoodlePin& out_pin = out_pin_it->second;
-            if ((in_pin.kind == lab::noodle::NoodlePin::Kind::BusIn) && (out_pin.kind == lab::noodle::NoodlePin::Kind::BusOut))
+            lab::noodle::NoodlePin const* const out_pin = find_pin(output_pin);
+            if (!out_pin)
+                return;
+
+            if ((in_pin->kind == lab::noodle::NoodlePin::Kind::BusIn) && (out_pin->kind == lab::noodle::NoodlePin::Kind::BusOut))
             {
                 g_audio_context->disconnect(input_node, output_node, 0, 0);
                 printf("DisconnectInFromOut (bus from bus) %lld %lld\n", input_node_id.id, output_node_id.id);
             }
-            else if ((in_pin.kind == lab::noodle::NoodlePin::Kind::Param) && (out_pin.kind == lab::noodle::NoodlePin::Kind::BusOut))
+            else if ((in_pin->kind == lab::noodle::NoodlePin::Kind::Param) && (out_pin->kind == lab::noodle::NoodlePin::Kind::BusOut))
             {
                 g_audio_context->disconnectParam(a_in_pin.param, output_node, 0);
                 printf("DisconnectInFromOut (param from bus) %lld %lld\n", input_node_id.id, output_node_id.id);
@@ -408,12 +399,12 @@ ln_Context LabSoundProvider::create_runtime_context(ln_Node id)
 
     _audioNodes[id] = LabSoundNodeData{ g_audio_context->device() };
 
-    auto it = _noodleNodes.find(id);
-    if (it == _noodleNodes.end()) {
+    lab::noodle::NoodleNode * const node = find_node(id);
+    if (!node) {
         printf("Could not create runtime context\n");
         return ln_Context_null();
     }
-    lab::noodle::NoodleNode& node = it->second;
+
     create_noodle_data_for_node(g_audio_context->device(), node);
     printf("CreateRuntimeContext %lld\n", id.id);
     return ln_Context{id.id};
@@ -605,12 +596,12 @@ ln_Node LabSoundProvider::node_create(const std::string& kind, ln_Node id)
     shared_ptr<lab::AudioNode> n = NodeFactory(kind);
     if (n)
     {
-        auto node = _noodleNodes.find(id);
-        if (node != _noodleNodes.end()) {
-            node->second.play_controller = n->isScheduledNode();
-            node->second.bang_controller = !!n->param("gate");
+        lab::noodle::NoodleNode * const node = find_node(id);
+        if (node) {
+            node->play_controller = n->isScheduledNode();
+            node->bang_controller = !!n->param("gate");
             _audioNodes[id] = LabSoundNodeData{ n };
-            create_noodle_data_for_node(n, node->second);
+            create_noodle_data_for_node(n, node);
             printf("CreateNode [%s] %lld\n", kind.c_str(), id.id);
         }
     }
@@ -625,41 +616,31 @@ ln_Node LabSoundProvider::node_create(const std::string& kind, ln_Node id)
 // override
 void LabSoundProvider::node_delete(ln_Node node_id)
 {
-    if (node_id.id != ln_Node_null().id)
+    if (node_id.id == ln_Node_null().id)
+        return;
+
+    printf("DeleteNode %lld\n", node_id.id);
+
+    // force full disconnection
+    auto it = _audioNodes.find(node_id);
+    if (it != _audioNodes.end())
     {
-        printf("DeleteNode %lld\n", node_id.id);
-
-        // force full disconnection
-        auto it = _audioNodes.find(node_id);
-        if (it != _audioNodes.end())
-        {
-            shared_ptr<lab::AudioNode> in_node = it->second.node;
-            g_audio_context->disconnect(in_node);
-        }
-
-        /// @TODO this bit should be managed in lab_noodle
-        // delete all the node's pins
-
-        for (auto i = _noodlePins.begin(), last = _noodlePins.end(); i != last; ) {
-            if (i->second.node_id.id == node_id.id) {
-                auto j = _audioPins.find(i->second.pin_id);
-                if (j != _audioPins.end())
-                    _audioPins.erase(j);
-
-                i = _noodlePins.erase(i);
-            }
-            else {
-                ++i;
-            }
-        }
-        /// @TODO end plumbing
-
-        auto reverse_it = g_node_reverse_lookups.find(node_id);
-        if (reverse_it != g_node_reverse_lookups.end())
-            g_node_reverse_lookups.erase(reverse_it);
-
-        // note: node_id is to be deleted externally, as it was created externally
+        shared_ptr<lab::AudioNode> in_node = it->second.node;
+        g_audio_context->disconnect(in_node);
     }
+
+    for (auto i = _audioPins.begin(), last = _audioPins.end(); i != last; ) {
+        if (i->second.node_id.id == node_id.id) {
+            i = _audioPins.erase(i);
+        }
+        else {
+            ++i;
+        }
+    }
+
+    auto reverse_it = g_node_reverse_lookups.find(node_id);
+    if (reverse_it != g_node_reverse_lookups.end())
+        g_node_reverse_lookups.erase(reverse_it);
 }
 
 // override
@@ -960,24 +941,24 @@ void LabSoundProvider::pin_create_output(const std::string& node_name, const std
 
         ln_Pin pin_id{ create_entity(), true };
 
-        auto node = _noodleNodes.find(node_e);
-        if (node == _noodleNodes.end()) {
+        lab::noodle::NoodleNode * const node = find_node(node_e);
+        if (!node) {
             printf("Could not find node %s\n", node_name.c_str());
             return;
         }
 
-        node->second.pins.push_back(pin_id);
+        node->pins.push_back(pin_id);
         reverse.output_pin_map[output_name] = ln_Pin{ pin_id };
 
-        _noodlePins[pin_id] = lab::noodle::NoodlePin{
+        add_pin(pin_id, lab::noodle::NoodlePin{
             lab::noodle::NoodlePin::Kind::BusOut,
             lab::noodle::NoodlePin::DataType::Bus,
             output_name,
             "",
             pin_id, node_e,
-            };
+            });
  
-        _audioPins[pin_id] = LabSoundPinData{ n->numberOfOutputs() - 1 };
+        _audioPins[pin_id] = LabSoundPinData{ n->numberOfOutputs() - 1, node_e };
 
         lab::ContextGraphLock glock(g_audio_context.get(), "AudioHardwareDeviceNode");
         n->addOutput(glock, std::unique_ptr<lab::AudioNodeOutput>(new lab::AudioNodeOutput(n.get(), output_name.c_str(), channels)));
@@ -1031,21 +1012,21 @@ void LabSoundProvider::add_osc_addr(char const* const addr, int addr_id, int cha
     auto it = n->key_to_addrData.find(addr_id);
     if (it != n->key_to_addrData.end())
     {
-        auto node = _noodleNodes.find(_osc_node);
-        if (node == _noodleNodes.end())
+        lab::noodle::NoodleNode * const node = find_node(_osc_node);
+        if (!node)
             return;
 
         ln_Pin pin_id{ create_entity(), true };
-        node->second.pins.push_back(pin_id);
+        node->pins.push_back(pin_id);
 
-        _noodlePins[pin_id] = lab::noodle::NoodlePin{
+        add_pin(pin_id, lab::noodle::NoodlePin{
             lab::noodle::NoodlePin::Kind::BusOut,
             lab::noodle::NoodlePin::DataType::Bus,
             addr,
             "",
             pin_id, _osc_node,
-            };
+            });
 
-        _audioPins[pin_id] = LabSoundPinData{ it->second.output_index };
+        _audioPins[pin_id] = LabSoundPinData{ it->second.output_index, _osc_node };
     }
 }
