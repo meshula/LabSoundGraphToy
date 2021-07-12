@@ -20,7 +20,6 @@
 namespace lab {
 namespace noodle {
 
-
     using namespace ImGui;
 
     static const ImColor node_background_fill = ImColor(10, 20, 30, 128);
@@ -293,6 +292,17 @@ namespace noodle {
 
         }
 
+        void delete_connections(ln_Node id) {
+            for (auto i = provider._connections.begin(), last = provider._connections.end(); i != last; ) {
+                if (i->second.node_from.id == id.id || i->second.node_to.id == id.id) {
+                    i = provider._connections.erase(i);
+                }
+                else {
+                    ++i;
+                }
+            }
+        }
+
         void eval(EditState& edit)
         {
             switch (type)
@@ -540,7 +550,13 @@ namespace noodle {
 
             case WorkType::DisconnectInFromOut:
             {
-                provider.disconnect(ln_Connection{connection_id});
+                auto id = ln_Connection{ connection_id };
+                auto conn_it = provider._connections.find(id);
+                if (conn_it != provider._connections.end())
+                {
+                    provider.disconnect(id);
+                    provider._connections.erase(conn_it);
+                }
                 edit.incr_work_epoch();
                 break;
             }
@@ -556,6 +572,7 @@ namespace noodle {
                     for (auto en : cn.nodes)
                     {
                         provider.node_delete(en);
+                        delete_connections(en);
                     }
                     cn.nodes.clear();
                 }
@@ -569,6 +586,7 @@ namespace noodle {
                             gnl->second.parent_canvas->nodes.erase(it);
                     }
                     provider.node_delete(input_node);
+                    delete_connections(input_node);
                 }
 
                 if (gnl != provider._nodeGraphics.end())
@@ -620,6 +638,7 @@ namespace noodle {
                     }
                 }
 
+                provider._connections.clear();
                 provider._noodleNodes.clear();
                 provider._nodeGraphics.clear();
                 provider._pinGraphics.clear();

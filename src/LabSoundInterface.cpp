@@ -13,7 +13,6 @@ using std::unique_ptr;
 using std::string;
 using std::vector;
 
-
 struct NodeReverseLookup
 {
     map<string, ln_Pin> input_pin_map;
@@ -22,10 +21,7 @@ struct NodeReverseLookup
 };
 
 map<ln_Node, NodeReverseLookup, cmp_ln_Node> g_node_reverse_lookups;
-
 unique_ptr<lab::AudioContext> g_audio_context;
-
-
 
 // Returns input, output
 inline std::pair<lab::AudioStreamConfig, lab::AudioStreamConfig> GetDefaultAudioDeviceConfiguration(const bool with_input = false)
@@ -353,14 +349,14 @@ void LabSoundProvider::connect_bus_out_to_param_in(ln_Node output_node_id, ln_Pi
 // override
 void LabSoundProvider::disconnect(ln_Connection connection_id_)
 {
-    auto conn = _connections.find(connection_id_);
-    if (conn == _connections.end())
+    lab::noodle::NoodleConnection const* const conn = find_connection(connection_id_);
+    if (!conn)
         return;
 
-    ln_Node input_node_id = copy(conn->second.node_to);
-    ln_Node output_node_id = copy(conn->second.node_from);
-    ln_Pin input_pin = copy(conn->second.pin_to);
-    ln_Pin output_pin = copy(conn->second.pin_from);
+    ln_Node input_node_id = copy(conn->node_to);
+    ln_Node output_node_id = copy(conn->node_from);
+    ln_Pin input_pin = copy(conn->pin_to);
+    ln_Pin output_pin = copy(conn->pin_from);
     if (input_node_id.valid && output_node_id.valid && input_pin.valid && output_pin.valid)
     {
         auto in_it = _audioNodes.find(input_node_id);
@@ -399,10 +395,6 @@ void LabSoundProvider::disconnect(ln_Connection connection_id_)
             }
         }
     }
-
-    //// @TODO this plumbing belongs in lab_noodle as it is audio-agnostic
-    _connections.erase(conn);
-    /// @TODO end
     return;
 }
 
@@ -655,18 +647,6 @@ void LabSoundProvider::node_delete(ln_Node node_id)
                     _audioPins.erase(j);
 
                 i = _noodlePins.erase(i);
-            }
-            else {
-                ++i;
-            }
-        }
-
-        //// @TODO this plumbing belongs in lab_noodle as it is audio-agnostic
-        // remove connections
-
-        for (auto i = _connections.begin(), last = _connections.end(); i != last; ) {
-            if (i->second.node_from.id == node_id.id || i->second.node_to.id == node_id.id) {
-                i = _connections.erase(i);
             }
             else {
                 ++i;

@@ -198,19 +198,28 @@ namespace lab { namespace noodle {
     {
         friend struct Work;
         friend struct ProviderHarness;
+        friend struct EditState;
         std::map<std::string, ln_Node> _name_to_entity;
+        std::map<ln_Connection, NoodleConnection, cmp_ln_Connection> _connections;
 
     public:
+
+        virtual ~Provider() = default;
 
         std::map<ln_Node, CanvasGroup, cmp_ln_Node> _canvasNodes;
         std::map<ln_Node, NoodleNode, cmp_ln_Node> _noodleNodes;
         std::map<ln_Node, NoodleNodeGraphic, cmp_ln_Node> _nodeGraphics;
-        std::map<ln_Connection, NoodleConnection, cmp_ln_Connection> _connections;
         std::map<ln_Pin, NoodlePin, cmp_ln_Pin> _noodlePins;
         std::map<ln_Pin, NoodlePinGraphic, cmp_ln_Pin> _pinGraphics;
 
-        virtual ~Provider() = default;
-        
+        NoodleConnection const* const find_connection(ln_Connection c) {
+            auto it = _connections.find(c);
+            if (it == _connections.end())
+                return nullptr;
+            return &it->second;
+        }
+
+
         inline ln_Node copy(ln_Node n)
         {
             return n;
