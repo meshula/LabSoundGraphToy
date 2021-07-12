@@ -86,7 +86,7 @@ public:
     void add_osc_addr(char const* const addr, int addr_id, int channels, float* data);
 
 private:
-    void create_entities(std::shared_ptr<lab::AudioNode> audio_node, lab::noodle::NoodleNode& node, ln_Node audio_node_id);
+    void create_noodle_data_for_node(std::shared_ptr<lab::AudioNode> audio_node, lab::noodle::NoodleNode& node);
 
 
     ln_Node _osc_node = ln_Node_null();

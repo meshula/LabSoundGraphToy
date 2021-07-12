@@ -7,22 +7,23 @@
 
 #include <stdio.h>
 
+using std::map;
 using std::shared_ptr;
+using std::unique_ptr;
 using std::string;
 using std::vector;
 
 
-
 struct NodeReverseLookup
 {
-    std::map<std::string, ln_Pin> input_pin_map;
-    std::map<std::string, ln_Pin> output_pin_map;
-    std::map<std::string, ln_Pin> param_pin_map;
+    map<string, ln_Pin> input_pin_map;
+    map<string, ln_Pin> output_pin_map;
+    map<string, ln_Pin> param_pin_map;
 };
 
-std::map<uint64_t, NodeReverseLookup> g_node_reverse_lookups;
+map<ln_Node, NodeReverseLookup, cmp_ln_Node> g_node_reverse_lookups;
 
-std::unique_ptr<lab::AudioContext> g_audio_context;
+unique_ptr<lab::AudioContext> g_audio_context;
 
 
 
@@ -81,16 +82,18 @@ void DrawSpectrum(std::shared_ptr<lab::AudioNode> audio_node, ImVec2 ul_ws, ImVe
     drawList->PathStroke(ImColor(255, 255, 0, 255), false, 2);
 }
 
-void LabSoundProvider::create_entities(std::shared_ptr<lab::AudioNode> audio_node, lab::noodle::NoodleNode& node, ln_Node audio_node_id)
+void LabSoundProvider::create_noodle_data_for_node(
+    std::shared_ptr<lab::AudioNode> audio_node, 
+    lab::noodle::NoodleNode& node)
 {
     if (!audio_node)
         return;
 
-    auto reverse_it = g_node_reverse_lookups.find(audio_node_id.id);
+    auto reverse_it = g_node_reverse_lookups.find(node.id);
     if (reverse_it == g_node_reverse_lookups.end())
     {
-        g_node_reverse_lookups[audio_node_id.id] = NodeReverseLookup{};
-        reverse_it = g_node_reverse_lookups.find(audio_node_id.id);
+        g_node_reverse_lookups[node.id] = NodeReverseLookup{};
+        reverse_it = g_node_reverse_lookups.find(node.id);
     }
     auto& reverse = reverse_it->second;
 
@@ -120,7 +123,7 @@ void LabSoundProvider::create_entities(std::shared_ptr<lab::AudioNode> audio_nod
             lab::noodle::NoodlePin::DataType::Bus,
             name,
             "",
-            pin_id, audio_node_id,
+            pin_id, node.id,
             };
 
         _audioPins[pin_id] = LabSoundPinData{ 0 };
@@ -140,7 +143,7 @@ void LabSoundProvider::create_entities(std::shared_ptr<lab::AudioNode> audio_nod
             lab::noodle::NoodlePin::DataType::Bus,
             name,
             "",
-            pin_id, audio_node_id,
+            pin_id, node.id,
             };
 
         _audioPins[pin_id] = LabSoundPinData{ 0 };
@@ -195,7 +198,7 @@ void LabSoundProvider::create_entities(std::shared_ptr<lab::AudioNode> audio_nod
             dataType,
             names[i],
             shortNames[i],
-            pin_id, audio_node_id,
+            pin_id, node.id,
             std::string{ buff },
             enums
             };
@@ -224,7 +227,7 @@ void LabSoundProvider::create_entities(std::shared_ptr<lab::AudioNode> audio_nod
             lab::noodle::NoodlePin::DataType::Float,
             names[i],
             shortNames[i],
-            pin_id, audio_node_id,
+            pin_id, node.id,
             buff
             };
     }
@@ -409,7 +412,7 @@ ln_Context LabSoundProvider::create_runtime_context(ln_Node id)
         return ln_Context_null();
     }
     lab::noodle::NoodleNode& node = it->second;
-    create_entities(g_audio_context->device(), node, id);
+    create_noodle_data_for_node(g_audio_context->device(), node);
     printf("CreateRuntimeContext %lld\n", id.id);
     return ln_Context{id.id};
 }
@@ -477,7 +480,7 @@ ln_Pin LabSoundProvider::node_output_named(ln_Node node_id, const std::string& o
     if (!node)
         return ln_Pin_null();
 
-    auto reverse_it = g_node_reverse_lookups.find(node_id.id);
+    auto reverse_it = g_node_reverse_lookups.find(node_id);
     if (reverse_it == g_node_reverse_lookups.end())
         return ln_Pin_null();
 
@@ -506,7 +509,7 @@ ln_Pin LabSoundProvider::node_input_with_index(ln_Node node_id, int output)
     if (!node)
         return ln_Pin_null();
 
-    auto reverse_it = g_node_reverse_lookups.find(node_id.id);
+    auto reverse_it = g_node_reverse_lookups.find(node_id);
     if (reverse_it == g_node_reverse_lookups.end())
         return ln_Pin_null();
 
@@ -535,7 +538,7 @@ ln_Pin LabSoundProvider::node_output_with_index(ln_Node node_id, int output)
     if (!node)
         return ln_Pin_null();
 
-    auto reverse_it = g_node_reverse_lookups.find(node_id.id);
+    auto reverse_it = g_node_reverse_lookups.find(node_id);
     if (reverse_it == g_node_reverse_lookups.end())
         return ln_Pin_null();
 
@@ -564,7 +567,7 @@ ln_Pin LabSoundProvider::node_param_named(ln_Node node_id, const std::string& ou
     if (!node)
         return ln_Pin_null();
 
-    auto reverse_it = g_node_reverse_lookups.find(node_id.id);
+    auto reverse_it = g_node_reverse_lookups.find(node_id);
     if (reverse_it == g_node_reverse_lookups.end())
         return ln_Pin_null();
 
@@ -598,7 +601,7 @@ ln_Node LabSoundProvider::node_create(const std::string& kind, ln_Node id)
             node->second.play_controller = n->isScheduledNode();
             node->second.bang_controller = !!n->param("gate");
             _audioNodes[id] = LabSoundNodeData{ n };
-            create_entities(n, node->second, id);
+            create_noodle_data_for_node(n, node->second);
             printf("CreateNode [%s] %lld\n", kind.c_str(), id.id);
         }
     }
@@ -653,7 +656,7 @@ void LabSoundProvider::node_delete(ln_Node node_id)
         }
         /// @TODO end plumbing
 
-        auto reverse_it = g_node_reverse_lookups.find(node_id.id);
+        auto reverse_it = g_node_reverse_lookups.find(node_id);
         if (reverse_it != g_node_reverse_lookups.end())
             g_node_reverse_lookups.erase(reverse_it);
 
@@ -936,11 +939,11 @@ void LabSoundProvider::pin_create_output(const std::string& node_name, const std
 
     if (!n->output(output_name.c_str()))
     {
-        auto reverse_it = g_node_reverse_lookups.find(node_e.id);
+        auto reverse_it = g_node_reverse_lookups.find(node_e);
         if (reverse_it == g_node_reverse_lookups.end())
         {
-            g_node_reverse_lookups[node_e.id] = NodeReverseLookup{};
-            reverse_it = g_node_reverse_lookups.find(node_e.id);
+            g_node_reverse_lookups[node_e] = NodeReverseLookup{};
+            reverse_it = g_node_reverse_lookups.find(node_e);
         }
         auto& reverse = reverse_it->second;
 
