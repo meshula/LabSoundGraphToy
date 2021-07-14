@@ -244,9 +244,6 @@ elseif(CMAKE_COMPILER_IS_GNUCXX)
         -Wl,--whole-archive $<TARGET_FILE:Lab::Sound> -Wl,--no-whole-archive
         )
 elseif("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
-    target_link_libraries(usd_ms
-        PRIVATE
-    )
     target_link_libraries(LabSoundGraphToy
         ${PLATFORM_LIBS}
         imgui
