@@ -3,11 +3,12 @@
 #define included_noodle_h
 
 #include <atomic>
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <map>
 #include <set>
-#include <stdint.h>
+#include <vector>
 
 typedef struct { uint64_t id; } ln_Context;
 typedef struct { uint64_t id; } ln_Connection;

@@ -252,7 +252,7 @@ elseif("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
         Lab::Midi
         Tiny::OSC
         sokol
-        -Wl,-force_load $<TARGET_FILE:Lab::Sound>
+        Lab::Sound
         )
 else()
     target_link_libraries(LabSoundGraphToy
@@ -284,3 +284,14 @@ install(
         resources/fontaudio.ttf
         resources/preview.png
     DESTINATION bin/LabSoundGraphToy_rsrc/)
+
+install(
+    FILES
+        resources/fontaudio.ttf
+        resources/preview.png
+    DESTINATION ${CMAKE_BINARY_DIR}/bin/Debug/LabSoundGraphToy_rsrc/)
+install(
+    FILES
+        resources/fontaudio.ttf
+        resources/preview.png
+    DESTINATION ${CMAKE_BINARY_DIR}/bin/Release/LabSoundGraphToy_rsrc/)

@@ -11,6 +11,10 @@
 #include "lab_imgui_ext.hpp"
 #include "LabSoundInterface.h"
 #include "lab_noodle.h"
+#include "MidiNode.hpp"
+#include "OSCNode.hpp"
+
+#include <LabSound/LabSound.h>
 
 #define MESHULA_LAB_DRY
 #include "meshula_lab.hpp"
@@ -25,6 +29,7 @@
 #include <iostream>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include "OSCMsg.hpp"
@@ -144,6 +149,13 @@ void init(void) {
         open_udp_server();
         });
 
+    lab::NodeRegistry::Instance().Register(OSCNode::static_name(),
+        [](lab::AudioContext& ac)->lab::AudioNode* { return new OSCNode(ac); },
+        [](lab::AudioNode* n) { delete n; });
+    lab::NodeRegistry::Instance().Register(MidiNode::static_name(),
+        [](lab::AudioContext& ac)->lab::AudioNode* { return new MidiNode(ac); },
+        [](lab::AudioNode* n) { delete n; });
+    
     // setup sokol-gfx, sokol-time and sokol-imgui
     sg_desc desc = { };
     desc.context = sapp_sgcontext();

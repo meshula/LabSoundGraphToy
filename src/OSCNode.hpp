@@ -12,8 +12,7 @@ struct OSCNode : public lab::AudioNode
     OSCNode(lab::AudioContext& ac)
         : AudioNode(ac)
     {
-        if (s_registered)
-            initialize();
+        initialize();
     }
 
     virtual ~OSCNode() = default;
@@ -89,6 +88,4 @@ struct OSCNode : public lab::AudioNode
     // processing delay which is an artifact of the processing algorithm chosen and is *not* part of the intrinsic desired effect. For
     // example, a "delay" effect is expected to delay the signal, and thus would not be considered latency.
     virtual double latencyTime(lab::ContextRenderLock& r) const override { return 0.; }
-
-    static bool s_registered;
 };

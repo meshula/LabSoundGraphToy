@@ -2008,17 +2008,17 @@ namespace noodle {
             ImGui::Separator();
             ImGui::TextUnformatted("Hover");
             ImGui::Text("node hovered: %s", hover.node_id.id != ln_Node_null().id ? "*" : ".");
-            ImGui::Text("group hovered: %d", hover.group_id.id);
-            ImGui::Text("originating pin id: %d", hover.originating_pin_id.id);
-            ImGui::Text("hovered pin id: %d", hover.pin_id.id);
-            ImGui::Text("hovered pin label: %d", hover.pin_label_id.id);
-            ImGui::Text("hovered connection: %d", hover.connection_id.id);
+            ImGui::Text("group hovered: %llu", hover.group_id.id);
+            ImGui::Text("originating pin id: %llu", hover.originating_pin_id.id);
+            ImGui::Text("hovered pin id: %llu", hover.pin_id.id);
+            ImGui::Text("hovered pin label: %llu", hover.pin_label_id.id);
+            ImGui::Text("hovered connection: %llu", hover.connection_id.id);
             ImGui::Text("hovered node menu: %s", hover.node_menu ? "*" : ".");
-            ImGui::Text("hovered size widget: %d", hover.size_widget_node_id.id);
+            ImGui::Text("hovered size widget: %llu", hover.size_widget_node_id.id);
 
             ImGui::Separator();
             ImGui::TextUnformatted("Edit");
-            ImGui::Text("edit connection: %d", edit.selected_connection.id);
+            ImGui::Text("edit connection: %llu", edit.selected_connection.id);
             ImGui::Separator();
             ImGui::Text("quantum time: %f uS", total_profile_duration * 1e6f);
 
